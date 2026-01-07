@@ -5,6 +5,7 @@ WORKDIR /app
 
 # Install system dependencies including FFmpeg with H.264 support
 # Also install Cairo libraries for SVG to PNG conversion (cairosvg)
+# Install git for installing packages from git repositories
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
@@ -16,6 +17,7 @@ RUN apt-get update && apt-get install -y \
     libpango1.0-dev \
     libgdk-pixbuf-2.0-dev \
     shared-mime-info \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Verify FFmpeg has libx264 encoder (fail build if missing)
@@ -27,6 +29,10 @@ COPY requirements.txt .
 
 # Install Python dependencies (cached layer if requirements.txt unchanged)
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Install pilmoji from git (PyPI version has broken setup.py)
+# This package is optional - code handles ImportError gracefully
+RUN pip install --no-cache-dir git+https://github.com/jay3332/pilmoji.git || echo "Warning: pilmoji installation failed, emoji rendering may not work"
 
 # Copy .env files if they exist
 COPY .env* ./

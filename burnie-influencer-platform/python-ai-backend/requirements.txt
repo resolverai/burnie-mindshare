@@ -26,7 +26,6 @@ httpx
 aiofiles
 python-multipart
 pillow
-pilmoji
 emoji<2.0.0  # Required for pilmoji compatibility
 imagehash
 cairosvg

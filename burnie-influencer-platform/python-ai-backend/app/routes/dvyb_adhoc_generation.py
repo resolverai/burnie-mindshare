@@ -3664,14 +3664,14 @@ def get_existing_inspiration_analysis(url: str) -> Optional[Dict]:
             # Query database for inspiration link with this URL
             # Check both url and mediaUrl fields (for custom uploads)
             query = text("""
-                SELECT inspiration_analysis 
+                SELECT "inspirationAnalysis" 
                 FROM dvyb_inspiration_links 
-                WHERE is_active = true 
+                WHERE "isActive" = true 
                   AND (
                     url = :url 
-                    OR media_url = :url
+                    OR "mediaUrl" = :url
                   )
-                  AND inspiration_analysis IS NOT NULL
+                  AND "inspirationAnalysis" IS NOT NULL
                 LIMIT 1
             """)
             
@@ -3709,7 +3709,7 @@ def get_available_inspiration_categories() -> List[str]:
             query = text("""
                 SELECT DISTINCT category 
                 FROM dvyb_inspiration_links 
-                WHERE is_active = true 
+                WHERE "isActive" = true 
                   AND category IS NOT NULL 
                   AND category != ''
                 ORDER BY category ASC
@@ -3751,12 +3751,12 @@ def get_inspirations_by_category(category: str, count: int = 4, media_type: str 
         try:
             # Query inspirations matching category with analysis available
             query = text("""
-                SELECT id, url, media_url, category, title, media_type, inspiration_analysis
+                SELECT id, url, "mediaUrl", category, title, "mediaType", "inspirationAnalysis"
                 FROM dvyb_inspiration_links 
-                WHERE is_active = true 
+                WHERE "isActive" = true 
                   AND category = :category
-                  AND media_type = :media_type
-                  AND inspiration_analysis IS NOT NULL
+                  AND "mediaType" = :media_type
+                  AND "inspirationAnalysis" IS NOT NULL
                 ORDER BY RANDOM()
                 LIMIT :limit
             """)
@@ -3767,7 +3767,7 @@ def get_inspirations_by_category(category: str, count: int = 4, media_type: str 
             for row in result:
                 inspiration = {
                     "id": row[0],
-                    "url": row[1] or row[2],  # Use url or media_url
+                    "url": row[1] or row[2],  # Use url or mediaUrl
                     "category": row[3],
                     "title": row[4],
                     "media_type": row[5],
@@ -5892,10 +5892,22 @@ USER INSTRUCTIONS: {request.user_prompt if request.user_prompt and request.user_
 
 You MUST intelligently decide HOW to display the product AND create VARIETY across outputs.
 
-⚠️ **MANDATORY VARIETY RULE**: Do NOT put human models in ALL images. Mix it up!
+⚠️ **MANDATORY VARIETY RULE**: 
+{f'''
+🚨 **WHEN INSPIRATIONS ARE PROVIDED** ({num_inspirations} inspiration(s)):
+- The 50-50 split rule does NOT apply - follow the inspirations instead
+- Each image must follow its corresponding inspiration's aesthetic
+- If an inspiration shows a model, that image should include a model
+- If an inspiration shows product-only, that image should be product-only
+- Do NOT force a 50-50 split - let each inspiration guide its image's composition
+- The variety comes from following different inspirations, not from forcing a model/product-only split
+- Cover ALL provided inspirations - every inspiration must be used
+''' if has_image_inspiration else '''**ONLY APPLY WHEN NO INSPIRATIONS PROVIDED**:
+- Do NOT put human models in ALL images. Mix it up!
 - For 4 images: aim for 2 with models, 2 product-only (closeups, flat-lays, studio shots)
 - For 2 images: 1 with model, 1 product-only
 - Product-only shots are ESSENTIAL for showcasing details, textures, craftsmanship
+'''}
 
 **SHOT TYPE MIX** (Apply to ALL product categories):
 1. **HERO/CLOSEUP SHOTS** (NO humans): Dramatic product-only shots highlighting design, texture, materials
@@ -5904,9 +5916,15 @@ You MUST intelligently decide HOW to display the product AND create VARIETY acro
 4. **LIFESTYLE SHOTS** (WITH humans): Models wearing/using the product in context
 
 **WEARABLE PRODUCTS** (clothing, sweaters, dresses, jackets, shoes, jewelry, watches, accessories, hats, scarves, bags):
-→ MIX of model shots AND product-only shots:
+{f'''
+→ **WHEN INSPIRATIONS PROVIDED**: Follow each inspiration's composition (model or product-only) - do NOT force 50-50 split
+→ **WHEN NO INSPIRATIONS**: MIX of model shots AND product-only shots:
   - 50% WITH models wearing/displaying (face visible, varied moods)
   - 50% PRODUCT-ONLY: flat-lays, hanging shots, closeups on fabric/details, artistic arrangements
+''' if has_image_inspiration else '''→ MIX of model shots AND product-only shots:
+  - 50% WITH models wearing/displaying (face visible, varied moods)
+  - 50% PRODUCT-ONLY: flat-lays, hanging shots, closeups on fabric/details, artistic arrangements
+'''}
 → For model shots: face visible, varied ethnicities, moods, settings
 → For product-only: dramatic lighting, texture details, premium surfaces
 → Examples WITH model:
@@ -5917,9 +5935,15 @@ You MUST intelligently decide HOW to display the product AND create VARIETY acro
   - "Reference product (sneakers) artistic arrangement on concrete steps, urban setting, dramatic shadows, no people"
 
 **CONSUMABLE/DTC PRODUCTS** (skincare, cosmetics, food, beverages, supplements, perfumes, candles):
-→ MIX of product-only hero shots AND lifestyle shots:
+{f'''
+→ **WHEN INSPIRATIONS PROVIDED**: Follow each inspiration's composition (model/hands or product-only) - do NOT force 60/40 split
+→ **WHEN NO INSPIRATIONS**: MIX of product-only hero shots AND lifestyle shots:
   - 60% PRODUCT-ONLY: flat-lays, bottle closeups, texture shots, ingredient showcases
   - 40% WITH hands/models: application moments, usage demonstrations
+''' if has_image_inspiration else '''→ MIX of product-only hero shots AND lifestyle shots:
+  - 60% PRODUCT-ONLY: flat-lays, bottle closeups, texture shots, ingredient showcases
+  - 40% WITH hands/models: application moments, usage demonstrations
+'''}
 → Product-only examples:
   - "Reference product (serum bottle) hero shot on marble surface, golden liquid visible through glass, soft diffused light"
   - "Reference product (perfume) floating with dramatic rim lighting, mist particles visible, black velvet background"
@@ -5929,11 +5953,19 @@ You MUST intelligently decide HOW to display the product AND create VARIETY acro
   - Creams: being gently applied/patted onto skin
 
 **TECH/GADGETS** (electronics, devices, gadgets, tools, equipment):
-→ Primarily PRODUCT-ONLY shots (70%):
+{f'''
+→ **WHEN INSPIRATIONS PROVIDED**: Follow each inspiration's composition (model/hands or product-only) - do NOT force 70/30 split
+→ **WHEN NO INSPIRATIONS**: Primarily PRODUCT-ONLY shots (70%):
   - Clean studio hero shots with dramatic lighting
   - Detail shots of craftsmanship/materials
   - Floating/levitation effects
 → Some lifestyle shots (30%): product in use context
+''' if has_image_inspiration else '''→ Primarily PRODUCT-ONLY shots (70%):
+  - Clean studio hero shots with dramatic lighting
+  - Detail shots of craftsmanship/materials
+  - Floating/levitation effects
+→ Some lifestyle shots (30%): product in use context
+'''}
 → Example: "Reference product (wireless earbuds) floating above brushed metal surface, dramatic rim lighting, reflective case open below, tech-noir aesthetic"
 
 **HOME/DECOR** (furniture, home goods, art, plants):
@@ -6088,7 +6120,7 @@ When showing product in use, ALWAYS detail the NATURAL, REALISTIC way the produc
 
 🚨 CRITICAL RULES:
 1. 🚨🚨🚨 **SHOT TYPE FIRST** (for model shots): ALWAYS start prompts with "MEDIUM SHOT, waist-up with headroom:" or "FULL BODY SHOT:" - This PREVENTS cropped heads!
-2. 🚨 VARIETY IS MANDATORY: Do NOT put human models in ALL images! Mix product-only shots with model shots (aim for 50/50 split)
+2. 🚨 VARIETY IS MANDATORY: {f"When inspirations ({num_inspirations}) are provided, follow each inspiration's composition (model or product-only) - do NOT force 50/50 split. Each image should match its inspiration's aesthetic. Cover ALL provided inspirations." if has_image_inspiration else "Do NOT put human models in ALL images! Mix product-only shots with model shots (aim for 50/50 split) - ONLY apply when NO inspirations are provided."}
 3. Generate DIVERSE outputs - vary shot types: closeups, flat-lays, lifestyle, studio, macro details
 4. For model shots: FACE MUST ALWAYS BE VISIBLE AND EXPRESSIVE - include phrases like "face visible", "looking at camera", "genuine smile"
 5. For product-only shots: focus on textures, details, dramatic lighting, premium surfaces - NO humans needed
@@ -6537,7 +6569,7 @@ An image inspiration has been provided above. Create content with the SAME AESTH
 
 🚨🚨🚨 **MANDATORY - USE ALL INSPIRATIONS WITH 1:1 MAPPING** 🚨🚨🚨
 
-**IF MULTIPLE INSPIRATIONS ARE PROVIDED** (e.g., {num_inspirations} inspiration(s) for {num_images_for_mapping} image(s)):
+**IF INSPIRATIONS ARE PROVIDED** (e.g., {num_inspirations} inspiration(s) for {num_images_for_mapping} image(s)):
 - You MUST use ALL inspirations - do NOT skip any inspiration
 - Create a 1:1 mapping: 1 image per inspiration (when counts match)
 - Each image prompt MUST follow its corresponding inspiration's aesthetic
@@ -6559,6 +6591,14 @@ An image inspiration has been provided above. Create content with the SAME AESTH
 - Each image should reflect the unique style of its assigned inspiration
 - Do NOT blend all inspirations into one image - each image follows ONE inspiration
 - Reference the inspiration number in your prompt generation (e.g., "Following Inspiration 1's aesthetic: warm golden lighting, minimalist composition...")
+- **CRITICAL - MODEL vs PRODUCT-ONLY WHEN INSPIRATIONS PROVIDED**:
+  * Follow each inspiration's composition exactly - do NOT force a 50-50 split
+  * The 50-50 split rule ONLY applies when NO inspirations are provided
+  * If an inspiration shows a model/human → that image should include a model/human
+  * If an inspiration shows product-only → that image should be product-only
+  * The variety comes from following different inspirations, not from forcing a model/product-only split
+  * Each inspiration's aesthetic (including whether it has models or not) should be preserved in its mapped image
+  * Cover ALL provided inspirations - every inspiration must be used in the generated prompts
 
 🚨 **PROMPT LENGTH LIMIT**: Each prompt MUST be UNDER 4000 characters. Be CONCISE - capture the ESSENCE, not every detail.
 
