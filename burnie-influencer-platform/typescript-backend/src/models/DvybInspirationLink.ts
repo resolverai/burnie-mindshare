@@ -61,6 +61,13 @@ export class DvybInspirationLink {
   @Column({ type: 'boolean', default: true })
   isActive!: boolean;
 
+  /**
+   * Grok LLM analysis result for this inspiration link
+   * Stored as JSON string to avoid re-analyzing the same link during content generation
+   */
+  @Column({ type: 'text', nullable: true })
+  inspirationAnalysis!: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 

@@ -12,7 +12,7 @@ Generation Flow:
 7. Save progressively to dvyb_generated_content table
 """
 from fastapi import APIRouter, HTTPException, BackgroundTasks, File, Form, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 import logging
 import uuid
@@ -462,6 +462,7 @@ def download_inspiration_image(url: str, output_dir: str = "/tmp/dvyb-inspiratio
     For Instagram carousels, downloads only the first image.
     
     Strategy:
+    - For direct image URLs (S3, CDN, etc.): Direct download
     - For Instagram/Twitter: Try yt-dlp → instaloader → web scraping
     - For regular URLs: Skip directly to web scraping (Strategy 3)
     """
@@ -469,6 +470,51 @@ def download_inspiration_image(url: str, output_dir: str = "/tmp/dvyb-inspiratio
     
     print(f"  📥 Downloading inspiration image(s)...")
     print(f"     URL: {url[:80]}...")
+    
+    # Check if URL is a direct image file (S3, CDN, etc.) by file extension
+    from urllib.parse import urlparse
+    parsed_url = urlparse(url)
+    path_lower = parsed_url.path.lower()
+    image_extensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
+    is_direct_image_url = any(path_lower.endswith(ext) for ext in image_extensions)
+    
+    # STRATEGY 0: Direct download for direct image URLs (S3, CDN, etc.)
+    if is_direct_image_url:
+        print(f"  🔧 Strategy 0: Direct image URL detected - downloading directly...")
+        try:
+            import requests
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            response = requests.get(url, headers=headers, timeout=30, stream=True)
+            response.raise_for_status()
+            
+            # Verify it's actually an image
+            content_type = response.headers.get('content-type', '').lower()
+            if 'image' not in content_type:
+                print(f"  ⚠️ URL has image extension but content-type is: {content_type}")
+                # Continue to other strategies
+            else:
+                # Determine file extension
+                ext = None
+                for img_ext in image_extensions:
+                    if path_lower.endswith(img_ext):
+                        ext = img_ext.lstrip('.')
+                        break
+                if not ext:
+                    ext = 'jpg'  # Default
+                
+                # Save image
+                img_path = os.path.join(output_dir, f"direct_image_{uuid.uuid4().hex[:8]}.{ext}")
+                with open(img_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                
+                print(f"  ✅ Direct download successful: {len(response.content)} bytes")
+                return ([img_path], True)
+        except Exception as e:
+            print(f"  ⚠️ Direct download failed: {type(e).__name__}: {e}")
+            # Continue to other strategies
     
     # Detect platform
     is_instagram = 'instagram.com' in url.lower()
@@ -1439,31 +1485,42 @@ async def process_image_inspiration_link(url: str, context: dict, account_id: in
     os.makedirs(output_dir, exist_ok=True)
     
     try:
-        # Step 1: Download image(s)
-        image_paths, is_image = download_inspiration_image(url, output_dir)
-        if not is_image or not image_paths:
-            print(f"  ⚠️ No images downloaded, skipping image analysis")
-            return {}
+        # Check if URL is already a public S3 URL (no need to re-upload)
+        from urllib.parse import urlparse
+        parsed_url = urlparse(url)
+        is_s3_url = 's3.amazonaws.com' in parsed_url.netloc.lower() or 'amazonaws.com' in parsed_url.netloc.lower()
+        is_public_s3 = is_s3_url and ('burnie-videos' in url.lower() or 'burnie-mindshare' in url.lower())
         
-        # Step 2: Upload images to S3 and get presigned URLs
-        print(f"  📤 Uploading {len(image_paths)} image(s) to S3...")
-        image_presigned_urls = []
-        for i, image_path in enumerate(image_paths):
-            s3_key = web2_s3_helper.upload_from_file(
-                file_path=image_path,
-                folder=f"dvyb/inspiration-images/{account_id}",
-                filename=f"image_{i:02d}_{uuid.uuid4().hex[:6]}.jpg"
-            )
-            if s3_key:
-                presigned_url = web2_s3_helper.generate_presigned_url(s3_key)
-                if presigned_url:
-                    image_presigned_urls.append(presigned_url)
-        
-        print(f"  ✅ Uploaded {len(image_presigned_urls)} image(s) to S3")
-        
-        if not image_presigned_urls:
-            print(f"  ⚠️ No images uploaded successfully")
-            return {}
+        if is_public_s3:
+            # For public S3 URLs, use the URL directly (no need to download/re-upload)
+            print(f"  ✅ Public S3 URL detected - using directly (no download/re-upload needed)")
+            image_presigned_urls = [url]
+        else:
+            # Step 1: Download image(s)
+            image_paths, is_image = download_inspiration_image(url, output_dir)
+            if not is_image or not image_paths:
+                print(f"  ⚠️ No images downloaded, skipping image analysis")
+                return {}
+            
+            # Step 2: Upload images to S3 and get presigned URLs
+            print(f"  📤 Uploading {len(image_paths)} image(s) to S3...")
+            image_presigned_urls = []
+            for i, image_path in enumerate(image_paths):
+                s3_key = web2_s3_helper.upload_from_file(
+                    file_path=image_path,
+                    folder=f"dvyb/inspiration-images/{account_id}",
+                    filename=f"image_{i:02d}_{uuid.uuid4().hex[:6]}.jpg"
+                )
+                if s3_key:
+                    presigned_url = web2_s3_helper.generate_presigned_url(s3_key)
+                    if presigned_url:
+                        image_presigned_urls.append(presigned_url)
+            
+            print(f"  ✅ Uploaded {len(image_presigned_urls)} image(s) to S3")
+            
+            if not image_presigned_urls:
+                print(f"  ⚠️ No images uploaded successfully")
+                return {}
         
         # Step 3: Analyze with Grok
         analysis = analyze_image_inspiration_with_grok(image_presigned_urls, context)
@@ -3264,6 +3321,10 @@ async def analyze_user_images(user_images: List[str], context: Dict, is_onboardi
         
         print(f"🔗 Using {len(presigned_urls)} presigned URLs for Grok analysis (including {1 if brand_image_index else 0} brand image)")
         
+        # Fetch available inspiration categories for category matching
+        available_categories = get_available_inspiration_categories()
+        categories_list_str = ", ".join(available_categories) if available_categories else "No categories available"
+        
         # Call Grok inventory analysis with brand context
         from xai_sdk import Client
         from xai_sdk.chat import user, system, image
@@ -3271,6 +3332,28 @@ async def analyze_user_images(user_images: List[str], context: Dict, is_onboardi
         
         # Build comprehensive product/inspiration/model classification prompt
         brand_image_note = f"\n\n🎨 **BRAND IMAGE**: Image {brand_image_index} is a brand-provided inspirational image. It MUST be classified as INSPIRATION IMAGE." if brand_image_index else ""
+        
+        # Add category selection section if categories are available
+        category_selection_note = ""
+        if available_categories:
+            category_selection_note = f"""
+
+🎯 **PRODUCT CATEGORY MATCHING** (CRITICAL):
+After analyzing the product images, you MUST also suggest which inspiration category from our database best matches the user's product.
+
+**AVAILABLE CATEGORIES** (you MUST choose from this list ONLY - do NOT make up categories):
+{categories_list_str}
+
+**INSTRUCTIONS**:
+1. Look at the product images you classified
+2. Determine which category from the list above most closely matches the product
+3. If multiple products are detected, choose the category that best represents the PRIMARY product
+4. If no category matches well, choose the CLOSEST match from the list
+5. You MUST select from the provided list - do NOT create new category names
+
+**OUTPUT**: Add a "suggested_category" field to your JSON response with the category name you selected from the list above.
+Example: "suggested_category": "Fashion" (must be exactly one of the categories from the list)
+"""
         
         # Add onboarding product image hint
         onboarding_product_note = ""
@@ -3320,7 +3403,7 @@ BRAND CONTEXT:
 {f'''
 USER CONTEXT (PRIORITY - Follow these instructions):
 {user_context_str}
-''' if user_context_str else ''}{brand_image_note}{onboarding_product_note}
+''' if user_context_str else ''}{brand_image_note}{onboarding_product_note}{category_selection_note}
 
 🎯 YOUR CRITICAL TASK:
 Classify each uploaded image into ONE of these 3 categories:
@@ -3408,7 +3491,8 @@ Return ONLY this exact JSON structure:
     "mood_atmospheres": ["bright_airy", "dark_moody", "warm_cozy", "clean_minimal", "vibrant_energetic", "luxurious_elegant", "raw_authentic"],
     "quality_feels": ["high_definition_crisp", "soft_dreamy", "intentional_grain", "instagram_aesthetic", "professional_advertising", "ugc_authentic"],
     "overall_summary": "Brief 1-2 sentence summary of the brand's dominant visual style across all images"
-  }}
+  }},
+  "suggested_category": "<category name from the provided list, or null if no product images detected>"
 }}
 
 🔍 IMPORTANT NOTES:
@@ -3530,6 +3614,13 @@ Analyze the {len(presigned_urls)} image(s) now.
                 print(f"   Index: {model_image.get('index')}")
                 print(f"   Description: {model_image.get('description', 'N/A')}")
             
+            # Log suggested category if available
+            suggested_category = inventory_analysis.get('suggested_category')
+            if suggested_category:
+                print(f"\n🎯 SUGGESTED CATEGORY: {suggested_category}")
+            else:
+                print(f"\n🎯 SUGGESTED CATEGORY: None (no product images or category not suggested)")
+            
             print("=" * 80)
             
             return inventory_analysis
@@ -3557,6 +3648,227 @@ Analyze the {len(presigned_urls)} image(s) now.
 # ============================================
 # LINK ANALYSIS (GROK LIVE SEARCH)
 # ============================================
+
+def get_existing_inspiration_analysis(url: str) -> Optional[Dict]:
+    """
+    Get existing inspiration analysis from database if it exists.
+    Returns the analysis dict if found, None otherwise.
+    """
+    try:
+        from app.database.connection import get_db_session
+        from sqlalchemy import text
+        import json
+        
+        session = get_db_session()
+        try:
+            # Query database for inspiration link with this URL
+            # Check both url and mediaUrl fields (for custom uploads)
+            query = text("""
+                SELECT inspiration_analysis 
+                FROM dvyb_inspiration_links 
+                WHERE is_active = true 
+                  AND (
+                    url = :url 
+                    OR media_url = :url
+                  )
+                  AND inspiration_analysis IS NOT NULL
+                LIMIT 1
+            """)
+            
+            result = session.execute(query, {"url": url}).fetchone()
+            
+            if result and result[0]:
+                # Parse JSON string to dict
+                analysis = json.loads(result[0])
+                print(f"  ✅ Found existing analysis in database for: {url[:80]}...")
+                return analysis
+            else:
+                print(f"  ℹ️  No existing analysis found in database for: {url[:80]}...")
+                return None
+                
+        finally:
+            session.close()
+            
+    except Exception as e:
+        logger.warning(f"⚠️ Error checking database for existing analysis: {e}")
+        # If database check fails, proceed with Grok analysis
+        return None
+
+
+def get_available_inspiration_categories() -> List[str]:
+    """
+    Fetch all distinct categories from dvyb_inspiration_links table.
+    Returns list of category names.
+    """
+    try:
+        from app.database.connection import get_db_session
+        from sqlalchemy import text
+        
+        session = get_db_session()
+        try:
+            query = text("""
+                SELECT DISTINCT category 
+                FROM dvyb_inspiration_links 
+                WHERE is_active = true 
+                  AND category IS NOT NULL 
+                  AND category != ''
+                ORDER BY category ASC
+            """)
+            
+            result = session.execute(query).fetchall()
+            categories = [row[0] for row in result if row[0]]
+            
+            print(f"📋 Found {len(categories)} distinct inspiration categories in database")
+            return categories
+                
+        finally:
+            session.close()
+            
+    except Exception as e:
+        logger.warning(f"⚠️ Error fetching inspiration categories: {e}")
+        return []
+
+
+def get_inspirations_by_category(category: str, count: int = 4, media_type: str = "image") -> List[Dict]:
+    """
+    Get random inspirations from a specific category that have analysis available.
+    
+    Args:
+        category: Category name to match
+        count: Number of inspirations to return (default 4)
+        media_type: Filter by media type - "image" or "video" (default "image")
+    
+    Returns:
+        List of inspiration dicts with url, mediaUrl, and analysis
+    """
+    try:
+        from app.database.connection import get_db_session
+        from sqlalchemy import text
+        import json
+        import random
+        
+        session = get_db_session()
+        try:
+            # Query inspirations matching category with analysis available
+            query = text("""
+                SELECT id, url, media_url, category, title, media_type, inspiration_analysis
+                FROM dvyb_inspiration_links 
+                WHERE is_active = true 
+                  AND category = :category
+                  AND media_type = :media_type
+                  AND inspiration_analysis IS NOT NULL
+                ORDER BY RANDOM()
+                LIMIT :limit
+            """)
+            
+            result = session.execute(query, {"category": category, "media_type": media_type, "limit": count}).fetchall()
+            
+            inspirations = []
+            for row in result:
+                inspiration = {
+                    "id": row[0],
+                    "url": row[1] or row[2],  # Use url or media_url
+                    "category": row[3],
+                    "title": row[4],
+                    "media_type": row[5],
+                }
+                inspirations.append(inspiration)
+            
+            print(f"🎯 Found {len(inspirations)} {media_type} inspirations in category '{category}' with analysis available")
+            return inspirations
+                
+        finally:
+            session.close()
+            
+    except Exception as e:
+        logger.warning(f"⚠️ Error fetching inspirations by category: {e}")
+        return []
+
+
+async def extract_inspiration_music_only(url: str, account_id: int, clips_per_video: int = 1) -> Optional[str]:
+    """
+    Extract background music from video inspiration link without doing full Grok analysis.
+    This is used when we have existing analysis in the database but still need to extract music.
+    
+    Args:
+        url: Video URL to extract music from
+        account_id: Account ID for S3 paths
+        clips_per_video: Number of clips per video (used to calculate max_duration)
+    
+    Returns:
+        S3 key of the background music, or None if extraction failed or music shouldn't be used
+    """
+    max_duration = clips_per_video * 8
+    output_dir = f"/tmp/dvyb-inspiration-music/{uuid.uuid4().hex[:8]}"
+    os.makedirs(output_dir, exist_ok=True)
+    
+    try:
+        print(f"  🎵 Extracting music from video inspiration (analysis already exists in DB)...")
+        print(f"     URL: {url[:80]}...")
+        
+        # Step 1: Download video
+        video_path, is_video = download_inspiration_video(url, output_dir)
+        if not is_video or not video_path:
+            print(f"  ⚠️ Not a video or download failed, skipping music extraction")
+            return None
+        
+        # Step 2: Extract and transcribe audio (to check for vocals)
+        transcript, background_music_path = extract_and_transcribe_audio(video_path, output_dir, max_duration=max_duration)
+        
+        # Step 3: Check if inspiration audio has significant vocals (English words > 5)
+        # If yes, don't use inspiration music (keep AI-generated audio in final video)
+        use_inspiration_music = True
+        if transcript and transcript.strip():
+            # Count words in transcript (split by whitespace)
+            word_count = len(transcript.strip().split())
+            print(f"  🎤 Transcript word count: {word_count}")
+            
+            if word_count > 5:
+                # Check if it contains English words (basic check: has ASCII letters)
+                import re
+                english_words = re.findall(r'[a-zA-Z]+', transcript)
+                english_word_count = len(english_words)
+                
+                if english_word_count > 5:
+                    use_inspiration_music = False
+                    print(f"  ⚠️ Significant vocals detected ({english_word_count} English words)")
+                    print(f"     Skipping inspiration music - will keep AI-generated audio in final video")
+                    return None
+                else:
+                    print(f"  ✅ Minimal English vocals ({english_word_count} words) - will use inspiration music")
+            else:
+                print(f"  ✅ Minimal vocals ({word_count} words) - will use inspiration music")
+        else:
+            print(f"  ✅ No vocals detected - will use inspiration music")
+        
+        # Step 4: Upload background music to S3 (only if no significant vocals)
+        background_music_s3_key = None
+        if use_inspiration_music and background_music_path and os.path.exists(background_music_path):
+            print(f"  📤 Uploading background music to S3...")
+            background_music_s3_key = web2_s3_helper.upload_from_file(
+                file_path=background_music_path,
+                folder=f"dvyb/inspiration-audio/{account_id}",
+                filename=f"background_music_{uuid.uuid4().hex[:8]}.wav"
+            )
+            if background_music_s3_key:
+                print(f"  ✅ Background music uploaded: {background_music_s3_key}")
+            else:
+                print(f"  ⚠️ Failed to upload background music")
+        
+        return background_music_s3_key
+        
+    except Exception as e:
+        print(f"  ❌ Music extraction failed: {e}")
+        import traceback
+        print(f"     {traceback.format_exc()}")
+        return None
+    
+    finally:
+        # Cleanup
+        import shutil
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir, ignore_errors=True)
+
 
 async def analyze_inspiration_links(links: List[str], context: dict = None, account_id: int = None, clips_per_video: int = 1) -> Dict:
     """
@@ -3599,17 +3911,57 @@ async def analyze_inspiration_links(links: List[str], context: dict = None, acco
             video_inspirations = []
             image_inspirations = []
             
-            for link in video_links[:1]:  # Process only first link to avoid long processing
-                # Try video first
-                video_analysis = await process_video_inspiration_link(link, context, account_id, clips_per_video)
-                if video_analysis:
-                    video_inspirations.append(video_analysis)
+            # For product shot flow, process ALL links (up to 4) for 1:1 mapping
+            # Otherwise, process only first link to avoid long processing
+            max_links_to_process = 4 if context.get("is_product_shot_flow", False) else 1
+            links_to_process = video_links[:max_links_to_process]
+            
+            for link in links_to_process:
+                # Check if analysis already exists in database
+                existing_analysis = get_existing_inspiration_analysis(link)
+                if existing_analysis:
+                    # Use existing analysis, but still extract music (music extraction is not stored in DB)
+                    if "video_inspiration" in existing_analysis:
+                        video_inspiration = existing_analysis["video_inspiration"].copy()
+                        print(f"  ✅ Using existing video inspiration analysis from database")
+                        
+                        # Extract music from video (music is not stored in DB, needs to be extracted during generation)
+                        print(f"  🎵 Extracting music from video (analysis exists but music needs to be extracted)...")
+                        music_s3_key = await extract_inspiration_music_only(link, account_id, clips_per_video)
+                        if music_s3_key:
+                            video_inspiration["background_music_s3_key"] = music_s3_key
+                            print(f"  ✅ Music extracted and added to existing analysis")
+                        else:
+                            # If music extraction failed or shouldn't be used, keep existing music key if present
+                            if "background_music_s3_key" not in video_inspiration:
+                                print(f"  ⚠️  Music extraction failed or not applicable, no music will be used")
+                        
+                        video_inspirations.append(video_inspiration)
+                    elif "image_inspiration" in existing_analysis:
+                        image_inspirations.append(existing_analysis["image_inspiration"])
+                        print(f"  ✅ Using existing image inspiration analysis from database")
+                    else:
+                        # If existing analysis doesn't have video/image structure, try processing
+                        print(f"  ⚠️  Existing analysis found but doesn't match expected format, processing with Grok...")
+                        video_analysis = await process_video_inspiration_link(link, context, account_id, clips_per_video)
+                        if video_analysis:
+                            video_inspirations.append(video_analysis)
+                        else:
+                            image_analysis = await process_image_inspiration_link(link, context, account_id)
+                            if image_analysis:
+                                image_inspirations.append(image_analysis)
                 else:
-                    # If video processing failed, try as image
-                    print(f"\n📸 Video processing failed, trying as image inspiration...")
-                    image_analysis = await process_image_inspiration_link(link, context, account_id)
-                    if image_analysis:
-                        image_inspirations.append(image_analysis)
+                    # No existing analysis, process with Grok (includes music extraction)
+                    # Try video first
+                    video_analysis = await process_video_inspiration_link(link, context, account_id, clips_per_video)
+                    if video_analysis:
+                        video_inspirations.append(video_analysis)
+                    else:
+                        # If video processing failed, try as image
+                        print(f"\n📸 Video processing failed, trying as image inspiration...")
+                        image_analysis = await process_image_inspiration_link(link, context, account_id)
+                        if image_analysis:
+                            image_inspirations.append(image_analysis)
             
             if video_inspirations:
                 result["video_inspiration"] = video_inspirations[0]  # Use first video inspiration
@@ -3618,8 +3970,14 @@ async def analyze_inspiration_links(links: List[str], context: dict = None, acco
                 return result  # Return early - skip regular link analysis when video inspiration exists
             
             if image_inspirations:
-                result["image_inspiration"] = image_inspirations[0]  # Use first image inspiration
-                print(f"\n✅ Image inspiration analysis complete!")
+                # For product shot flow with multiple inspirations, store as list for 1:1 mapping
+                if context.get("is_product_shot_flow", False) and len(image_inspirations) > 1:
+                    result["image_inspirations"] = image_inspirations  # Store as list
+                    print(f"\n✅ {len(image_inspirations)} image inspiration(s) analysis complete!")
+                    print(f"📋 Multiple inspirations stored for 1:1 mapping with images")
+                else:
+                    result["image_inspiration"] = image_inspirations[0]  # Use first image inspiration
+                    print(f"\n✅ Image inspiration analysis complete!")
                 print(f"⏭️  Skipping Grok live search on regular links (image inspiration takes priority)")
                 return result  # Return early - skip regular link analysis when image inspiration exists
         
@@ -3627,51 +3985,97 @@ async def analyze_inspiration_links(links: List[str], context: dict = None, acco
         if not regular_links:
             return result
         
-        # Process regular links with Grok live search
-        print(f"\n🌐 Processing {len(regular_links)} regular link(s) with Grok live search...")
+        # Process regular links - check for existing analysis first
+        print(f"\n🌐 Processing {len(regular_links)} regular link(s)...")
         
-        from xai_sdk import Client
-        from xai_sdk.chat import user, system
-        from xai_sdk.search import SearchParameters, web_source
-        from urllib.parse import urlparse
+        # Check for existing analysis in database for each link
+        links_without_analysis = []
+        combined_existing_analysis = {}
         
-        # Extract domains for Grok web_source filtering (limit to 10)
-        allowed_websites = []
-        for link in regular_links[:10]:
-            try:
-                parsed = urlparse(link)
-                domain = parsed.netloc or parsed.path.split('/')[0]
-                if domain and domain not in allowed_websites:
-                    allowed_websites.append(domain)
-            except Exception as e:
-                logger.warning(f"⚠️ Could not parse URL {link}: {e}")
+        for link in regular_links:
+            existing_analysis = get_existing_inspiration_analysis(link)
+            if existing_analysis:
+                # Merge existing analysis into result
+                if "summary" in existing_analysis:
+                    # For regular links, existing analysis should have "summary" or "raw_summary"
+                    if "summary" not in combined_existing_analysis:
+                        combined_existing_analysis["summary"] = existing_analysis.get("summary", "")
+                    else:
+                        # Combine summaries if multiple links
+                        combined_existing_analysis["summary"] += "\n\n" + existing_analysis.get("summary", "")
+                    
+                    if "raw_summary" in existing_analysis:
+                        if "raw_summary" not in combined_existing_analysis:
+                            combined_existing_analysis["raw_summary"] = existing_analysis.get("raw_summary", "")
+                        else:
+                            combined_existing_analysis["raw_summary"] += "\n\n" + existing_analysis.get("raw_summary", "")
+                    
+                    print(f"  ✅ Using existing analysis from database for: {link[:80]}...")
+                else:
+                    # Analysis exists but doesn't have summary (might be video/image), add to links to process
+                    links_without_analysis.append(link)
+            else:
+                # No existing analysis, need to call Grok
+                links_without_analysis.append(link)
         
-        if not allowed_websites:
-            print("⚠️ No valid domains extracted from links")
-            return {}
+        # If we have existing analysis for all links, return it
+        if combined_existing_analysis and not links_without_analysis:
+            print(f"✅ Using existing analysis from database for all {len(regular_links)} link(s)")
+            result.update(combined_existing_analysis)
+            return result
         
-        print(f"🌐 Allowed websites for Grok web search: {allowed_websites}")
-        
-        # Get Grok API key
-        grok_api_key = settings.xai_api_key
-        if not grok_api_key:
-            logger.warning("⚠️ No Grok API key for web live search")
-            return {}
-        
-        # Initialize Grok client
-        client = Client(api_key=grok_api_key, timeout=3600)
-        
-        # Create chat with web_source search parameters (NO date range, NO max_results - same as web3)
-        print("🤖 Calling Grok (grok-4-latest) with web_source live search...")
-        chat = client.chat.create(
-            model="grok-4-latest",
-            search_parameters=SearchParameters(
-                mode="auto",
-                sources=[web_source(allowed_websites=allowed_websites)]
-            ),
-        )
-        
-        system_prompt = """You are a web content analyzer for brand marketing research. Extract and summarize key information from the specified websites.
+        # If some links don't have analysis, process them with Grok
+        if links_without_analysis:
+            print(f"🌐 Processing {len(links_without_analysis)} link(s) with Grok live search (others have existing analysis)...")
+            
+            from xai_sdk import Client
+            from xai_sdk.chat import user, system
+            from xai_sdk.search import SearchParameters, web_source
+            from urllib.parse import urlparse
+            
+            # Extract domains for Grok web_source filtering (limit to 10)
+            allowed_websites = []
+            for link in links_without_analysis[:10]:
+                try:
+                    parsed = urlparse(link)
+                    domain = parsed.netloc or parsed.path.split('/')[0]
+                    if domain and domain not in allowed_websites:
+                        allowed_websites.append(domain)
+                except Exception as e:
+                    logger.warning(f"⚠️ Could not parse URL {link}: {e}")
+            
+            if not allowed_websites:
+                print("⚠️ No valid domains extracted from links")
+                # Return existing analysis if we have it
+                if combined_existing_analysis:
+                    result.update(combined_existing_analysis)
+                return result
+            
+            print(f"🌐 Allowed websites for Grok web search: {allowed_websites}")
+            
+            # Get Grok API key
+            grok_api_key = settings.xai_api_key
+            if not grok_api_key:
+                logger.warning("⚠️ No Grok API key for web live search")
+                # Return existing analysis if we have it
+                if combined_existing_analysis:
+                    result.update(combined_existing_analysis)
+                return result
+            
+            # Initialize Grok client
+            client = Client(api_key=grok_api_key, timeout=3600)
+            
+            # Create chat with web_source search parameters (NO date range, NO max_results - same as web3)
+            print("🤖 Calling Grok (grok-4-latest) with web_source live search...")
+            chat = client.chat.create(
+                model="grok-4-latest",
+                search_parameters=SearchParameters(
+                    mode="auto",
+                    sources=[web_source(allowed_websites=allowed_websites)]
+                ),
+            )
+            
+            system_prompt = """You are a web content analyzer for brand marketing research. Extract and summarize key information from the specified websites.
 
 Focus on:
 - Key features, products, or services
@@ -3682,9 +4086,9 @@ Focus on:
 - Brand positioning and messaging
 
 Return a comprehensive summary of insights that can be used for content generation."""
-        
-        user_prompt = f"""Please gather comprehensive information from these websites:
-{', '.join(regular_links)}
+            
+            user_prompt = f"""Please gather comprehensive information from these websites:
+{', '.join(links_without_analysis)}
 
 Extract and summarize:
 1. Key features, products, or services
@@ -3694,20 +4098,23 @@ Extract and summarize:
 5. Any unique or notable characteristics
 
 Return a concise summary of insights from all links combined."""
-        
-        chat.append(system(system_prompt))
-        chat.append(user(user_prompt))
-        
-        print("🔄 Calling Grok for web context (no date restrictions)...")
-        response = chat.sample()
-        
-        link_analysis_text = response.content.strip()
-        
-        if not link_analysis_text:
-            print("⚠️ Empty response from Grok live search")
-            return {}
-        
-        print("✅ Grok live search completed successfully")
+            
+            chat.append(system(system_prompt))
+            chat.append(user(user_prompt))
+            
+            print("🔄 Calling Grok for web context (no date restrictions)...")
+            response = chat.sample()
+            
+            link_analysis_text = response.content.strip()
+            
+            if not link_analysis_text:
+                print("⚠️ Empty response from Grok live search")
+                # Return existing analysis if we have it
+                if combined_existing_analysis:
+                    result.update(combined_existing_analysis)
+                return result
+            
+            print("✅ Grok live search completed successfully")
         
         print(f"✅ Link analysis completed")
         print(f"📊 Full analysis result:")
@@ -3738,9 +4145,22 @@ Return a concise summary of insights from all links combined."""
         # Clean up extra whitespace
         cleaned_text = re.sub(r'\n\s*\n', '\n\n', cleaned_text).strip()
         
-        # Merge with video inspiration if present
-        result["summary"] = cleaned_text
-        result["raw_summary"] = link_analysis_text
+        # Merge with existing analysis if present, otherwise use new Grok analysis
+        if combined_existing_analysis:
+            # Combine existing and new analysis
+            if "summary" in combined_existing_analysis:
+                result["summary"] = combined_existing_analysis["summary"] + "\n\n" + cleaned_text
+            else:
+                result["summary"] = cleaned_text
+            
+            if "raw_summary" in combined_existing_analysis:
+                result["raw_summary"] = combined_existing_analysis["raw_summary"] + "\n\n" + link_analysis_text
+            else:
+                result["raw_summary"] = link_analysis_text
+        else:
+            # No existing analysis, use only new Grok analysis
+            result["summary"] = cleaned_text
+            result["raw_summary"] = link_analysis_text
         
         return result
         
@@ -3955,9 +4375,10 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
     all_indices = list(range(number_of_posts))
     random.shuffle(all_indices)
     video_indices = set(all_indices[:num_clips])
+    image_only_indices = [i for i in all_indices if i not in video_indices]
     
     print(f"🎲 Video indices: {sorted(video_indices)}")
-    print(f"🖼️ Image-only indices: {sorted([i for i in all_indices if i not in video_indices])}")
+    print(f"🖼️ Image-only indices: {sorted(image_only_indices)}")
     
     # Build comprehensive prompt for Grok
     dvyb_context = context.get("dvyb_context", {})
@@ -4017,10 +4438,68 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
             print(f"   Creative Elements: {video_inspiration.get('creative_elements', [])}")
             print(f"   Visual Subjects: humans={humans_desc[:50]}..., objects={objects_props[:3]}")
         
-        # Check for image inspiration (from Instagram/Twitter image post analysis)
+        # Check for image inspiration(s) (from Instagram/Twitter image post analysis)
+        # Support both single inspiration and multiple inspirations (for product shot flow)
         image_inspiration = link_analysis.get("image_inspiration")
-        if image_inspiration:
+        image_inspirations_list = link_analysis.get("image_inspirations", [])
+        
+        # Get number of images for mapping (used in prompt instructions)
+        num_images_for_mapping = request.number_of_images if hasattr(request, 'number_of_images') and request.number_of_images else num_images
+        
+        # If multiple inspirations exist, use them; otherwise use single inspiration
+        if image_inspirations_list:
             has_image_inspiration = True
+            num_inspirations = len(image_inspirations_list)
+            print(f"\n🖼️ {num_inspirations} IMAGE INSPIRATION(S) DETECTED!")
+            print(f"   Will be used for 1:1 mapping with {num_images_for_mapping} image(s)")
+            
+            # Format multiple inspirations for prompt generation
+            inspiration_sections = []
+            for idx, insp in enumerate(image_inspirations_list, 1):
+                visual_aesthetics = insp.get('visual_aesthetics', {})
+                composition = insp.get('composition', {})
+                human_presence = insp.get('human_presence', {})
+                setting = insp.get('setting', {})
+                styling = insp.get('styling_aesthetics', {})
+                
+                inspiration_sections.append(f"""
+🖼️ INSPIRATION {idx} ANALYSIS (from social media image post):
+
+📸 VISUAL AESTHETICS:
+- Color Palette: {', '.join(visual_aesthetics.get('color_palette', []))}
+- Color Treatment: {visual_aesthetics.get('color_treatment', 'N/A')}
+- Lighting Style: {visual_aesthetics.get('lighting_style', 'N/A')}
+- Mood/Atmosphere: {visual_aesthetics.get('mood_atmosphere', 'N/A')}
+- Visual Quality: {visual_aesthetics.get('visual_quality', 'N/A')}
+
+📐 COMPOSITION & FRAMING:
+- Shot Type: {composition.get('shot_type', 'N/A')}
+- Camera Angle: {composition.get('angle', 'N/A')}
+- Framing Techniques: {', '.join(composition.get('framing_techniques', []))}
+- Depth of Field: {composition.get('depth_of_field', 'N/A')}
+
+👤 HUMAN PRESENCE:
+- Has Humans: {'Yes' if human_presence.get('has_humans') else 'No'}
+- Count: {human_presence.get('count', 0)} person(s)
+- Description: {human_presence.get('description', 'None')}
+
+🌍 SETTING & ENVIRONMENT:
+- Location Type: {setting.get('location_type', 'N/A')}
+- Specific Setting: {setting.get('specific_setting', 'N/A')}
+- Background: {setting.get('background', 'N/A')}
+
+🎭 STYLING & AESTHETICS:
+- Overall Style: {styling.get('overall_style', 'N/A')}
+- Patterns: {', '.join(styling.get('patterns', []))}
+
+💡 REPLICATION TIPS: {insp.get('replication_tips', 'N/A')}
+""")
+            
+            image_inspiration_str = "\n".join(inspiration_sections)
+            
+        elif image_inspiration:
+            has_image_inspiration = True
+            num_inspirations = 1
             import json
             # Extract ALL visual elements comprehensively
             visual_aesthetics = image_inspiration.get('visual_aesthetics', {})
@@ -5329,8 +5808,7 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
         video_prompts_instruction = ""
         
     # Build JSON example with new structure
-    # Image-only posts (not videos)
-    image_only_indices = [i for i in range(number_of_posts) if i not in video_indices]
+    # Image-only posts (not videos) - already calculated above
     image_prompt_examples = []
     for i in image_only_indices:
         image_prompt_examples.append(f'"image_prompt_{i}": "Detailed visual description with {color_str}, 1:1 aspect ratio for social media..."')
@@ -6056,6 +6534,31 @@ A video reel/short inspiration has been provided above. Generate clip prompts th
 🖼️ **CRITICAL - IMAGE INSPIRATION ALIGNMENT**:
 
 An image inspiration has been provided above. Create content with the SAME AESTHETIC while featuring the brand's product.
+
+🚨🚨🚨 **MANDATORY - USE ALL INSPIRATIONS WITH 1:1 MAPPING** 🚨🚨🚨
+
+**IF MULTIPLE INSPIRATIONS ARE PROVIDED** (e.g., {num_inspirations} inspiration(s) for {num_images_for_mapping} image(s)):
+- You MUST use ALL inspirations - do NOT skip any inspiration
+- Create a 1:1 mapping: 1 image per inspiration (when counts match)
+- Each image prompt MUST follow its corresponding inspiration's aesthetic
+- **MAPPING RULES**:
+  * If {num_images_for_mapping} images and {num_inspirations} inspirations (counts match):
+    → Image 0 → Follow Inspiration 1's aesthetic
+    → Image 1 → Follow Inspiration 2's aesthetic
+    → Image 2 → Follow Inspiration 3's aesthetic (if exists)
+    → Image 3 → Follow Inspiration 4's aesthetic (if exists)
+  * If counts don't match (e.g., {num_images_for_mapping} images but {num_inspirations} inspirations):
+    → Distribute inspirations evenly across images
+    → Example: If 4 images and 2 inspirations → Image 0-1 → Inspiration 1, Image 2-3 → Inspiration 2
+- **CRITICAL**: Every inspiration MUST be used - no inspiration should be left unused
+- **CRITICAL**: Each image must follow ONE inspiration's aesthetic - do NOT blend multiple inspirations into one image
+
+**INSPIRATION MAPPING INSTRUCTIONS**:
+- Study each inspiration's analysis carefully (Inspiration 1, Inspiration 2, etc.)
+- Apply the specific aesthetic (colors, lighting, composition, mood) from that inspiration to its mapped image
+- Each image should reflect the unique style of its assigned inspiration
+- Do NOT blend all inspirations into one image - each image follows ONE inspiration
+- Reference the inspiration number in your prompt generation (e.g., "Following Inspiration 1's aesthetic: warm golden lighting, minimalist composition...")
 
 🚨 **PROMPT LENGTH LIMIT**: Each prompt MUST be UNDER 4000 characters. Be CONCISE - capture the ESSENCE, not every detail.
 
@@ -6800,7 +7303,7 @@ CRITICAL REQUIREMENTS:
         # No need to redefine here - just use the existing variables
         
         # Extract image prompts for image-only posts
-        image_only_indices = [i for i in range(number_of_posts) if i not in video_indices]
+        # image_only_indices is already calculated earlier in the function
         image_prompts_dict = {}
         logo_decisions_dict = {}
         image_product_mappings_dict = {}  # NEW: Product mappings for image posts
@@ -8711,11 +9214,44 @@ async def run_adhoc_generation_pipeline(job_id: str, request: DvybAdhocGeneratio
         else:
             print("⏭️ Skipping inventory analysis - no user images provided")
         
+        # Step 3: Auto-select inspirations for product shot flow (if no user-provided inspirations)
+        is_product_shot_flow = context.get("is_product_shot_flow", False)
+        number_of_images = request.number_of_images if hasattr(request, 'number_of_images') and request.number_of_images else None
+        
+        # Check if we should auto-select inspirations:
+        # - Product shot flow is active
+        # - 4 images are being generated
+        # - User hasn't provided inspiration links
+        auto_selected_inspirations = []
+        if is_product_shot_flow and number_of_images == 4 and not request.inspiration_links:
+            suggested_category = inventory_analysis.get('suggested_category') if inventory_analysis else None
+            if suggested_category:
+                print(f"\n🎯 Auto-selecting inspirations for product shot flow...")
+                print(f"   Suggested category: {suggested_category}")
+                print(f"   Target: 4 inspirations with analysis available")
+                
+                auto_selected_inspirations = get_inspirations_by_category(suggested_category, count=4)
+                
+                if auto_selected_inspirations:
+                    print(f"   ✅ Selected {len(auto_selected_inspirations)} inspirations:")
+                    for i, insp in enumerate(auto_selected_inspirations, 1):
+                        print(f"      {i}. {insp.get('title', 'Untitled')} ({insp.get('category')}) - {insp.get('url', '')[:60]}...")
+                else:
+                    print(f"   ⚠️  No inspirations found in category '{suggested_category}' with analysis available")
+            else:
+                print(f"\n⏭️  Skipping auto-selection: No suggested category from inventory analysis")
+        
         # Step 3: Analyze inspiration links (25%)
-        # Check both user-provided links and selected_link from linksJson (with 10-day decay)
+        # Check both user-provided links, auto-selected inspirations, and selected_link from linksJson (with 10-day decay)
         links_to_analyze = []
         if request.inspiration_links:
+            # User-provided inspirations take priority
             links_to_analyze.extend(request.inspiration_links)
+            print(f"📎 Using {len(request.inspiration_links)} user-provided inspiration link(s)")
+        elif auto_selected_inspirations:
+            # Use auto-selected inspirations if no user-provided ones
+            links_to_analyze.extend([insp['url'] for insp in auto_selected_inspirations])
+            print(f"📎 Using {len(auto_selected_inspirations)} auto-selected inspiration link(s) from category")
         if context.get('selected_link'):
             links_to_analyze.append(context['selected_link'])
         
@@ -9108,5 +9644,234 @@ async def get_generation_status(account_id: int):
             status="error",
             progress_percent=0,
             progress_message=str(e)
+        )
+
+
+# ============================================
+# INSPIRATION ANALYSIS ENDPOINT
+# ============================================
+
+class InspirationAnalysisRequest(BaseModel):
+    """Request model for single inspiration link analysis"""
+    url: str = Field(..., description="URL of the inspiration link to analyze")
+    media_type: Optional[str] = Field(None, description="Media type: 'image' or 'video' (optional, will be auto-detected)")
+    platform: Optional[str] = Field(None, description="Platform: 'youtube', 'instagram', 'twitter', 'tiktok', 'custom' (optional)")
+
+
+class InspirationAnalysisResponse(BaseModel):
+    """Response model for inspiration analysis"""
+    success: bool
+    analysis: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+
+@router.post("/analyze-inspiration", response_model=InspirationAnalysisResponse)
+async def analyze_single_inspiration(request: InspirationAnalysisRequest):
+    """
+    Analyze a single inspiration link using Grok LLM.
+    
+    This endpoint:
+    - Downloads and processes video/image from the link
+    - Analyzes with Grok (video frames + transcript OR images OR web search)
+    - Returns the analysis result as JSON
+    
+    Used by admin dashboard to pre-analyze inspirations when they are added.
+    """
+    try:
+        url = request.url.strip()
+        if not url:
+            return InspirationAnalysisResponse(
+                success=False,
+                error="URL is required"
+            )
+        
+        logger.info(f"🔗 Analyzing inspiration link: {url[:80]}...")
+        
+        # Create minimal context (no account-specific info needed for analysis)
+        minimal_context = {
+            'dvyb_context': {
+                'accountName': 'brand',  # Generic placeholder
+            }
+        }
+        
+        # Use a dummy account_id for S3 paths (admin analysis doesn't need real account)
+        # We'll use 0 as a placeholder
+        account_id = 0
+        
+        # Check if URL is a direct media file (S3 URLs, CDN URLs, etc.)
+        # by checking file extension
+        import re
+        from urllib.parse import urlparse
+        
+        url_lower = url.lower()
+        parsed_url = urlparse(url)
+        path_lower = parsed_url.path.lower()
+        
+        # Image extensions
+        image_extensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
+        is_direct_image = any(path_lower.endswith(ext) for ext in image_extensions)
+        
+        # Video extensions
+        video_extensions = ['.mp4', '.webm', '.mpeg', '.mov', '.avi', '.mkv']
+        is_direct_video = any(path_lower.endswith(ext) for ext in video_extensions)
+        
+        # Determine if it's a video platform URL (YouTube, Instagram, Twitter)
+        is_video_platform = is_video_platform_url(url)
+        
+        result = {}
+        
+        # Process direct media files (S3 URLs, CDN URLs, etc.)
+        if is_direct_image:
+            logger.info(f"🖼️ Processing as direct image file (S3/CDN URL)...")
+            image_analysis = await process_image_inspiration_link(url, minimal_context, account_id)
+            if image_analysis:
+                result["image_inspiration"] = image_analysis
+                logger.info(f"✅ Direct image analysis complete")
+            else:
+                logger.warn(f"⚠️ Direct image analysis failed")
+        elif is_direct_video:
+            logger.info(f"🎬 Processing as direct video file (S3/CDN URL)...")
+            video_analysis = await process_video_inspiration_link(url, minimal_context, account_id, clips_per_video=1)
+            if video_analysis:
+                result["video_inspiration"] = video_analysis
+                logger.info(f"✅ Direct video analysis complete")
+            else:
+                logger.warn(f"⚠️ Direct video analysis failed")
+        # Process video/image platform links (YouTube, Instagram, Twitter)
+        elif is_video_platform:
+            logger.info(f"🎬 Processing as video/image platform link...")
+            
+            # Try video first
+            video_analysis = await process_video_inspiration_link(url, minimal_context, account_id, clips_per_video=1)
+            if video_analysis:
+                result["video_inspiration"] = video_analysis
+                logger.info(f"✅ Video inspiration analysis complete")
+            else:
+                # If video processing failed, try as image
+                logger.info(f"📸 Video processing failed, trying as image inspiration...")
+                image_analysis = await process_image_inspiration_link(url, minimal_context, account_id)
+                if image_analysis:
+                    result["image_inspiration"] = image_analysis
+                    logger.info(f"✅ Image inspiration analysis complete")
+        else:
+            # Process regular links with Grok live search
+            logger.info(f"🌐 Processing as regular web link with Grok live search...")
+            
+            from xai_sdk import Client
+            from xai_sdk.chat import user, system
+            from xai_sdk.search import SearchParameters, web_source
+            from urllib.parse import urlparse
+            
+            # Extract domain for Grok web_source filtering
+            try:
+                parsed = urlparse(url)
+                domain = parsed.netloc or parsed.path.split('/')[0]
+                allowed_websites = [domain] if domain else []
+            except Exception as e:
+                logger.warning(f"⚠️ Could not parse URL {url}: {e}")
+                allowed_websites = []
+            
+            if not allowed_websites:
+                return InspirationAnalysisResponse(
+                    success=False,
+                    error="Could not extract domain from URL"
+                )
+            
+            # Get Grok API key
+            grok_api_key = settings.xai_api_key
+            if not grok_api_key:
+                return InspirationAnalysisResponse(
+                    success=False,
+                    error="Grok API key not configured"
+                )
+            
+            # Initialize Grok client
+            client = Client(api_key=grok_api_key, timeout=3600)
+            
+            # Create chat with web_source search parameters
+            chat = client.chat.create(
+                model="grok-4-latest",
+                search_parameters=SearchParameters(
+                    mode="auto",
+                    sources=[web_source(allowed_websites=allowed_websites)]
+                ),
+            )
+            
+            system_prompt = """You are a web content analyzer for brand marketing research. Extract and summarize key information from the specified website.
+
+Focus on:
+- Key features, products, or services
+- Important metrics, statistics, or data points
+- Design styles, aesthetics, or visual elements
+- Content strategies or messaging approaches
+- Any unique or notable characteristics
+- Brand positioning and messaging
+
+Return a comprehensive summary of insights that can be used for content generation."""
+            
+            user_prompt = f"""Please gather comprehensive information from this website:
+{url}
+
+Extract and summarize:
+1. Key features, products, or services
+2. Important metrics, statistics, or data points
+3. Design styles, aesthetics, or visual elements
+4. Content strategies or messaging approaches
+5. Any unique or notable characteristics
+
+Return a concise summary of insights."""
+            
+            chat.append(system(system_prompt))
+            chat.append(user(user_prompt))
+            
+            logger.info("🔄 Calling Grok for web context...")
+            response = chat.sample()
+            
+            link_analysis_text = response.content.strip()
+            
+            if not link_analysis_text:
+                return InspirationAnalysisResponse(
+                    success=False,
+                    error="Empty response from Grok live search"
+                )
+            
+            logger.info("✅ Grok live search completed successfully")
+            
+            # Handle potential markdown in response
+            import re
+            
+            # Remove markdown formatting if present
+            cleaned_text = link_analysis_text
+            cleaned_text = re.sub(r'```[\s\S]*?```', '', cleaned_text)
+            cleaned_text = re.sub(r'#{1,6}\s+', '', cleaned_text)
+            cleaned_text = re.sub(r'\*\*([^\*]+)\*\*', r'\1', cleaned_text)
+            cleaned_text = re.sub(r'\*([^\*]+)\*', r'\1', cleaned_text)
+            cleaned_text = re.sub(r'__([^_]+)__', r'\1', cleaned_text)
+            cleaned_text = re.sub(r'_([^_]+)_', r'\1', cleaned_text)
+            cleaned_text = re.sub(r'\n\s*\n', '\n\n', cleaned_text).strip()
+            
+            result["summary"] = cleaned_text
+            result["raw_summary"] = link_analysis_text
+        
+        if not result:
+            return InspirationAnalysisResponse(
+                success=False,
+                error="No analysis result generated"
+            )
+        
+        logger.info(f"✅ Inspiration analysis complete for: {url[:80]}...")
+        
+        return InspirationAnalysisResponse(
+            success=True,
+            analysis=result
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Inspiration analysis failed: {e}")
+        import traceback
+        logger.error(f"   {traceback.format_exc()}")
+        return InspirationAnalysisResponse(
+            success=False,
+            error=str(e)
         )
 

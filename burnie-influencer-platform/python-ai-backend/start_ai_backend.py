@@ -27,6 +27,11 @@ def check_dependencies():
 
 def setup_environment():
     """Set up environment variables with defaults"""
+    # Suppress macOS malloc stack logging warning
+    # This warning appears when Python tries to disable malloc stack logging that was never enabled
+    os.environ.setdefault('MallocStackLogging', '0')
+    os.environ.setdefault('MallocStackLoggingNoCompact', '0')
+    
     env_defaults = {
         'DB_HOST': 'localhost',
         'DB_PORT': '5432',

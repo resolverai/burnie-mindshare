@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { 
   ArrowLeft, Search, Plus, Trash2, ExternalLink, Youtube, Instagram, 
   Twitter, Music2, Filter, X, Check, ChevronDown, Loader2, Image, Video, Pencil,
-  Upload, Globe
+  Upload, Globe, StopCircle, AlertTriangle
 } from 'lucide-react';
 
 // Custom hook for debounced value
@@ -109,6 +109,16 @@ export default function DvybInspirationsPage() {
   const [editTitle, setEditTitle] = useState('');
   const [editMediaType, setEditMediaType] = useState('image');
   const [showEditCategoryDropdown, setShowEditCategoryDropdown] = useState(false);
+  
+  // Queue status state
+  const [queueStatus, setQueueStatus] = useState<{ waiting: number; active: number; completed: number; failed: number } | null>(null);
+  const [isClearingQueue, setIsClearingQueue] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  
+  // Missing analysis state
+  const [missingAnalysisCount, setMissingAnalysisCount] = useState<number | null>(null);
+  const [isStartingAnalysis, setIsStartingAnalysis] = useState(false);
+  const [showStartAnalysisConfirm, setShowStartAnalysisConfirm] = useState(false);
 
   const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
 
@@ -142,6 +152,102 @@ export default function DvybInspirationsPage() {
     } catch (error) { console.error('Error fetching inspirations:', error); }
     finally { setLoading(false); }
   }, [API_BASE, pagination.page, pagination.limit, debouncedSearchTerm, platformFilter, categoryFilter, mediaTypeFilter]);
+
+  // Fetch queue status
+  const fetchQueueStatus = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/dvyb-inspirations/queue-status`);
+      const data = await response.json();
+      if (data.success) {
+        setQueueStatus(data.data);
+      }
+    } catch (error) {
+      console.error('Error fetching queue status:', error);
+    }
+  }, [API_BASE]);
+
+  // Fetch missing analysis count
+  const fetchMissingAnalysisCount = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/dvyb-inspirations/missing-analysis-count`);
+      const data = await response.json();
+      if (data.success) {
+        setMissingAnalysisCount(data.data.count);
+      }
+    } catch (error) {
+      console.error('Error fetching missing analysis count:', error);
+    }
+  }, [API_BASE]);
+
+  // Fetch queue status on mount and periodically
+  useEffect(() => {
+    fetchQueueStatus();
+    fetchMissingAnalysisCount();
+    const interval = setInterval(() => {
+      fetchQueueStatus();
+      fetchMissingAnalysisCount();
+    }, 5000); // Refresh every 5 seconds
+    return () => clearInterval(interval);
+  }, [fetchQueueStatus, fetchMissingAnalysisCount]);
+
+  // Clear pending analysis jobs
+  const handleClearPendingJobs = async () => {
+    if (!showClearConfirm) {
+      setShowClearConfirm(true);
+      return;
+    }
+
+    setIsClearingQueue(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/dvyb-inspirations/clear-pending-analysis`, {
+        method: 'POST',
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        alert(data.message || 'Pending jobs cleared successfully');
+        setShowClearConfirm(false);
+        fetchQueueStatus();
+      } else {
+        alert(data.error || 'Failed to clear pending jobs');
+      }
+    } catch (error) {
+      console.error('Error clearing pending jobs:', error);
+      alert('Failed to clear pending jobs');
+    } finally {
+      setIsClearingQueue(false);
+    }
+  };
+
+  // Start analysis for all missing inspirations
+  const handleStartMissingAnalysis = async () => {
+    if (!showStartAnalysisConfirm) {
+      setShowStartAnalysisConfirm(true);
+      return;
+    }
+
+    setIsStartingAnalysis(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/dvyb-inspirations/start-missing-analysis`, {
+        method: 'POST',
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        alert(data.message || `Successfully queued ${data.data.queued} analysis job(s)`);
+        setShowStartAnalysisConfirm(false);
+        fetchQueueStatus();
+        fetchMissingAnalysisCount();
+      } else {
+        alert(data.error || 'Failed to start missing analysis');
+      }
+    } catch (error) {
+      console.error('Error starting missing analysis:', error);
+      alert('Failed to start missing analysis');
+    } finally {
+      setIsStartingAnalysis(false);
+    }
+  };
 
   // Reset to page 1 when search or filters change
   useEffect(() => {
@@ -350,6 +456,55 @@ export default function DvybInspirationsPage() {
           {showAddForm ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
             {showAddForm ? 'Cancel' : 'Add Link'}
         </Button>
+          {missingAnalysisCount !== null && missingAnalysisCount > 0 && 
+           (!queueStatus || (queueStatus.active === 0 && queueStatus.waiting === 0)) && (
+            <Button 
+              onClick={handleStartMissingAnalysis} 
+              disabled={isStartingAnalysis}
+              className="bg-orange-600 hover:bg-orange-700 text-white flex items-center gap-2"
+            >
+              {isStartingAnalysis ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Starting...
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4" />
+                  Start Analysis ({missingAnalysisCount})
+                </>
+              )}
+            </Button>
+          )}
+          {queueStatus && (queueStatus.waiting > 0 || queueStatus.active > 0) && (
+            <Button 
+              onClick={handleClearPendingJobs} 
+              disabled={isClearingQueue}
+              className="bg-red-600 hover:bg-red-700 text-white flex items-center gap-2"
+            >
+              {isClearingQueue ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Clearing...
+                </>
+              ) : (
+                <>
+                  <StopCircle className="h-4 w-4" />
+                  Stop Analysis Jobs
+                </>
+              )}
+            </Button>
+          )}
+          {queueStatus && (
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <span className="px-2 py-1 bg-blue-100 rounded">
+                Active: {queueStatus.active}
+              </span>
+              <span className="px-2 py-1 bg-yellow-100 rounded">
+                Waiting: {queueStatus.waiting}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -702,6 +857,114 @@ export default function DvybInspirationsPage() {
             </form>
           </div>
           {showEditCategoryDropdown && <div className="fixed inset-0 z-0" onClick={() => setShowEditCategoryDropdown(false)} />}
+        </div>
+      )}
+      
+      {/* Start Missing Analysis Confirmation Dialog */}
+      {showStartAnalysisConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <AlertTriangle className="h-6 w-6 text-orange-500" />
+              <h3 className="text-lg font-semibold text-gray-900">Start Analysis for All Missing Inspirations?</h3>
+            </div>
+            <p className="text-gray-700 mb-2">
+              This will queue inspiration analysis jobs for all inspirations that don't have analysis yet.
+            </p>
+            {missingAnalysisCount !== null && (
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-4">
+                <p className="text-sm text-gray-700">
+                  <strong>{missingAnalysisCount}</strong> inspiration(s) will be queued for analysis.
+                </p>
+                <p className="text-sm text-gray-600 mt-1">
+                  Jobs will be processed one by one to avoid memory issues.
+                </p>
+              </div>
+            )}
+            <p className="text-sm text-gray-600 mb-4">
+              Are you sure you want to proceed?
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button
+                onClick={() => setShowStartAnalysisConfirm(false)}
+                className="bg-gray-200 hover:bg-gray-300 text-gray-700"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleStartMissingAnalysis}
+                disabled={isStartingAnalysis}
+                className="bg-orange-600 hover:bg-orange-700 text-white flex items-center gap-2"
+              >
+                {isStartingAnalysis ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Starting...
+                  </>
+                ) : (
+                  <>
+                    <Plus className="h-4 w-4" />
+                    Yes, Start Analysis
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear Pending Jobs Confirmation Dialog */}
+      {showClearConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <AlertTriangle className="h-6 w-6 text-red-500" />
+              <h3 className="text-lg font-semibold text-gray-900">Stop Inspiration Analysis Jobs?</h3>
+            </div>
+            <p className="text-gray-700 mb-2">
+              This will stop all pending inspiration analysis jobs to save costs.
+            </p>
+            {queueStatus && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+                <p className="text-sm text-gray-700">
+                  <strong>{queueStatus.waiting}</strong> waiting job(s) will be stopped.
+                </p>
+                {queueStatus.active > 0 && (
+                  <p className="text-sm text-gray-600 mt-1">
+                    <strong>{queueStatus.active}</strong> active job(s) will continue running.
+                  </p>
+                )}
+              </div>
+            )}
+            <p className="text-sm text-gray-600 mb-4">
+              Are you sure you want to proceed?
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button
+                onClick={() => setShowClearConfirm(false)}
+                className="bg-gray-200 hover:bg-gray-300 text-gray-700"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleClearPendingJobs}
+                disabled={isClearingQueue}
+                className="bg-red-600 hover:bg-red-700 text-white flex items-center gap-2"
+              >
+                {isClearingQueue ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Clearing...
+                  </>
+                ) : (
+                  <>
+                    <StopCircle className="h-4 w-4" />
+                    Yes, Stop Jobs
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </div>

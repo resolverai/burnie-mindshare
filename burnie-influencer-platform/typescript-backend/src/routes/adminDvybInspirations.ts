@@ -7,10 +7,11 @@ import { Router, Request, Response } from 'express';
 import { AppDataSource } from '../config/database';
 import { DvybInspirationLink } from '../models/DvybInspirationLink';
 import { logger } from '../config/logger';
-import { Like } from 'typeorm';
+import { Like, IsNull } from 'typeorm';
 import multer from 'multer';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import crypto from 'crypto';
+import { queueInspirationAnalysis, clearPendingInspirationAnalysisJobs, getInspirationAnalysisQueueStatus } from '../services/InspirationAnalysisQueueService';
 
 // Setup multer for memory storage
 const upload = multer({
@@ -38,6 +39,7 @@ const s3Client = new S3Client({
 const BURNIE_VIDEOS_BUCKET = 'burnie-videos';
 
 const router = Router();
+
 
 /**
  * GET /api/admin/dvyb-inspirations
@@ -179,6 +181,11 @@ router.post('/', async (req: Request, res: Response) => {
     await inspirationRepo.save(inspiration);
     
     logger.info(`✅ Added inspiration link: ${platform} - ${category} - ${url}`);
+    
+    // Queue inspiration analysis job (processed one by one via Redis queue)
+    queueInspirationAnalysis(inspiration.id, inspiration.url, inspiration.mediaType).catch((error) => {
+      logger.error(`❌ Failed to queue inspiration analysis for inspiration ${inspiration.id}:`, error);
+    });
     
     return res.json({
       success: true,
@@ -378,6 +385,12 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
 
     logger.info(`✅ Uploaded custom inspiration: ${mediaUrl} (${selectedMediaType})`);
 
+    // Queue inspiration analysis job (processed one by one via Redis queue)
+    // For custom uploads, use the mediaUrl as the URL for analysis
+    queueInspirationAnalysis(inspiration.id, mediaUrl, selectedMediaType as 'image' | 'video').catch((error) => {
+      logger.error(`❌ Failed to queue inspiration analysis for inspiration ${inspiration.id}:`, error);
+    });
+
     return res.json({
       success: true,
       data: inspiration,
@@ -386,6 +399,151 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
   } catch (error) {
     logger.error('Error uploading custom inspiration:', error);
     return res.status(500).json({ success: false, error: 'Failed to upload inspiration file' });
+  }
+});
+
+/**
+ * POST /api/admin/dvyb-inspirations/clear-pending-analysis
+ * Clear all pending inspiration analysis jobs (stops queued jobs, but keeps active job running)
+ */
+router.post('/clear-pending-analysis', async (_req: Request, res: Response) => {
+  try {
+    const result = await clearPendingInspirationAnalysisJobs();
+    
+    logger.info(`✅ Cleared ${result.cleared} pending inspiration analysis jobs`);
+    
+    return res.json({
+      success: true,
+      message: `Cleared ${result.cleared} pending jobs. ${result.active} active job(s) continue running.`,
+      data: result,
+    });
+  } catch (error) {
+    logger.error('Error clearing pending inspiration analysis jobs:', error);
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Failed to clear pending inspiration analysis jobs' 
+    });
+  }
+});
+
+/**
+ * GET /api/admin/dvyb-inspirations/queue-status
+ * Get inspiration analysis queue status
+ */
+router.get('/queue-status', async (_req: Request, res: Response) => {
+  try {
+    const status = await getInspirationAnalysisQueueStatus();
+    
+    return res.json({
+      success: true,
+      data: status,
+    });
+  } catch (error) {
+    logger.error('Error getting inspiration analysis queue status:', error);
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Failed to get queue status' 
+    });
+  }
+});
+
+/**
+ * POST /api/admin/dvyb-inspirations/start-missing-analysis
+ * Find all inspirations without analysis and queue them for analysis
+ */
+router.post('/start-missing-analysis', async (_req: Request, res: Response) => {
+  try {
+    const inspirationRepo = AppDataSource.getRepository(DvybInspirationLink);
+    
+    // Find all active inspirations without analysis
+    const inspirationsWithoutAnalysis = await inspirationRepo.find({
+      where: {
+        isActive: true,
+        inspirationAnalysis: IsNull(),
+      },
+    });
+    
+    if (inspirationsWithoutAnalysis.length === 0) {
+      return res.json({
+        success: true,
+        message: 'All inspirations already have analysis',
+        data: {
+          queued: 0,
+          total: 0,
+        },
+      });
+    }
+    
+    logger.info(`📋 Found ${inspirationsWithoutAnalysis.length} inspirations without analysis`);
+    
+    // Queue analysis for each inspiration
+    let queuedCount = 0;
+    let errorCount = 0;
+    
+    for (const inspiration of inspirationsWithoutAnalysis) {
+      try {
+        // Use mediaUrl if available (for custom uploads), otherwise use url
+        const urlToAnalyze = inspiration.mediaUrl || inspiration.url;
+        
+        await queueInspirationAnalysis(
+          inspiration.id,
+          urlToAnalyze,
+          inspiration.mediaType
+        );
+        queuedCount++;
+      } catch (error: any) {
+        errorCount++;
+        logger.error(`❌ Failed to queue analysis for inspiration ${inspiration.id}:`, error.message);
+      }
+    }
+    
+    logger.info(`✅ Queued ${queuedCount} inspiration analysis jobs (${errorCount} errors)`);
+    
+    return res.json({
+      success: true,
+      message: `Queued ${queuedCount} inspiration analysis job(s)${errorCount > 0 ? ` (${errorCount} failed)` : ''}`,
+      data: {
+        queued: queuedCount,
+        errors: errorCount,
+        total: inspirationsWithoutAnalysis.length,
+      },
+    });
+  } catch (error) {
+    logger.error('Error starting missing inspiration analysis:', error);
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Failed to start missing inspiration analysis' 
+    });
+  }
+});
+
+/**
+ * GET /api/admin/dvyb-inspirations/missing-analysis-count
+ * Get count of inspirations without analysis
+ */
+router.get('/missing-analysis-count', async (_req: Request, res: Response) => {
+  try {
+    const inspirationRepo = AppDataSource.getRepository(DvybInspirationLink);
+    
+    const count = await inspirationRepo.count({
+      where: {
+        isActive: true,
+        inspirationAnalysis: IsNull(),
+      },
+    });
+    
+    return res.json({
+      success: true,
+      data: {
+        count,
+      },
+    });
+  } catch (error) {
+    logger.error('Error getting missing analysis count:', error);
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Failed to get missing analysis count' 
+    });
   }
 });
 

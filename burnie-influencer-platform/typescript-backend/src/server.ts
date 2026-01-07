@@ -110,6 +110,7 @@ import { scheduledPostWorker, scheduledPostQueue } from './services/ScheduledPos
 import { dvybScheduledPostWorker, dvybScheduledPostQueue } from './services/DvybScheduledPostQueueService';
 import { dvybAutoGenerationCronService } from './services/DvybAutoGenerationCronService';
 import { dvybAutoGenerationWorker, dvybAutoGenerationQueue } from './services/DvybAutoGenerationQueueService';
+import { inspirationAnalysisWorker } from './services/InspirationAnalysisQueueService';
 // DISABLED: Commented out to prevent automatic fetching of latest tweets data
 // import { PopularTwitterHandlesCronService } from './services/PopularTwitterHandlesCronService';
 import { AppDataSource } from './config/database';
@@ -436,6 +437,7 @@ const gracefulShutdown = async (signal: string) => {
     await scheduledPostWorker.close();
     await dvybScheduledPostWorker.close();
     await dvybAutoGenerationWorker.close();
+    await inspirationAnalysisWorker.close();
     logger.info('⏹️ Cron services and workers stopped');
     
     // Close server
