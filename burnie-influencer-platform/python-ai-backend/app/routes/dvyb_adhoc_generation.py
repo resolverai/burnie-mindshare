@@ -2250,10 +2250,10 @@ def map_model_name_to_fal_id(model_name: str) -> str:
     """Map model names to Fal.ai model IDs (matching web3)"""
     model_mapping = {
         'seedream': 'fal-ai/bytedance/seedream/v4/edit',
-        'nano-banana': 'fal-ai/nano-banana/edit',
+        'nano-banana': 'fal-ai/nano-banana-pro/edit',  # Using nano-banana-pro for better quality
         'flux-pro-kontext': 'fal-ai/flux-pro/kontext'
     }
-    return model_mapping.get(model_name, 'fal-ai/nano-banana/edit')  # Default to nano-banana for DVYB
+    return model_mapping.get(model_name, 'fal-ai/nano-banana-pro/edit')  # Default to nano-banana-pro for DVYB
 
 
 # ============================================
@@ -7922,11 +7922,11 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                 selected_image_model_fal = "fal-ai/gpt-image-1.5/edit"
                 print(f"  🎨 Image model selection: {selected_image_model.upper()} (FORCED - Product Shot Flow)")
             else:
-                # Flow 1: Random selection 50% Nano Banana Edit, 50% GPT 1.5 Image Edit
+                # Flow 1: Random selection 50% Nano Banana Pro Edit, 50% GPT 1.5 Image Edit
                 image_model_random = random.random()
                 if image_model_random > 0.5:
                     selected_image_model = "nano-banana"
-                    selected_image_model_fal = "fal-ai/nano-banana/edit"
+                    selected_image_model_fal = "fal-ai/nano-banana-pro/edit"
                 else:
                     selected_image_model = "gpt-1.5-image"
                     selected_image_model_fal = "fal-ai/gpt-image-1.5/edit"
@@ -7949,12 +7949,13 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
             
             if selected_image_model == "nano-banana":
                 result = fal_client.subscribe(
-                    "fal-ai/nano-banana/edit",
+                    "fal-ai/nano-banana-pro/edit",
                     arguments={
                         "prompt": prompt,
                         "num_images": 1,
-                        "output_format": "jpeg",
+                        "output_format": "png",
                         "aspect_ratio": "1:1",
+                        "resolution": "1K",
                         "image_urls": image_urls,
                         "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic features, hashtags, double logos, extra text, cropped head, cut off head, forehead cropped, head out of frame, top of head missing, hairline cropped, extreme close-up, zoomed in too close, tight framing cutting off head"
                     },
@@ -8164,11 +8165,11 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                     selected_frame_model_fal = "fal-ai/gpt-image-1.5/edit"
                     print(f"  🎨 Frame model selection: {selected_frame_model.upper()} (FORCED - Product Shot Flow)")
                 else:
-                    # Flow 1: Random model selection 50% Nano Banana Edit, 50% GPT 1.5 Image Edit
+                    # Flow 1: Random model selection 50% Nano Banana Pro Edit, 50% GPT 1.5 Image Edit
                     frame_model_random = random.random()
                     if frame_model_random > 0.5:
                         selected_frame_model = "nano-banana"
-                        selected_frame_model_fal = "fal-ai/nano-banana/edit"
+                        selected_frame_model_fal = "fal-ai/nano-banana-pro/edit"
                     else:
                         selected_frame_model = "gpt-1.5-image"
                         selected_frame_model_fal = "fal-ai/gpt-image-1.5/edit"
@@ -8193,12 +8194,13 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
             
                 if selected_frame_model == "nano-banana":
                     result = fal_client.subscribe(
-                        "fal-ai/nano-banana/edit",
+                        "fal-ai/nano-banana-pro/edit",
                         arguments={
                             "prompt": image_prompt,
                             "num_images": 1,
-                            "output_format": "jpeg",
+                            "output_format": "png",
                             "aspect_ratio": "1:1",
+                            "resolution": "1K",
                             "image_urls": image_urls,
                             "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic features, hashtags, double logos, extra text, cropped head, cut off head, forehead cropped, head out of frame, top of head missing, hairline cropped, extreme close-up, zoomed in too close, tight framing cutting off head"
                         },
