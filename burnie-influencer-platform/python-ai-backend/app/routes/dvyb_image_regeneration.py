@@ -1,7 +1,7 @@
 """
 DVYB Image Regeneration Route
 
-Endpoint for regenerating images using fal nano-banana edit model.
+Endpoint for regenerating images using fal nano-banana-pro edit model.
 Takes a user prompt and source image, generates a new image based on the prompt.
 """
 
@@ -58,11 +58,11 @@ async def process_regeneration_and_callback(request: RegenerateImageRequest):
         
         logger.info(f"✅ Generated presigned URL for source image")
         
-        # Prepare reference images for nano-banana edit
+        # Prepare reference images for nano-banana-pro edit
         image_urls = [presigned_source_url]
         
-        # Log what we're sending to nano-banana
-        logger.info(f"📸 [NANO-BANANA-EDIT] Regeneration - Reference images (1):")
+        # Log what we're sending to nano-banana-pro
+        logger.info(f"📸 [NANO-BANANA-PRO-EDIT] Regeneration - Reference images (1):")
         logger.info(f"   1. {presigned_source_url[:80]}...")
         
         def on_queue_update(update):
@@ -70,16 +70,17 @@ async def process_regeneration_and_callback(request: RegenerateImageRequest):
                 for log in update.logs:
                     logger.info(f"   FAL: {log['message']}")
         
-        # Call fal nano-banana edit with same parameters as dvyb_adhoc_generation
-        logger.info(f"🚀 Calling fal-ai/nano-banana/edit...")
+        # Call fal nano-banana-pro edit with same parameters as dvyb_adhoc_generation
+        logger.info(f"🚀 Calling fal-ai/nano-banana-pro/edit...")
         
         result = fal_client.subscribe(
-            "fal-ai/nano-banana/edit",
+            "fal-ai/nano-banana-pro/edit",
             arguments={
                 "prompt": request.prompt,
                 "num_images": 1,
-                "output_format": "jpeg",
+                "output_format": "png",
                 "aspect_ratio": "1:1",  # Same as adhoc generation
+                "resolution": "1K",  # Higher quality resolution
                 "image_urls": image_urls,
                 "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic proportions, unrealistic features, hashtags, double logos, extra text"
             },
@@ -88,7 +89,7 @@ async def process_regeneration_and_callback(request: RegenerateImageRequest):
         )
         
         if not result or "images" not in result or not result["images"]:
-            raise Exception("No images returned from fal nano-banana edit")
+            raise Exception("No images returned from fal nano-banana-pro edit")
         
         fal_url = result["images"][0]["url"]
         logger.info(f"📥 FAL URL received: {fal_url[:100]}...")
@@ -98,7 +99,7 @@ async def process_regeneration_and_callback(request: RegenerateImageRequest):
         
         # Generate unique filename with timestamp
         timestamp = int(time.time())
-        filename = f"regen_{timestamp}.jpg"
+        filename = f"regen_{timestamp}.png"
         folder = f"dvyb/regenerated/{request.accountId}/{request.generatedContentId}/post_{request.postIndex}"
         
         # Use web2_s3_helper to download from fal and upload to S3
@@ -173,7 +174,7 @@ async def process_regeneration_and_callback(request: RegenerateImageRequest):
 @router.post("/regenerate", response_model=RegenerateImageResponse)
 async def regenerate_image(request: RegenerateImageRequest, background_tasks: BackgroundTasks):
     """
-    Regenerate an image using fal nano-banana edit model.
+    Regenerate an image using fal nano-banana-pro edit model.
     
     Takes a user prompt and source image S3 key, generates a new image
     that incorporates the prompt's requested changes.
