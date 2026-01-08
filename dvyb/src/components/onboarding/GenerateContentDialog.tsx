@@ -1,7 +1,7 @@
 "use client";
 
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +12,8 @@ import { X, Plus, Upload, Link, Loader2, Twitter, Instagram, Linkedin, Heart, XC
 import { PostDetailDialog } from "@/components/calendar/PostDetailDialog";
 import { ScheduleDialog } from "@/components/calendar/ScheduleDialog";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { adhocGenerationApi, postingApi, oauth1Api, authApi, socialConnectionsApi, contentLibraryApi, contentStrategyApi, StrategyPreferences } from "@/lib/api";
+import { adhocGenerationApi, postingApi, oauth1Api, authApi, socialConnectionsApi, contentLibraryApi, contentStrategyApi, StrategyPreferences, inspirationsApi, InspirationItem } from "@/lib/api";
+import { Play, ChevronDown } from "lucide-react";
 import { StrategyQuestionnaire } from "@/components/onboarding/StrategyQuestionnaire";
 import { saveOAuthFlowState, getOAuthFlowState, clearOAuthFlowState, updateOAuthFlowState } from "@/lib/oauthFlowState";
 import { useToast } from "@/hooks/use-toast";
@@ -51,7 +52,7 @@ interface GenerateContentDialogProps {
   parentPage?: 'home' | 'content_library'; // Which page the dialog is opened from (for OAuth redirects)
 }
 
-type Step = "topic" | "platform" | "context" | "review" | "generating" | "results";
+type Step = "topic" | "platform" | "content_type" | "context" | "review" | "generating" | "results";
 
 const TOPICS = [
   "Product Launch",
@@ -87,6 +88,90 @@ const PLATFORMS = [
   },
 ];
 
+// Helper functions for inspiration display (matching inspiration-selection page)
+const getPostInfo = (item: InspirationItem) => {
+  const url = item.url;
+  let postId = String(item.id);
+  let username = item.title || item.category;
+  
+  if (item.platform === "tiktok") {
+    const videoMatch = url.match(/video\/(\d+)/);
+    if (videoMatch) postId = videoMatch[1];
+    const userMatch = url.match(/@([^\/]+)/);
+    if (userMatch) username = userMatch[1];
+  } else if (item.platform === "instagram") {
+    const match = url.match(/\/(p|reel|reels)\/([^\/\?]+)/);
+    if (match) postId = match[2];
+    username = "instagram";
+  } else if (item.platform === "youtube") {
+    const channelMatch = url.match(/@([^\/\?]+)/);
+    if (channelMatch) {
+      username = channelMatch[1];
+    } else {
+      username = item.title || "youtube";
+    }
+    postId = String(item.id);
+  } else if (item.platform === "twitter") {
+    const tweetMatch = url.match(/status\/(\d+)/);
+    if (tweetMatch) postId = tweetMatch[1];
+    const userMatch = url.match(/twitter\.com\/([^\/]+)/);
+    if (userMatch) username = userMatch[1];
+  }
+  
+  return { postId, username };
+};
+
+const extractYouTubeVideoId = (url: string): string | null => {
+  const watchMatch = url.match(/[?&]v=([^&]+)/);
+  if (watchMatch) return watchMatch[1];
+  const shortMatch = url.match(/youtu\.be\/([^?&]+)/);
+  if (shortMatch) return shortMatch[1];
+  const shortsMatch = url.match(/\/shorts\/([^?&]+)/);
+  if (shortsMatch) return shortsMatch[1];
+  const embedMatch = url.match(/\/embed\/([^?&]+)/);
+  if (embedMatch) return embedMatch[1];
+  return null;
+};
+
+const getEmbedUrl = (item: InspirationItem, autoplay = false) => {
+  const { postId } = getPostInfo(item);
+  
+  if (item.platform === "custom") {
+    return item.mediaUrl || item.url;
+  }
+  
+  if (item.platform === "tiktok") {
+    return `https://www.tiktok.com/embed/v2/${postId.split('-')[0]}`;
+  } else if (item.platform === "instagram") {
+    const isReel = item.url.includes('/reel/') || item.url.includes('/reels/');
+    if (isReel) {
+      return `https://www.instagram.com/reel/${postId}/embed${autoplay ? '/?autoplay=1' : '/'}`;
+    }
+    return `https://www.instagram.com/p/${postId}/embed/`;
+  } else if (item.platform === "youtube") {
+    const ytVideoId = extractYouTubeVideoId(item.url) || postId;
+    const params = new URLSearchParams({
+      rel: '0',
+      modestbranding: '1',
+      enablejsapi: '1',
+      ...(autoplay && { autoplay: '1' })
+    });
+    return `https://www.youtube.com/embed/${ytVideoId}?${params.toString()}`;
+  } else if (item.platform === "twitter") {
+    return `https://platform.twitter.com/embed/Tweet.html?id=${postId}`;
+  }
+  
+  return item.url;
+};
+
+const isCustomPlatform = (item: InspirationItem): boolean => {
+  return item.platform === 'custom';
+};
+
+const isVideoType = (item: InspirationItem): boolean => {
+  return item.mediaType === 'video';
+};
+
 export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDialogClosed, parentPage = 'home' }: GenerateContentDialogProps) => {
   const [step, setStep] = useState<Step>("topic");
   const [selectedTopic, setSelectedTopic] = useState<string>("");
@@ -96,6 +181,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
   const [contextText, setContextText] = useState("");
   const [uploadedS3Urls, setUploadedS3Urls] = useState<string[]>([]);
   const [inspirationLinks, setInspirationLinks] = useState<string[]>([""]);
+  const [contentType, setContentType] = useState<"images" | "videos" | null>(null);
   const [imagePostCount, setImagePostCount] = useState([2]);
   const [videoPostCount, setVideoPostCount] = useState([2]);
   const [videoLengthMode, setVideoLengthMode] = useState<"quick" | "standard" | "story">("standard");
@@ -103,6 +189,9 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
   const [imageSliderMax, setImageSliderMax] = useState(4);
   const [videoSliderMax, setVideoSliderMax] = useState(4);
   const [usageData, setUsageData] = useState<any>(null);
+  
+  // Check if user signed up through product shot flow - skip first 2 steps
+  const isProductShotFlow = usageData?.initialAcquisitionFlow === 'product_photoshot';
   const [showUpgradePricingModal, setShowUpgradePricingModal] = useState(false);
   const [upgradeQuotaType, setUpgradeQuotaType] = useState<'image' | 'video' | 'both'>('both');
   const [generatedPosts, setGeneratedPosts] = useState<any[]>([]);
@@ -137,6 +226,46 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
   const [rejectedPosts, setRejectedPosts] = useState<string[]>([]);
   const [questionnaireCompleted, setQuestionnaireCompleted] = useState(false);
   const [strategyGenerating, setStrategyGenerating] = useState(false);
+  
+  // Inspiration selection state
+  const [inspirationCategories, setInspirationCategories] = useState<string[]>([]);
+  const [groupedInspirations, setGroupedInspirations] = useState<Record<string, InspirationItem[]>>({});
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedInspirations, setSelectedInspirations] = useState<InspirationItem[]>([]);
+  const [previewInspiration, setPreviewInspiration] = useState<InspirationItem | null>(null);
+  const [isLoadingInspirations, setIsLoadingInspirations] = useState(false);
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+  
+  // Filter inspirations based on selected content type (images/videos)
+  const filteredMediaType = contentType === "images" ? "image" : contentType === "videos" ? "video" : null;
+  
+  const filteredGroupedInspirations = useMemo(() => {
+    if (!filteredMediaType) return groupedInspirations;
+    
+    const filtered: Record<string, InspirationItem[]> = {};
+    Object.entries(groupedInspirations).forEach(([category, items]) => {
+      const filteredItems = items.filter(item => item.mediaType === filteredMediaType);
+      if (filteredItems.length > 0) {
+        filtered[category] = filteredItems;
+      }
+    });
+    return filtered;
+  }, [groupedInspirations, filteredMediaType]);
+  
+  const filteredInspirationCategories = useMemo(() => {
+    if (!filteredMediaType) return inspirationCategories;
+    return inspirationCategories.filter(cat => filteredGroupedInspirations[cat]?.length > 0);
+  }, [inspirationCategories, filteredGroupedInspirations, filteredMediaType]);
+  
+  // Reset selected category and inspirations when content type changes
+  // (to avoid showing a category that might not have matching inspirations)
+  useEffect(() => {
+    if (contentType) {
+      setSelectedCategory(null);
+      setSelectedInspirations([]);
+    }
+  }, [contentType]);
+  
   const { toast } = useToast();
 
   // Handle body overflow and animation when dialog opens/closes
@@ -212,6 +341,14 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
             console.log(`🎚️ Setting sliders: ${finalImages} images (max ${maxImages}), ${finalVideos} videos (max ${maxVideos})`);
             setImagePostCount([finalImages]);
             setVideoPostCount([finalVideos]);
+            
+            // For product shot flow users, set defaults and skip to content_type step
+            if (data.data.initialAcquisitionFlow === 'product_photoshot' && !initialJobId) {
+              console.log('🎯 Product shot flow user detected - setting defaults and skipping to content_type step');
+              setSelectedTopic('Product Showcase');
+              setSelectedPlatforms(['instagram', 'twitter', 'linkedin']);
+              setStep('content_type');
+            }
           }
         } catch (error) {
           console.error('Failed to fetch usage data:', error);
@@ -225,7 +362,38 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
       setVideoSliderMax(4);
       setImagePostCount([2]);
       setVideoPostCount([2]);
+      setContentType(null);
       setUsageData(null);
+    }
+  }, [open, initialJobId]);
+
+  // Fetch available inspirations when dialog opens
+  useEffect(() => {
+    if (open) {
+      const fetchInspirations = async () => {
+        setIsLoadingInspirations(true);
+        try {
+          const response = await inspirationsApi.getByCategory();
+          if (response.success && response.data) {
+            setInspirationCategories(response.data.categories);
+            setGroupedInspirations(response.data.groupedByCategory);
+            // Default to "None" - no category selected initially
+            setSelectedCategory(null);
+          }
+        } catch (error) {
+          console.error('Failed to fetch inspirations:', error);
+        } finally {
+          setIsLoadingInspirations(false);
+        }
+      };
+      
+      fetchInspirations();
+    } else {
+      // Reset inspiration state when dialog closes
+      setSelectedCategory(null);
+      setSelectedInspirations([]);
+      setPreviewInspiration(null);
+      setShowCategoryDropdown(false);
     }
   }, [open]);
 
@@ -540,6 +708,11 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
         ? uploadedS3Urls.map(url => adhocGenerationApi.extractS3Key(url))
         : undefined;
       
+      // Combine pasted links with selected platform inspirations
+      const pastedLinks = inspirationLinks.filter(link => link.trim());
+      const platformInspirationLinks = selectedInspirations.map(item => item.mediaUrl || item.url);
+      const allInspirationLinks = [...platformInspirationLinks, ...pastedLinks].filter(Boolean);
+      
       // Start generation
       const response = await adhocGenerationApi.generateContent({
         topic,
@@ -549,11 +722,10 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
         number_of_videos: numberOfVideos,
         user_prompt: contextText || undefined,
         user_images: s3Keys,  // Send S3 keys, not presigned URLs
-        inspiration_links: inspirationLinks.filter(link => link.trim()).length > 0 
-          ? inspirationLinks.filter(link => link.trim()) 
-          : undefined,
+        inspiration_links: allInspirationLinks.length > 0 ? allInspirationLinks : undefined,
         video_length_mode: videoLengthMode,  // Video length mode (quick/standard/story)
         video_style: numberOfVideos > 0 ? videoStyle : undefined,  // Video style (brand_marketing/product_marketing/ugc_influencer)
+        is_product_shot_flow: isProductShotFlow,  // Pass flow type for auto-selecting inspirations when none provided
       });
       
       if (!response.success) {
@@ -1139,8 +1311,13 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
     setContextText("");
     setUploadedS3Urls([]);
     setInspirationLinks([""]);
+    setContentType(null);
     setImagePostCount([2]);
     setVideoPostCount([2]);
+    setSelectedCategory(null);
+    setSelectedInspirations([]);
+    setPreviewInspiration(null);
+    setShowCategoryDropdown(false);
     setGeneratedPosts([]);
     setJobId(null);
     setGenerationUuid(null);
@@ -1296,6 +1473,215 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               <Button
                 className="flex-1 btn-gradient-cta text-sm sm:text-base h-10 sm:h-11"
                 disabled={selectedPlatforms.length === 0}
+                onClick={() => setStep("content_type")}
+              >
+                Continue
+              </Button>
+            </div>
+          </div>
+        );
+
+      case "content_type":
+        return (
+          <div className="space-y-4 sm:space-y-5 md:space-y-6">
+            <div>
+              <h2 className="text-xl sm:text-2xl md:text-3xl font-semibold mb-1 sm:mb-2">What do you want to create?</h2>
+              <p className="text-sm sm:text-base text-muted-foreground">Choose the type of content you want to generate</p>
+            </div>
+
+            {/* Content Type Selection */}
+            <div className="grid grid-cols-2 gap-3 sm:gap-4">
+              <Card
+                className={`p-4 sm:p-6 cursor-pointer transition-all hover:border-emerald-500 ${
+                  contentType === "images" ? "border-emerald-500 bg-emerald-500/5 ring-2 ring-emerald-500/20" : ""
+                }`}
+                onClick={() => {
+                  setContentType("images");
+                  setVideoPostCount([0]);
+                  if (imagePostCount[0] === 0) setImagePostCount([2]);
+                }}
+              >
+                <div className="text-center space-y-2">
+                  <div className="w-12 h-12 mx-auto bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center">
+                    <svg className="w-6 h-6 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <h3 className="font-semibold text-sm sm:text-base">Images</h3>
+                  <p className="text-xs text-muted-foreground">Static image posts</p>
+                </div>
+              </Card>
+
+              <Card
+                className={`p-4 sm:p-6 cursor-pointer transition-all hover:border-emerald-500 ${
+                  contentType === "videos" ? "border-emerald-500 bg-emerald-500/5 ring-2 ring-emerald-500/20" : ""
+                }`}
+                onClick={() => {
+                  setContentType("videos");
+                  setImagePostCount([0]);
+                  if (videoPostCount[0] === 0) setVideoPostCount([2]);
+                }}
+              >
+                <div className="text-center space-y-2">
+                  <div className="w-12 h-12 mx-auto bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center">
+                    <Play className="w-6 h-6 text-purple-600" />
+                  </div>
+                  <h3 className="font-semibold text-sm sm:text-base">Videos</h3>
+                  <p className="text-xs text-muted-foreground">Animated video clips</p>
+                </div>
+              </Card>
+            </div>
+
+            {/* Image Options */}
+            {contentType === "images" && (
+              <div className="space-y-4 p-4 bg-muted/30 rounded-lg border animate-in fade-in-50">
+                <div>
+                  <label className="text-sm font-medium mb-3 block">
+                    Number of images: {imagePostCount[0]}
+                  </label>
+                  <Slider
+                    value={imagePostCount}
+                    onValueChange={(value) => setImagePostCount([Math.min(value[0], imageSliderMax)])}
+                    min={1}
+                    max={imageSliderMax}
+                    step={1}
+                    className="mb-2"
+                  />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>1</span>
+                    <span>2</span>
+                    <span>3</span>
+                    <span>4</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">{usageData?.remainingImages || 0} remaining</p>
+                </div>
+              </div>
+            )}
+
+            {/* Video Options */}
+            {contentType === "videos" && (
+              <div className="space-y-4 p-4 bg-muted/30 rounded-lg border animate-in fade-in-50">
+                {/* Number of videos */}
+                <div>
+                  <label className="text-sm font-medium mb-3 block">
+                    Number of videos: {videoPostCount[0]}
+                  </label>
+                  <Slider
+                    value={videoPostCount}
+                    onValueChange={(value) => setVideoPostCount([Math.min(value[0], videoSliderMax)])}
+                    min={1}
+                    max={videoSliderMax}
+                    step={1}
+                    className="mb-2"
+                  />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>1</span>
+                    <span>2</span>
+                    <span>3</span>
+                    <span>4</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">{usageData?.remainingVideos || 0} remaining</p>
+                </div>
+
+                {/* Video Style */}
+                <div>
+                  <label className="text-sm font-medium mb-3 block">Video Style</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      onClick={() => setVideoStyle("brand_marketing")}
+                      className={`p-3 rounded-lg border-2 text-center transition-all ${
+                        videoStyle === "brand_marketing"
+                          ? "border-emerald-500 bg-emerald-500/10"
+                          : "border-input hover:border-emerald-300"
+                      }`}
+                    >
+                      <span className="text-xs sm:text-sm font-medium">Brand Promotion</span>
+                    </button>
+                    <button
+                      onClick={() => setVideoStyle("product_marketing")}
+                      className={`p-3 rounded-lg border-2 text-center transition-all ${
+                        videoStyle === "product_marketing"
+                          ? "border-emerald-500 bg-emerald-500/10"
+                          : "border-input hover:border-emerald-300"
+                      }`}
+                    >
+                      <span className="text-xs sm:text-sm font-medium">Product Promotion</span>
+                    </button>
+                    <button
+                      onClick={() => setVideoStyle("ugc_influencer")}
+                      className={`p-3 rounded-lg border-2 text-center transition-all ${
+                        videoStyle === "ugc_influencer"
+                          ? "border-emerald-500 bg-emerald-500/10"
+                          : "border-input hover:border-emerald-300"
+                      }`}
+                    >
+                      <span className="text-xs sm:text-sm font-medium">UGC</span>
+                    </button>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {videoStyle === "brand_marketing" && "Cinematic brand storytelling with mixed audio styles"}
+                    {videoStyle === "product_marketing" && "Product-focused content with voiceover"}
+                    {videoStyle === "ugc_influencer" && "Authentic creator-style content"}
+                  </p>
+                </div>
+
+                {/* Video Length */}
+                <div>
+                  <label className="text-sm font-medium mb-3 block">Video Length</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      onClick={() => setVideoLengthMode("quick")}
+                      className={`p-3 rounded-lg border-2 text-center transition-all ${
+                        videoLengthMode === "quick"
+                          ? "border-emerald-500 bg-emerald-500/10"
+                          : "border-input hover:border-emerald-300"
+                      }`}
+                    >
+                      <span className="text-lg font-bold">8s</span>
+                      <span className="block text-xs text-muted-foreground">Quick</span>
+                    </button>
+                    <button
+                      onClick={() => setVideoLengthMode("standard")}
+                      className={`p-3 rounded-lg border-2 text-center transition-all ${
+                        videoLengthMode === "standard"
+                          ? "border-emerald-500 bg-emerald-500/10"
+                          : "border-input hover:border-emerald-300"
+                      }`}
+                    >
+                      <span className="text-lg font-bold">16s</span>
+                      <span className="block text-xs text-muted-foreground">Standard</span>
+                    </button>
+                    <button
+                      onClick={() => setVideoLengthMode("story")}
+                      className={`p-3 rounded-lg border-2 text-center transition-all ${
+                        videoLengthMode === "story"
+                          ? "border-emerald-500 bg-emerald-500/10"
+                          : "border-input hover:border-emerald-300"
+                      }`}
+                    >
+                      <span className="text-lg font-bold">30-45s</span>
+                      <span className="block text-xs text-muted-foreground">Story</span>
+                    </button>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {videoLengthMode === "quick" && "Perfect for quick social media clips"}
+                    {videoLengthMode === "standard" && "Ideal for product showcases and reels"}
+                    {videoLengthMode === "story" && "Great for storytelling and brand narratives"}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              {/* Back button - goes to platform for website flow, hidden for product shot flow */}
+              {!isProductShotFlow && (
+                <Button variant="outline" className="flex-1 text-sm sm:text-base h-10 sm:h-11" onClick={() => setStep("platform")}>
+                  Back
+                </Button>
+              )}
+              <Button 
+                className={`${isProductShotFlow ? 'w-full' : 'flex-1'} btn-gradient-cta text-sm sm:text-base h-10 sm:h-11`} 
+                disabled={!contentType}
                 onClick={() => setStep("context")}
               >
                 Continue
@@ -1313,17 +1699,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
             </div>
 
             <div className="space-y-4">
-              <div>
-                <label className="text-xs sm:text-sm font-medium mb-1.5 sm:mb-2 block">Instructions</label>
-                <Textarea
-                  placeholder="Add any specific instructions or context..."
-                  value={contextText}
-                  onChange={(e) => setContextText(e.target.value)}
-                  rows={4}
-                  className="text-sm sm:text-base focus-visible:ring-emerald-500 focus-visible:border-emerald-500"
-                />
-              </div>
-
+              {/* Upload files */}
               <div>
                 <label className="text-xs sm:text-sm font-medium mb-1.5 sm:mb-2 block">Upload files</label>
                 <FileDropZone
@@ -1335,61 +1711,352 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                   onRemove={handleRemoveFile}
                   preview={true}
                   uploadType="images"
+                  placeholder="Drop your Product images here or click to browse"
                 />
               </div>
 
+              {/* Inspiration Selection */}
               <div>
-                <label className="text-xs sm:text-sm font-medium mb-1.5 sm:mb-2 block">Inspiration links</label>
-                <div className="space-y-2">
-                  {inspirationLinks.map((link, idx) => (
-                    <div key={idx} className="flex gap-2">
-                      <Input
-                        placeholder="Paste URL, X link, Instagram link..."
-                        value={link}
-                        onChange={(e) => {
-                          const newLinks = [...inspirationLinks];
-                          newLinks[idx] = e.target.value;
-                          setInspirationLinks(newLinks);
-                        }}
-                        className="text-sm sm:text-base focus-visible:ring-emerald-500 focus-visible:border-emerald-500"
-                      />
-                      {inspirationLinks.length > 1 && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-10 w-10 flex-shrink-0"
-                          onClick={() => setInspirationLinks(prev => prev.filter((_, i) => i !== idx))}
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
+                <label className="text-xs sm:text-sm font-medium mb-1.5 sm:mb-2 block">
+                  Choose inspirations
+                  {selectedInspirations.length > 0 && (
+                    <span className="ml-2 text-emerald-600">({selectedInspirations.length} selected)</span>
+                  )}
+                </label>
+                
+                {/* Category Selector - styled as visible dropdown */}
+                <div className="relative mb-3">
+                  <button
+                    onClick={() => setShowCategoryDropdown(!showCategoryDropdown)}
+                    className={`w-full flex items-center justify-between px-4 py-2.5 border-2 rounded-lg bg-background transition-all text-sm sm:text-base ${
+                      showCategoryDropdown 
+                        ? 'border-emerald-500 ring-2 ring-emerald-500/20' 
+                        : 'border-input hover:border-emerald-400'
+                    }`}
+                  >
+                    <span className={selectedCategory ? 'text-foreground font-medium' : 'text-muted-foreground'}>
+                      {selectedCategory || 'None (Select a category)'}
+                    </span>
+                    <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform ${showCategoryDropdown ? 'rotate-180' : ''}`} />
+                  </button>
+                  
+                  {showCategoryDropdown && (
+                    <div className="absolute z-20 w-full mt-1 bg-background border-2 border-input rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                      {isLoadingInspirations ? (
+                        <div className="flex items-center justify-center py-4">
+                          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                        </div>
+                      ) : inspirationCategories.length === 0 ? (
+                        <div className="py-3 px-4 text-sm text-muted-foreground">No categories available</div>
+                      ) : (
+                        <>
+                          {/* None option */}
+                          <button
+                            onClick={() => {
+                              setSelectedCategory(null);
+                              setShowCategoryDropdown(false);
+                            }}
+                            className={`w-full text-left px-4 py-2.5 text-sm hover:bg-accent transition-colors border-b ${
+                              !selectedCategory ? 'bg-gray-50 text-gray-700 dark:bg-gray-800 dark:text-gray-300 font-medium' : ''
+                            }`}
+                          >
+                            None
+                          </button>
+                          {filteredInspirationCategories.map((cat) => (
+                            <button
+                              key={cat}
+                              onClick={() => {
+                                setSelectedCategory(cat);
+                                setShowCategoryDropdown(false);
+                              }}
+                              className={`w-full text-left px-4 py-2.5 text-sm hover:bg-accent transition-colors ${
+                                selectedCategory === cat ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400 font-medium' : ''
+                              }`}
+                            >
+                              {cat}
+                              <span className="ml-2 text-xs text-muted-foreground">
+                                ({filteredGroupedInspirations[cat]?.length || 0})
+                              </span>
+                            </button>
+                          ))}
+                        </>
                       )}
                     </div>
-                  ))}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-2 text-sm h-9 sm:h-10"
-                    onClick={() => setInspirationLinks(prev => [...prev, ""])}
-                  >
-                    <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                    <span className="text-xs sm:text-sm">Add another link</span>
-                  </Button>
+                  )}
                 </div>
+
+                {/* Inspiration Grid - only show when a category is selected */}
+                {selectedCategory && filteredGroupedInspirations[selectedCategory] && (
+                  <div className="relative">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3 max-h-[280px] sm:max-h-[320px] overflow-y-auto p-1 pr-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 scrollbar-track-transparent">
+                      {filteredGroupedInspirations[selectedCategory].map((item) => {
+                        const isSelected = selectedInspirations.some(s => s.id === item.id);
+                        return (
+                          <div
+                            key={item.id}
+                            className={`group relative bg-muted/50 border-2 rounded-xl overflow-hidden hover:border-emerald-400 transition-all duration-200 cursor-pointer aspect-square ${isSelected ? 'border-emerald-500 ring-2 ring-emerald-500/30' : 'border-transparent'}`}
+                            onClick={() => {
+                              if (isSelected) {
+                                setSelectedInspirations(prev => prev.filter(s => s.id !== item.id));
+                              } else {
+                                setSelectedInspirations(prev => [...prev, item]);
+                              }
+                            }}
+                          >
+                            {/* Custom platform - render direct media */}
+                            {isCustomPlatform(item) ? (
+                              isVideoType(item) ? (
+                                <video
+                                  src={getEmbedUrl(item)}
+                                  className="w-full h-full object-cover pointer-events-none"
+                                  muted
+                                  playsInline
+                                />
+                              ) : (
+                                <img
+                                  src={getEmbedUrl(item)}
+                                  alt={item.title || 'Inspiration'}
+                                  className="w-full h-full object-cover pointer-events-none"
+                                />
+                              )
+                            ) : (
+                              <iframe
+                                src={getEmbedUrl(item)}
+                                className="w-full h-full pointer-events-none scale-[1.02]"
+                                allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                allowFullScreen
+                              />
+                            )}
+                            
+                            {/* Overlay */}
+                            <div className={`absolute inset-0 transition-colors duration-200 ${
+                              isSelected ? 'bg-emerald-500/20' : 'bg-black/20 group-hover:bg-black/10'
+                            }`} />
+                            
+                            {/* Selection checkmark */}
+                            {isSelected && (
+                              <div className="absolute top-2 right-2 bg-emerald-500 rounded-full p-1 z-10">
+                                <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                </svg>
+                              </div>
+                            )}
+                            
+                            {/* Play button for videos */}
+                            {isVideoType(item) && (
+                              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <div className="bg-white/80 rounded-full p-2 shadow-lg">
+                                  <Play className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600 fill-emerald-600" />
+                                </div>
+                              </div>
+                            )}
+                            
+                            {/* Preview button - fixed z-index and pointer events */}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                console.log('Preview clicked:', item);
+                                setPreviewInspiration(item);
+                              }}
+                              className="absolute bottom-2 right-2 bg-black/70 hover:bg-black/90 text-white text-xs px-2.5 py-1.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity z-20"
+                            >
+                              Preview
+                            </button>
+                            
+                            {/* Platform badge */}
+                            <div className="absolute bottom-2 left-2 z-10">
+                              <span className="text-white text-[10px] sm:text-xs font-medium px-1.5 py-0.5 bg-black/50 rounded-full capitalize">
+                                {item.platform}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {/* Scroll indicator - fade gradient at bottom */}
+                    {filteredGroupedInspirations[selectedCategory].length > 3 && (
+                      <div className="absolute bottom-0 left-0 right-2 h-16 bg-gradient-to-t from-background via-background/90 to-transparent pointer-events-none flex items-end justify-center pb-2">
+                        <div className="flex items-center gap-1.5 text-muted-foreground bg-muted/80 px-3 py-1.5 rounded-full border border-border/50 shadow-sm">
+                          <ChevronDown className="w-4 h-4 animate-bounce" />
+                          <span className="text-xs font-medium">Scroll for more</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Selected inspirations display */}
+                {selectedInspirations.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {selectedInspirations.map((item) => (
+                      <Badge
+                        key={item.id}
+                        variant="secondary"
+                        className="flex items-center gap-1.5 py-1 px-2 bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800"
+                      >
+                        <span className="text-xs capitalize">{item.platform}</span>
+                        <span className="text-xs text-emerald-500">•</span>
+                        <span className="text-xs">{item.category}</span>
+                        <button
+                          onClick={() => setSelectedInspirations(prev => prev.filter(s => s.id !== item.id))}
+                          className="ml-1 hover:text-red-500 transition-colors"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+
+                {/* Divider and paste link - only show when a category is selected */}
+                {selectedCategory && (
+                  <>
+                    <div className="flex items-center gap-3 my-3">
+                      <div className="flex-1 h-px bg-border" />
+                      <span className="text-xs text-muted-foreground">or paste a link</span>
+                      <div className="flex-1 h-px bg-border" />
+                    </div>
+
+                    {/* Single inspiration link input - no add more button */}
+                    <Input
+                      placeholder="Paste URL, X link, Instagram link..."
+                      value={inspirationLinks[0] || ''}
+                      onChange={(e) => {
+                        setInspirationLinks([e.target.value]);
+                      }}
+                      className="text-sm sm:text-base focus-visible:ring-emerald-500 focus-visible:border-emerald-500"
+                    />
+                  </>
+                )}
+              </div>
+
+              {/* Instructions - moved below inspiration selection */}
+              <div>
+                <label className="text-xs sm:text-sm font-medium mb-1.5 sm:mb-2 block">Instructions</label>
+                <Textarea
+                  placeholder="Add any specific instructions or context..."
+                  value={contextText}
+                  onChange={(e) => setContextText(e.target.value)}
+                  rows={3}
+                  className="text-sm sm:text-base focus-visible:ring-emerald-500 focus-visible:border-emerald-500"
+                />
               </div>
             </div>
 
             <div className="flex gap-2">
-              <Button variant="outline" className="flex-1 text-sm sm:text-base h-10 sm:h-11" onClick={() => setStep("platform")}>
+              <Button variant="outline" className="flex-1 text-sm sm:text-base h-10 sm:h-11" onClick={() => setStep("content_type")}>
                 Back
               </Button>
               <Button className="flex-1 btn-gradient-cta text-sm sm:text-base h-10 sm:h-11" onClick={() => setStep("review")}>
                 Continue
               </Button>
             </div>
+
+            {/* Inspiration Preview Modal - custom implementation with high z-index */}
+            {previewInspiration && (
+              <>
+                {/* Backdrop */}
+                <div 
+                  className="fixed inset-0 z-[110] bg-black/80 animate-in fade-in-0"
+                  onClick={() => setPreviewInspiration(null)}
+                />
+                {/* Modal */}
+                <div className="fixed inset-0 z-[111] flex items-center justify-center p-4">
+                  <div className="relative w-full max-w-md bg-black rounded-lg overflow-hidden shadow-2xl animate-in zoom-in-95 fade-in-0">
+                    {/* Close button */}
+                    <button 
+                      onClick={() => setPreviewInspiration(null)}
+                      className="absolute top-4 right-4 z-20 bg-black/50 rounded-full p-2 hover:bg-black/70 transition-colors"
+                    >
+                      <X className="w-5 h-5 text-white" />
+                    </button>
+                    
+                    <div className={`w-full ${
+                      isVideoType(previewInspiration) ? 'aspect-[9/16] max-h-[70vh]' : 'aspect-[4/5]'
+                    }`}>
+                      {isCustomPlatform(previewInspiration) ? (
+                        isVideoType(previewInspiration) ? (
+                          <video
+                            src={getEmbedUrl(previewInspiration)}
+                            className="w-full h-full object-cover"
+                            controls
+                            autoPlay
+                            playsInline
+                          />
+                        ) : (
+                          <img
+                            src={getEmbedUrl(previewInspiration)}
+                            alt={previewInspiration.title || 'Inspiration'}
+                            className="w-full h-full object-cover"
+                          />
+                        )
+                      ) : (previewInspiration.platform === 'instagram' || previewInspiration.platform === 'twitter') ? (
+                        <div className="relative w-full h-full">
+                          <iframe
+                            src={getEmbedUrl(previewInspiration, false)}
+                            className="w-full h-full"
+                            allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                          />
+                          {isVideoType(previewInspiration) && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                              <button
+                                onClick={() => window.open(previewInspiration.url, '_blank')}
+                                className="bg-white/90 hover:bg-white rounded-full p-4 shadow-lg hover:scale-110 transition-transform duration-300"
+                              >
+                                <Play className="w-10 h-10 text-emerald-600 fill-emerald-600" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <iframe
+                          src={getEmbedUrl(previewInspiration, isVideoType(previewInspiration))}
+                          className="w-full h-full"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                        />
+                      )}
+                    </div>
+                    <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-white text-xs font-medium px-2 py-0.5 bg-white/20 rounded-full capitalize">
+                          {previewInspiration.platform}
+                        </span>
+                        <span className="text-white/70 text-xs">
+                          {previewInspiration.category}
+                        </span>
+                      </div>
+                      <p className="text-white/60 text-xs text-center">
+                        Close this preview to select inspirations
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         );
 
       case "review":
+        const getVideoStyleLabel = (style: string) => {
+          switch(style) {
+            case "brand_marketing": return "Brand Promotion";
+            case "product_marketing": return "Product Promotion";
+            case "ugc_influencer": return "UGC";
+            default: return style;
+          }
+        };
+        const getVideoLengthLabel = (mode: string) => {
+          switch(mode) {
+            case "quick": return "8s (Quick)";
+            case "standard": return "16s (Standard)";
+            case "story": return "30-45s (Story)";
+            default: return mode;
+          }
+        };
         return (
           <div className="space-y-4 sm:space-y-5 md:space-y-6">
             <div>
@@ -1398,11 +2065,13 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
             </div>
 
             <div className="space-y-3 sm:space-y-4">
+              {/* Topic */}
               <Card className="p-3 sm:p-4">
                 <h3 className="font-medium mb-1.5 sm:mb-2 text-sm sm:text-base">Topic</h3>
                 <p className="text-sm sm:text-base text-muted-foreground">{customTopic || selectedTopic}</p>
               </Card>
 
+              {/* Platforms */}
               <Card className="p-3 sm:p-4">
                 <h3 className="font-medium mb-1.5 sm:mb-2 text-sm sm:text-base">Platforms</h3>
                 <div className="flex gap-1.5 sm:gap-2 flex-wrap">
@@ -1419,6 +2088,111 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                 </div>
               </Card>
 
+              {/* Content to Generate */}
+              <Card className="p-3 sm:p-4">
+                <h3 className="font-medium mb-1.5 sm:mb-2 text-sm sm:text-base">Content to Generate</h3>
+                <div className="space-y-2">
+                  {contentType === "images" && (
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center">
+                        <svg className="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">{imagePostCount[0]} {imagePostCount[0] === 1 ? 'Image' : 'Images'}</p>
+                        <p className="text-xs text-muted-foreground">{usageData?.remainingImages || 0} remaining in quota</p>
+                      </div>
+                    </div>
+                  )}
+                  {contentType === "videos" && (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center">
+                          <Play className="w-4 h-4 text-purple-600" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium">{videoPostCount[0]} {videoPostCount[0] === 1 ? 'Video' : 'Videos'}</p>
+                          <p className="text-xs text-muted-foreground">{usageData?.remainingVideos || 0} remaining in quota</p>
+                        </div>
+                      </div>
+                      <div className="mt-2 p-2 bg-muted/30 rounded-lg text-xs space-y-1">
+                        <p><span className="font-medium">Style:</span> {getVideoStyleLabel(videoStyle)}</p>
+                        <p><span className="font-medium">Length:</span> {getVideoLengthLabel(videoLengthMode)}</p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </Card>
+
+              {/* Inspirations */}
+              {(selectedInspirations.length > 0 || inspirationLinks.filter(l => l.trim()).length > 0) && (
+                <Card className="p-3 sm:p-4">
+                  <h3 className="font-medium mb-1.5 sm:mb-2 text-sm sm:text-base">Inspirations</h3>
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                    {selectedInspirations.map(item => (
+                      <div
+                        key={item.id}
+                        className="relative bg-muted/50 border border-emerald-500 rounded-lg overflow-hidden aspect-square"
+                      >
+                        {/* Custom platform - render direct media */}
+                        {isCustomPlatform(item) ? (
+                          isVideoType(item) ? (
+                            <video
+                              src={getEmbedUrl(item)}
+                              className="w-full h-full object-cover"
+                              muted
+                              playsInline
+                            />
+                          ) : (
+                            <img
+                              src={getEmbedUrl(item)}
+                              alt={item.title || 'Inspiration'}
+                              className="w-full h-full object-cover"
+                            />
+                          )
+                        ) : (
+                          <iframe
+                            src={getEmbedUrl(item)}
+                            className="w-full h-full pointer-events-none scale-[1.02]"
+                            allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                          />
+                        )}
+                        
+                        {/* Play button for videos */}
+                        {isVideoType(item) && (
+                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                            <div className="bg-white/80 rounded-full p-1.5 shadow-lg">
+                              <Play className="w-3 h-3 text-emerald-600 fill-emerald-600" />
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Category label */}
+                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
+                          <p className="text-[10px] text-white truncate">{item.category}</p>
+                        </div>
+                      </div>
+                    ))}
+                    {inspirationLinks.filter(l => l.trim()).map((link, idx) => (
+                      <div
+                        key={`link-${idx}`}
+                        className="relative bg-muted/50 border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden aspect-square flex items-center justify-center"
+                      >
+                        <div className="text-center p-2">
+                          <svg className="w-5 h-5 mx-auto text-muted-foreground mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                          </svg>
+                          <p className="text-[10px] text-muted-foreground">Custom link</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
+
+              {/* Instructions */}
               {contextText && (
                 <Card className="p-3 sm:p-4">
                   <h3 className="font-medium mb-1.5 sm:mb-2 text-sm sm:text-base">Instructions</h3>
@@ -1426,220 +2200,26 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                 </Card>
               )}
 
-              <div className="space-y-4">
-                {/* Image Posts Slider */}
-              <div>
-                  <label className="text-xs sm:text-sm font-medium mb-2 block">
-                    Image posts: {imagePostCount[0]}
-                </label>
-                <Slider
-                    key={`image-slider-${imageSliderMax}`}
-                    value={imagePostCount}
-                    onValueChange={(value) => {
-                      const newImageCount = Math.min(value[0], imageSliderMax);
-                      const currentVideoCount = videoPostCount[0];
-                      const total = newImageCount + currentVideoCount;
-                      
-                      // Auto-decrease video count if total exceeds 4
-                      if (total > 4) {
-                        const newVideoCount = Math.max(0, 4 - newImageCount);
-                        setVideoPostCount([newVideoCount]);
-                      }
-                      
-                      setImagePostCount([newImageCount]);
-                    }}
-                    min={0}
-                    max={imageSliderMax}
-                  step={1}
-                  className="mb-2"
-                    disabled={imageSliderMax === 0}
-                />
-                <div className="flex justify-between text-xs text-muted-foreground">
-                    {Array.from({ length: Math.min(imageSliderMax, 4) + 1 }, (_, i) => (
-                      <span key={i}>{i}</span>
-                    ))}
-                </div>
-                  {usageData && (
-                    <div className="flex items-center justify-between mt-1">
-                      <p className="text-xs text-gray-500">
-                        {usageData.remainingImages} remaining
-                      </p>
-                      {usageData.remainingImages === 0 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setUpgradeQuotaType('image');
-                            setShowUpgradePricingModal(true);
-                          }}
-                          className="text-xs text-emerald-600 hover:text-emerald-700 font-medium underline underline-offset-2"
-                        >
-                          Upgrade for more →
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Video Posts Slider */}
-                <div>
-                  <label className="text-xs sm:text-sm font-medium mb-2 block">
-                    Video posts: {videoPostCount[0]}
-                  </label>
-                  <Slider
-                    key={`video-slider-${videoSliderMax}`}
-                    value={videoPostCount}
-                    onValueChange={(value) => {
-                      const newVideoCount = Math.min(value[0], videoSliderMax);
-                      const currentImageCount = imagePostCount[0];
-                      const total = currentImageCount + newVideoCount;
-                      
-                      // Auto-decrease image count if total exceeds 4
-                      if (total > 4) {
-                        const newImageCount = Math.max(0, 4 - newVideoCount);
-                        setImagePostCount([newImageCount]);
-                      }
-                      
-                      setVideoPostCount([newVideoCount]);
-                    }}
-                    min={0}
-                    max={videoSliderMax}
-                    step={1}
-                    className="mb-2"
-                    disabled={videoSliderMax === 0}
-                  />
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    {Array.from({ length: Math.min(videoSliderMax, 4) + 1 }, (_, i) => (
-                      <span key={i}>{i}</span>
-                    ))}
-                  </div>
-                  {usageData && (
-                    <div className="flex items-center justify-between mt-1">
-                      <p className="text-xs text-gray-500">
-                        {usageData.remainingVideos} remaining
-                      </p>
-                      {usageData.remainingVideos === 0 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setUpgradeQuotaType('video');
-                            setShowUpgradePricingModal(true);
-                          }}
-                          className="text-xs text-emerald-600 hover:text-emerald-700 font-medium underline underline-offset-2"
-                        >
-                          Upgrade for more →
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Video Style Selector - Only show when videos are selected */}
-                {videoPostCount[0] > 0 && (
-                  <div className="pt-3 border-t">
-                    <label className="text-xs sm:text-sm font-medium mb-3 block">
-                      Video Style
-                    </label>
-                    <div className="grid grid-cols-3 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setVideoStyle("brand_marketing")}
-                        className={`p-3 rounded-lg border-2 transition-all text-center ${
-                          videoStyle === "brand_marketing"
-                            ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30"
-                            : "border-gray-200 dark:border-gray-700 hover:border-gray-300"
-                        }`}
+              {/* Uploaded Images */}
+              {uploadedS3Urls.length > 0 && (
+                <Card className="p-3 sm:p-4">
+                  <h3 className="font-medium mb-1.5 sm:mb-2 text-sm sm:text-base">Uploaded Images</h3>
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                    {uploadedS3Urls.map((url, idx) => (
+                      <div
+                        key={idx}
+                        className="relative bg-muted/50 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden aspect-square"
                       >
-                        <div className="text-xs font-medium">Brand Promotion</div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setVideoStyle("product_marketing")}
-                        className={`p-3 rounded-lg border-2 transition-all text-center ${
-                          videoStyle === "product_marketing"
-                            ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30"
-                            : "border-gray-200 dark:border-gray-700 hover:border-gray-300"
-                        }`}
-                      >
-                        <div className="text-xs font-medium">Product Promotion</div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setVideoStyle("ugc_influencer")}
-                        className={`p-3 rounded-lg border-2 transition-all text-center ${
-                          videoStyle === "ugc_influencer"
-                            ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30"
-                            : "border-gray-200 dark:border-gray-700 hover:border-gray-300"
-                        }`}
-                      >
-                        <div className="text-xs font-medium">UGC</div>
-                      </button>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-2">
-                      {videoStyle === "brand_marketing" && "Cinematic brand storytelling with mixed audio styles"}
-                      {videoStyle === "product_marketing" && "Product showcase with professional narration"}
-                      {videoStyle === "ugc_influencer" && "Authentic creator-style with character speaking"}
-                    </p>
-                    
-                    {/* Video Length Selector */}
-                    <div className="mt-4">
-                      <label className="text-xs sm:text-sm font-medium mb-3 block">
-                        Video Length
-                      </label>
-                      <div className="grid grid-cols-3 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setVideoLengthMode("quick")}
-                          className={`p-3 rounded-lg border-2 transition-all text-center ${
-                            videoLengthMode === "quick"
-                              ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30"
-                              : "border-gray-200 dark:border-gray-700 hover:border-gray-300"
-                          }`}
-                        >
-                          <div className="text-lg font-semibold">8s</div>
-                          <div className="text-xs text-muted-foreground">Quick</div>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setVideoLengthMode("standard")}
-                          className={`p-3 rounded-lg border-2 transition-all text-center ${
-                            videoLengthMode === "standard"
-                              ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30"
-                              : "border-gray-200 dark:border-gray-700 hover:border-gray-300"
-                          }`}
-                        >
-                          <div className="text-lg font-semibold">16s</div>
-                          <div className="text-xs text-muted-foreground">Standard</div>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setVideoLengthMode("story")}
-                          className={`p-3 rounded-lg border-2 transition-all text-center ${
-                            videoLengthMode === "story"
-                              ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30"
-                              : "border-gray-200 dark:border-gray-700 hover:border-gray-300"
-                          }`}
-                        >
-                          <div className="text-lg font-semibold">30-45s</div>
-                          <div className="text-xs text-muted-foreground">Story</div>
-                        </button>
+                        <img
+                          src={url}
+                          alt={`Uploaded image ${idx + 1}`}
+                          className="w-full h-full object-cover"
+                        />
                       </div>
-                      <p className="text-xs text-muted-foreground mt-2">
-                        {videoLengthMode === "quick" && "Perfect for quick hooks and teasers"}
-                        {videoLengthMode === "standard" && "Ideal for product showcases and reels"}
-                        {videoLengthMode === "story" && "Full storytelling arc with emotional beats"}
-                      </p>
-                    </div>
+                    ))}
                   </div>
-                )}
-
-                {/* Total Posts Summary */}
-                <div className="pt-2 border-t">
-                  <p className="text-sm font-medium">
-                    Total posts to generate: <span className="text-emerald-600 font-semibold">{imagePostCount[0] + videoPostCount[0]}</span>
-                    <span className="text-xs text-muted-foreground ml-2">(max 4 per generation)</span>
-                  </p>
-                </div>
-              </div>
+                </Card>
+              )}
             </div>
 
             <div className="flex gap-2">
@@ -1649,7 +2229,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               <Button 
                 className="flex-1 btn-gradient-cta text-sm sm:text-base h-10 sm:h-11" 
                 onClick={handleGenerate}
-                disabled={imagePostCount[0] + videoPostCount[0] === 0}
+                disabled={(contentType === "images" && imagePostCount[0] === 0) || (contentType === "videos" && videoPostCount[0] === 0)}
               >
                 Generate
               </Button>

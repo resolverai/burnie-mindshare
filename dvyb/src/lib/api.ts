@@ -270,6 +270,17 @@ export const contextApi = {
   },
 };
 
+// Inspiration Item type
+export interface InspirationItem {
+  id: number;
+  platform: string;
+  category: string;
+  url: string;
+  title: string | null;
+  mediaType: string;
+  mediaUrl?: string | null;
+}
+
 // Inspirations API
 export const inspirationsApi = {
   /**
@@ -281,15 +292,7 @@ export const inspirationsApi = {
       success: boolean; 
       data: {
         matched_categories: string[];
-        inspiration_videos: Array<{
-          id: number;
-          platform: string;
-          category: string;
-          url: string;
-          title: string | null;
-          mediaType: string;
-          mediaUrl?: string | null;
-        }>;
+        inspiration_videos: Array<InspirationItem>;
       };
     }>(
       '/dvyb/inspirations/match',
@@ -306,6 +309,24 @@ export const inspirationsApi = {
   async getCategories() {
     return apiRequest<{ success: boolean; data: string[] }>(
       '/dvyb/inspirations/categories'
+    );
+  },
+
+  /**
+   * Get all inspirations grouped by category
+   * Used in GenerateContentDialog for inspiration selection
+   */
+  async getByCategory(category?: string) {
+    const params = category ? `?category=${encodeURIComponent(category)}` : '';
+    return apiRequest<{ 
+      success: boolean; 
+      data: {
+        categories: string[];
+        inspirations: InspirationItem[];
+        groupedByCategory: Record<string, InspirationItem[]>;
+      };
+    }>(
+      `/dvyb/inspirations/by-category${params}`
     );
   },
 };

@@ -199,5 +199,73 @@ router.get('/categories', async (_req: Request, res: Response) => {
   }
 });
 
+/**
+ * GET /api/dvyb/inspirations/by-category
+ * Get all inspirations grouped by category (for GenerateContentDialog)
+ * Includes both image and video inspirations
+ */
+router.get('/by-category', async (req: Request, res: Response) => {
+  try {
+    const { category } = req.query;
+    const inspirationRepo = AppDataSource.getRepository(DvybInspirationLink);
+
+    // Build query
+    const queryBuilder = inspirationRepo
+      .createQueryBuilder('inspiration')
+      .where('inspiration.isActive = :isActive', { isActive: true });
+
+    // Filter by category if provided
+    if (category && typeof category === 'string') {
+      queryBuilder.andWhere('inspiration.category = :category', { category });
+    }
+
+    queryBuilder.orderBy('inspiration.category', 'ASC')
+      .addOrderBy('inspiration.createdAt', 'DESC');
+
+    const inspirations = await queryBuilder.getMany();
+
+    // Format the response
+    const formattedInspirations = inspirations.map(link => ({
+      id: link.id,
+      platform: link.platform,
+      category: link.category,
+      url: link.url,
+      title: link.title || null,
+      mediaType: link.mediaType || 'image',
+      mediaUrl: link.mediaUrl || null,
+    }));
+
+    // Group by category
+    const groupedByCategory: Record<string, typeof formattedInspirations> = {};
+    formattedInspirations.forEach(item => {
+      const cat = item.category || 'Uncategorized';
+      if (!groupedByCategory[cat]) {
+        groupedByCategory[cat] = [];
+      }
+      groupedByCategory[cat].push(item);
+    });
+
+    // Get unique categories
+    const categories = Object.keys(groupedByCategory).sort();
+
+    return res.json({
+      success: true,
+      data: {
+        categories,
+        inspirations: formattedInspirations,
+        groupedByCategory,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    logger.error('Error fetching inspirations by category:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch inspirations',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
 export default router;
 

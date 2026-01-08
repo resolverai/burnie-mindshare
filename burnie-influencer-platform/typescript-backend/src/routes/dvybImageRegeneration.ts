@@ -162,6 +162,70 @@ router.post('/callback', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/dvyb/image-regeneration/status/:regenerationId
+ * Get status of a specific regeneration (for polling)
+ * NOTE: This route MUST be defined before /:generatedContentId/:postIndex to avoid route conflicts
+ */
+router.get('/status/:regenerationId', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+  try {
+    const accountId = req.dvybAccountId;
+    if (!accountId) {
+      return res.status(401).json({ success: false, error: 'Not authenticated' });
+    }
+    
+    const regenerationId = parseInt(req.params.regenerationId!);
+    
+    // Validate that regenerationId is a valid number
+    if (isNaN(regenerationId)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Invalid regenerationId',
+      });
+    }
+    
+    const regenerationRepo = AppDataSource.getRepository(DvybImageRegeneration);
+    
+    const regeneration = await regenerationRepo.findOne({
+      where: {
+        id: regenerationId,
+        accountId,
+      },
+    });
+    
+    if (!regeneration) {
+      return res.status(404).json({
+        success: false,
+        error: 'Regeneration not found',
+      });
+    }
+    
+    let regeneratedImageUrl: string | null = null;
+    if (regeneration.regeneratedImageS3Key) {
+      regeneratedImageUrl = await s3Service.generatePresignedUrl(regeneration.regeneratedImageS3Key, 3600, true);
+    }
+    
+    return res.json({
+      success: true,
+      data: {
+        id: regeneration.id,
+        status: regeneration.status,
+        regeneratedImageS3Key: regeneration.regeneratedImageS3Key,
+        regeneratedImageUrl,
+        errorMessage: regeneration.errorMessage,
+        metadata: regeneration.metadata,
+      },
+    });
+    
+  } catch (error: any) {
+    logger.error('Error fetching regeneration status:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch status',
+    });
+  }
+});
+
+/**
  * GET /api/dvyb/image-regeneration/:generatedContentId/:postIndex
  * Get all regenerations for a specific post (for showing history)
  */
@@ -174,6 +238,15 @@ router.get('/:generatedContentId/:postIndex', dvybAuthMiddleware, async (req: Dv
     
     const generatedContentId = parseInt(req.params.generatedContentId!);
     const postIndex = parseInt(req.params.postIndex!);
+    
+    // Validate that parameters are valid numbers
+    if (isNaN(generatedContentId) || isNaN(postIndex)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Invalid generatedContentId or postIndex',
+        data: [] // Return empty array to prevent frontend errors
+      });
+    }
     
     const regenerationRepo = AppDataSource.getRepository(DvybImageRegeneration);
     
@@ -228,61 +301,6 @@ router.get('/:generatedContentId/:postIndex', dvybAuthMiddleware, async (req: Dv
     return res.status(500).json({
       success: false,
       error: error.message || 'Failed to fetch regenerations',
-    });
-  }
-});
-
-/**
- * GET /api/dvyb/image-regeneration/status/:regenerationId
- * Get status of a specific regeneration (for polling)
- */
-router.get('/status/:regenerationId', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
-  try {
-    const accountId = req.dvybAccountId;
-    if (!accountId) {
-      return res.status(401).json({ success: false, error: 'Not authenticated' });
-    }
-    
-    const regenerationId = parseInt(req.params.regenerationId!);
-    
-    const regenerationRepo = AppDataSource.getRepository(DvybImageRegeneration);
-    
-    const regeneration = await regenerationRepo.findOne({
-      where: {
-        id: regenerationId,
-        accountId,
-      },
-    });
-    
-    if (!regeneration) {
-      return res.status(404).json({
-        success: false,
-        error: 'Regeneration not found',
-      });
-    }
-    
-    let regeneratedImageUrl: string | null = null;
-    if (regeneration.regeneratedImageS3Key) {
-      regeneratedImageUrl = await s3Service.generatePresignedUrl(regeneration.regeneratedImageS3Key, 3600, true);
-    }
-    
-    return res.json({
-      success: true,
-      data: {
-        id: regeneration.id,
-        status: regeneration.status,
-        regeneratedImageS3Key: regeneration.regeneratedImageS3Key,
-        regeneratedImageUrl,
-        errorMessage: regeneration.errorMessage,
-        metadata: regeneration.metadata,
-      },
-    });
-    
-  } catch (error: any) {
-    logger.error('Error fetching regeneration status:', error);
-    return res.status(500).json({
-      success: false,
-      error: error.message || 'Failed to fetch status',
     });
   }
 });

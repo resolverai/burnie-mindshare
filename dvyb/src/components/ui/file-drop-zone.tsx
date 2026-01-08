@@ -15,6 +15,7 @@ interface FileDropZoneProps {
   className?: string;
   preview?: boolean;
   uploadType?: 'logo' | 'images';
+  placeholder?: string;
 }
 
 export function FileDropZone({
@@ -27,6 +28,7 @@ export function FileDropZone({
   className = "",
   preview = true,
   uploadType = 'images',
+  placeholder = "Drop your brand inspiration images here or click to browse",
 }: FileDropZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -289,7 +291,7 @@ export function FileDropZone({
               <Upload className="w-10 h-10 text-muted-foreground" />
               <div>
                 <p className="text-sm md:text-base text-muted-foreground mb-3 md:mb-4">
-                  Drop your brand inspiration images here or click to browse
+                  {placeholder}
                 </p>
                 <label
                   htmlFor="file-upload"

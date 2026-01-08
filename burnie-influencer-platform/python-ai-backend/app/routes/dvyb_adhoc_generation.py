@@ -3870,7 +3870,7 @@ async def extract_inspiration_music_only(url: str, account_id: int, clips_per_vi
             shutil.rmtree(output_dir, ignore_errors=True)
 
 
-async def analyze_inspiration_links(links: List[str], context: dict = None, account_id: int = None, clips_per_video: int = 1) -> Dict:
+async def analyze_inspiration_links(links: List[str], context: dict = None, account_id: int = None, clips_per_video: int = 1, num_posts: int = None) -> Dict:
     """
     Analyze inspiration links - handles both video platforms and regular web links.
     - Video platforms (YouTube, Instagram, Twitter) → Extract frames + transcript → Grok video analysis
@@ -3881,6 +3881,7 @@ async def analyze_inspiration_links(links: List[str], context: dict = None, acco
         context: Context dict with brand info
         account_id: Account ID for S3 paths
         clips_per_video: Number of clips per video (used to calculate max_duration for video analysis)
+        num_posts: Number of posts to generate (used to randomly select inspirations if more provided)
     """
     if not links or all(not link.strip() for link in links):
         return {}
@@ -3895,11 +3896,42 @@ async def analyze_inspiration_links(links: List[str], context: dict = None, acco
         print(f"🔗 Number of links: {len(valid_links)}")
         print(f"🔗 Links: {valid_links}")
         
-        # Separate video platform links from regular links
-        video_links = [link for link in valid_links if is_video_platform_url(link)]
-        regular_links = [link for link in valid_links if not is_video_platform_url(link)]
+        # If user provided more inspirations than posts to generate, randomly select to match post count
+        if num_posts and len(valid_links) > num_posts:
+            import random
+            print(f"⚖️ User provided {len(valid_links)} inspirations for {num_posts} posts - randomly selecting {num_posts}")
+            valid_links = random.sample(valid_links, num_posts)
+            print(f"🎲 Randomly selected links: {valid_links}")
+        
+        # Separate links by type: video platform, direct media files (S3/CDN), or regular web links
+        from urllib.parse import urlparse
+        
+        video_links = []
+        direct_media_links = []  # S3/CDN image/video URLs
+        regular_links = []
+        
+        for link in valid_links:
+            if is_video_platform_url(link):
+                video_links.append(link)
+            else:
+                # Check if it's a direct media file (S3, CDN, etc.)
+                url_lower = link.lower()
+                parsed_url = urlparse(link)
+                path_lower = parsed_url.path.lower()
+                
+                image_extensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
+                video_extensions = ['.mp4', '.webm', '.mpeg', '.mov', '.avi', '.mkv']
+                
+                is_direct_image = any(path_lower.endswith(ext) for ext in image_extensions)
+                is_direct_video = any(path_lower.endswith(ext) for ext in video_extensions)
+                
+                if is_direct_image or is_direct_video:
+                    direct_media_links.append(link)
+                else:
+                    regular_links.append(link)
         
         print(f"🎬 Video platform links: {len(video_links)}")
+        print(f"🖼️ Direct media links (S3/CDN): {len(direct_media_links)}")
         print(f"🌐 Regular links: {len(regular_links)}")
         
         result = {}
@@ -3911,9 +3943,9 @@ async def analyze_inspiration_links(links: List[str], context: dict = None, acco
             video_inspirations = []
             image_inspirations = []
             
-            # For product shot flow, process ALL links (up to 4) for 1:1 mapping
-            # Otherwise, process only first link to avoid long processing
-            max_links_to_process = 4 if context.get("is_product_shot_flow", False) else 1
+            # Process ALL user-provided links (already limited by random selection above)
+            # For 1:1 mapping with generated content
+            max_links_to_process = num_posts if num_posts else (4 if context.get("is_product_shot_flow", False) else len(video_links))
             links_to_process = video_links[:max_links_to_process]
             
             for link in links_to_process:
@@ -3970,18 +4002,109 @@ async def analyze_inspiration_links(links: List[str], context: dict = None, acco
                 return result  # Return early - skip regular link analysis when video inspiration exists
             
             if image_inspirations:
-                # For product shot flow with multiple inspirations, store as list for 1:1 mapping
-                if context.get("is_product_shot_flow", False) and len(image_inspirations) > 1:
+                # Store multiple inspirations as list for 1:1 mapping with generated content
+                if len(image_inspirations) > 1:
                     result["image_inspirations"] = image_inspirations  # Store as list
                     print(f"\n✅ {len(image_inspirations)} image inspiration(s) analysis complete!")
-                    print(f"📋 Multiple inspirations stored for 1:1 mapping with images")
+                    print(f"📋 Multiple inspirations stored for 1:1 mapping with content")
                 else:
                     result["image_inspiration"] = image_inspirations[0]  # Use first image inspiration
                     print(f"\n✅ Image inspiration analysis complete!")
                 print(f"⏭️  Skipping Grok live search on regular links (image inspiration takes priority)")
                 return result  # Return early - skip regular link analysis when image inspiration exists
         
-        # If no regular links, return result (which might be empty or have video analysis)
+        # Process direct media links (S3/CDN images/videos) - similar to video platform links
+        if direct_media_links and context and account_id:
+            print(f"\n🖼️ Processing {len(direct_media_links)} direct media file(s) (S3/CDN)...")
+            direct_video_inspirations = []
+            direct_image_inspirations = []
+            
+            # Process ALL user-provided links (already limited by random selection above)
+            max_links_to_process = num_posts if num_posts else len(direct_media_links)
+            links_to_process = direct_media_links[:max_links_to_process]
+            
+            for link in links_to_process:
+                # Check if analysis already exists in database
+                existing_analysis = get_existing_inspiration_analysis(link)
+                if existing_analysis:
+                    # Use existing analysis directly
+                    if "video_inspiration" in existing_analysis:
+                        video_inspiration = existing_analysis["video_inspiration"].copy()
+                        print(f"  ✅ Using existing video inspiration analysis from database for: {link[:80]}...")
+                        
+                        # Extract music from video (music is not stored in DB, needs to be extracted during generation)
+                        print(f"  🎵 Extracting music from video (analysis exists but music needs to be extracted)...")
+                        music_s3_key = await extract_inspiration_music_only(link, account_id, clips_per_video)
+                        if music_s3_key:
+                            video_inspiration["background_music_s3_key"] = music_s3_key
+                            print(f"  ✅ Music extracted and added to existing analysis")
+                        else:
+                            if "background_music_s3_key" not in video_inspiration:
+                                print(f"  ⚠️  Music extraction failed or not applicable, no music will be used")
+                        
+                        direct_video_inspirations.append(video_inspiration)
+                    elif "image_inspiration" in existing_analysis:
+                        direct_image_inspirations.append(existing_analysis["image_inspiration"])
+                        print(f"  ✅ Using existing image inspiration analysis from database for: {link[:80]}...")
+                    else:
+                        # If existing analysis doesn't have expected structure, try processing
+                        print(f"  ⚠️  Existing analysis found but doesn't match expected format, processing with Grok...")
+                        # Determine if it's image or video based on extension
+                        url_lower = link.lower()
+                        parsed_url = urlparse(link)
+                        path_lower = parsed_url.path.lower()
+                        image_extensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
+                        video_extensions = ['.mp4', '.webm', '.mpeg', '.mov', '.avi', '.mkv']
+                        is_direct_image = any(path_lower.endswith(ext) for ext in image_extensions)
+                        
+                        if is_direct_image:
+                            image_analysis = await process_image_inspiration_link(link, context, account_id)
+                            if image_analysis:
+                                direct_image_inspirations.append(image_analysis)
+                        else:
+                            video_analysis = await process_video_inspiration_link(link, context, account_id, clips_per_video)
+                            if video_analysis:
+                                direct_video_inspirations.append(video_analysis)
+                else:
+                    # No existing analysis, process with Grok
+                    url_lower = link.lower()
+                    parsed_url = urlparse(link)
+                    path_lower = parsed_url.path.lower()
+                    image_extensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
+                    video_extensions = ['.mp4', '.webm', '.mpeg', '.mov', '.avi', '.mkv']
+                    is_direct_image = any(path_lower.endswith(ext) for ext in image_extensions)
+                    
+                    if is_direct_image:
+                        print(f"  🖼️ Processing as direct image file...")
+                        image_analysis = await process_image_inspiration_link(link, context, account_id)
+                        if image_analysis:
+                            direct_image_inspirations.append(image_analysis)
+                    else:
+                        print(f"  🎬 Processing as direct video file...")
+                        video_analysis = await process_video_inspiration_link(link, context, account_id, clips_per_video)
+                        if video_analysis:
+                            direct_video_inspirations.append(video_analysis)
+            
+            # Add direct media inspirations to result
+            if direct_video_inspirations:
+                result["video_inspiration"] = direct_video_inspirations[0]  # Use first video inspiration
+                print(f"\n✅ Direct video inspiration analysis complete!")
+                print(f"⏭️  Skipping Grok live search on regular links (video inspiration takes priority)")
+                return result  # Return early - skip regular link analysis when video inspiration exists
+            
+            if direct_image_inspirations:
+                # Store multiple inspirations as list for 1:1 mapping with generated content
+                if len(direct_image_inspirations) > 1:
+                    result["image_inspirations"] = direct_image_inspirations  # Store as list
+                    print(f"\n✅ {len(direct_image_inspirations)} direct image inspiration(s) analysis complete!")
+                    print(f"📋 Multiple inspirations stored for 1:1 mapping with content")
+                else:
+                    result["image_inspiration"] = direct_image_inspirations[0]  # Use first image inspiration
+                    print(f"\n✅ Direct image inspiration analysis complete!")
+                print(f"⏭️  Skipping Grok live search on regular links (image inspiration takes priority)")
+                return result  # Return early - skip regular link analysis when image inspiration exists
+        
+        # If no regular links, return result (which might be empty or have video/image analysis)
         if not regular_links:
             return result
         
@@ -8328,10 +8451,10 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
         voiceover_flag = prompts["voiceover"]
         
         # Step 3c-1: Process each clip with per-clip audio logic
-        # NEW LOGIC:
-        # - If clip has music_prompt → Clean Veo music, generate ElevenLabs music, apply/mix
-        # - Else if inspiration_music exists → Clean Veo music, apply inspiration music, mix
-        # - Else → Keep original clip as-is (Veo's default audio is fine)
+        # PRIORITY ORDER:
+        # 1. If inspiration_music exists → Clean Veo music, apply inspiration music, mix (USER'S CHOICE)
+        # 2. Else if clip has music_prompt → Clean Veo music, generate ElevenLabs music, apply/mix
+        # 3. Else → Keep original clip as-is (Veo's default audio is fine)
         
         # Flag to track if per-clip audio was applied (skip post-stitching audio if true)
         per_clip_audio_applied = False
@@ -8370,8 +8493,112 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                 print(f"   Duration: {clip_duration}s")
                 
                 # Determine audio processing path
-                if music_prompt:
-                    # PATH A: Custom music from ElevenLabs
+                # PRIORITY: Inspiration music > ElevenLabs music > Original Veo audio
+                # Inspiration music takes priority when available (user explicitly provided an inspiration with music)
+                if inspiration_music_s3_key:
+                    # PATH B: Inspiration music from user-provided video (takes priority!)
+                    print(f"   → PATH B: Inspiration music from video link (PRIORITY)")
+                    any_clip_had_custom_audio = True
+                    
+                    # Download clip
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
+                        presigned_url = web2_s3_helper.generate_presigned_url(clip_url)
+                        response = requests.get(presigned_url)
+                        temp_file.write(response.content)
+                        clip_path = temp_file.name
+                        print(f"      📥 Downloaded clip")
+                    
+                    # Clean Veo background music with Demucs
+                    print(f"      🎵 Cleaning Veo background music with Demucs...")
+                    cleaned_clip_path = separate_voice_from_music_demucs(clip_path)
+                    if not cleaned_clip_path or cleaned_clip_path == clip_path:
+                        print(f"      ⚠️ Demucs failed, using original clip")
+                        cleaned_clip_path = clip_path
+                    
+                    # Download inspiration music
+                    print(f"      🎵 Downloading inspiration music...")
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as music_file:
+                        inspiration_presigned = web2_s3_helper.generate_presigned_url(inspiration_music_s3_key)
+                        music_response = requests.get(inspiration_presigned)
+                        music_file.write(music_response.content)
+                        inspiration_music_path = music_file.name
+                    
+                    # Create no-audio clip for mixing
+                    no_audio_path = remove_audio_from_video(cleaned_clip_path)
+                    
+                    # Extract voiceover audio if clip has voiceover
+                    if has_voiceover:
+                        voiceover_path = extract_audio_from_video(cleaned_clip_path)
+                        
+                        # Mix inspiration music (30%) + voiceover (100%)
+                        final_clip_path = cleaned_clip_path.replace('.mp4', '_final.mp4')
+                        success = await mix_music_and_voiceover_for_clip(
+                            no_audio_clip_path=no_audio_path,
+                            music_path=inspiration_music_path,
+                            voiceover_path=voiceover_path,
+                            output_path=final_clip_path,
+                            music_volume=0.3,
+                            voiceover_volume=1.0
+                        )
+                        
+                        if success:
+                            print(f"      ✅ Inspiration music + voiceover mixed successfully")
+                        else:
+                            # Fallback: apply inspiration music only
+                            success = await apply_music_to_clip(no_audio_path, inspiration_music_path, final_clip_path)
+                            print(f"      ⚠️ Voiceover mix failed, applied inspiration music only")
+                        
+                        # Clean up voiceover file
+                        try:
+                            os.remove(voiceover_path)
+                        except:
+                            pass
+                    else:
+                        # No voiceover - just apply inspiration music
+                        final_clip_path = cleaned_clip_path.replace('.mp4', '_final.mp4')
+                        success = await apply_music_to_clip(no_audio_path, inspiration_music_path, final_clip_path)
+                        print(f"      ✅ Inspiration music applied (no voiceover)")
+                    
+                    # Clean up temp files
+                    try:
+                        os.remove(no_audio_path)
+                        os.remove(inspiration_music_path)
+                    except:
+                        pass
+                    
+                    # Upload processed clip
+                    if success and os.path.exists(final_clip_path):
+                        processed_s3_url = web2_s3_helper.upload_from_file(
+                            file_path=final_clip_path,
+                            folder=f"dvyb/generated/{request.account_id}/{generation_uuid}/video_{video_idx}",
+                            filename=f"processed_clip_{clip_num}.mp4"
+                        )
+                        processed_clips.append(processed_s3_url)
+                        print(f"      ✅ Clip {clip_num} processed with inspiration music and uploaded")
+                        try:
+                            os.remove(final_clip_path)
+                        except:
+                            pass
+                    else:
+                        # Fallback to cleaned clip
+                        cleaned_s3_url = web2_s3_helper.upload_from_file(
+                            file_path=cleaned_clip_path,
+                            folder=f"dvyb/generated/{request.account_id}/{generation_uuid}/video_{video_idx}",
+                            filename=f"cleaned_clip_{clip_num}.mp4"
+                        )
+                        processed_clips.append(cleaned_s3_url)
+                        print(f"      ⚠️ Inspiration music processing failed, using cleaned clip")
+                    
+                    # Clean up local files
+                    try:
+                        os.remove(clip_path)
+                        if cleaned_clip_path != clip_path:
+                            os.remove(cleaned_clip_path)
+                    except:
+                        pass
+                
+                elif music_prompt:
+                    # PATH A: Custom music from ElevenLabs (fallback when no inspiration music)
                     print(f"   → PATH A: Custom ElevenLabs music")
                     any_clip_had_custom_audio = True
                 
@@ -8478,107 +8705,6 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                     except:
                         pass
                 
-                elif inspiration_music_s3_key:
-                    # PATH B: Inspiration music from user-provided video
-                    print(f"   → PATH B: Inspiration music from video link")
-                    any_clip_had_custom_audio = True
-                    
-                    # Download clip
-                    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
-                        presigned_url = web2_s3_helper.generate_presigned_url(clip_url)
-                        response = requests.get(presigned_url)
-                        temp_file.write(response.content)
-                        clip_path = temp_file.name
-                        print(f"      📥 Downloaded clip")
-                    
-                    # Clean Veo background music with Demucs
-                    print(f"      🎵 Cleaning Veo background music with Demucs...")
-                    cleaned_clip_path = separate_voice_from_music_demucs(clip_path)
-                    if not cleaned_clip_path or cleaned_clip_path == clip_path:
-                        print(f"      ⚠️ Demucs failed, using original clip")
-                        cleaned_clip_path = clip_path
-                    
-                    # Download inspiration music
-                    print(f"      🎵 Downloading inspiration music...")
-                    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as music_file:
-                        inspiration_presigned = web2_s3_helper.generate_presigned_url(inspiration_music_s3_key)
-                        music_response = requests.get(inspiration_presigned)
-                        music_file.write(music_response.content)
-                        inspiration_music_path = music_file.name
-                    
-                    # Create no-audio clip for mixing
-                    no_audio_path = remove_audio_from_video(cleaned_clip_path)
-                    
-                    # Extract voiceover audio if clip has voiceover
-                    if has_voiceover:
-                        voiceover_path = extract_audio_from_video(cleaned_clip_path)
-                        
-                        # Mix inspiration music (30%) + voiceover (100%)
-                        final_clip_path = cleaned_clip_path.replace('.mp4', '_final.mp4')
-                        success = await mix_music_and_voiceover_for_clip(
-                            no_audio_clip_path=no_audio_path,
-                            music_path=inspiration_music_path,
-                            voiceover_path=voiceover_path,
-                            output_path=final_clip_path,
-                            music_volume=0.3,
-                            voiceover_volume=1.0
-                        )
-                        
-                        if success:
-                            print(f"      ✅ Inspiration music + voiceover mixed")
-                        else:
-                            # Fallback: apply music only
-                            success = await apply_music_to_clip(no_audio_path, inspiration_music_path, final_clip_path)
-                            print(f"      ⚠️ Voiceover mix failed, applied music only")
-                        
-                        try:
-                            os.remove(voiceover_path)
-                        except:
-                            pass
-                    else:
-                        # No voiceover - just apply inspiration music
-                        final_clip_path = cleaned_clip_path.replace('.mp4', '_final.mp4')
-                        success = await apply_music_to_clip(no_audio_path, inspiration_music_path, final_clip_path)
-                        print(f"      ✅ Inspiration music applied (no voiceover)")
-                    
-                    # Clean up temp files
-                    try:
-                        os.remove(no_audio_path)
-                        os.remove(inspiration_music_path)
-                    except:
-                        pass
-                    
-                    # Upload processed clip
-                    if success and os.path.exists(final_clip_path):
-                        processed_s3_url = web2_s3_helper.upload_from_file(
-                            file_path=final_clip_path,
-                            folder=f"dvyb/generated/{request.account_id}/{generation_uuid}/video_{video_idx}",
-                            filename=f"processed_clip_{clip_num}.mp4"
-                        )
-                        processed_clips.append(processed_s3_url)
-                        print(f"      ✅ Clip {clip_num} processed and uploaded")
-                        try:
-                            os.remove(final_clip_path)
-                        except:
-                            pass
-                    else:
-                        # Fallback to cleaned clip
-                        cleaned_s3_url = web2_s3_helper.upload_from_file(
-                            file_path=cleaned_clip_path,
-                            folder=f"dvyb/generated/{request.account_id}/{generation_uuid}/video_{video_idx}",
-                            filename=f"cleaned_clip_{clip_num}.mp4"
-                        )
-                        processed_clips.append(cleaned_s3_url)
-                        print(f"      ⚠️ Processing failed, using cleaned clip")
-                    
-                    # Clean up local files
-                    try:
-                        os.remove(clip_path)
-                        if cleaned_clip_path != clip_path:
-                            os.remove(cleaned_clip_path)
-                    except:
-                        pass
-                        
                 else:
                     # PATH C: No custom music - keep original Veo clip as-is
                     print(f"   → PATH C: Keep original clip (no custom music)")
@@ -9256,21 +9382,23 @@ async def run_adhoc_generation_pipeline(job_id: str, request: DvybAdhocGeneratio
         
         # Step 3: Auto-select inspirations for product shot flow (if no user-provided inspirations)
         is_product_shot_flow = context.get("is_product_shot_flow", False)
-        number_of_images = request.number_of_images if hasattr(request, 'number_of_images') and request.number_of_images else None
+        number_of_images = request.number_of_images if hasattr(request, 'number_of_images') and request.number_of_images else 0
+        number_of_videos = request.number_of_videos if hasattr(request, 'number_of_videos') and request.number_of_videos else 0
+        total_posts = number_of_images + number_of_videos
         
         # Check if we should auto-select inspirations:
-        # - Product shot flow is active
-        # - 4 images are being generated
+        # - Product shot flow is active (website analysis flow does NOT auto-select)
         # - User hasn't provided inspiration links
+        # - We have posts to generate
         auto_selected_inspirations = []
-        if is_product_shot_flow and number_of_images == 4 and not request.inspiration_links:
+        if is_product_shot_flow and not request.inspiration_links and total_posts > 0:
             suggested_category = inventory_analysis.get('suggested_category') if inventory_analysis else None
             if suggested_category:
                 print(f"\n🎯 Auto-selecting inspirations for product shot flow...")
                 print(f"   Suggested category: {suggested_category}")
-                print(f"   Target: 4 inspirations with analysis available")
+                print(f"   Target: {total_posts} inspirations with analysis available")
                 
-                auto_selected_inspirations = get_inspirations_by_category(suggested_category, count=4)
+                auto_selected_inspirations = get_inspirations_by_category(suggested_category, count=total_posts)
                 
                 if auto_selected_inspirations:
                     print(f"   ✅ Selected {len(auto_selected_inspirations)} inspirations:")
@@ -9280,6 +9408,8 @@ async def run_adhoc_generation_pipeline(job_id: str, request: DvybAdhocGeneratio
                     print(f"   ⚠️  No inspirations found in category '{suggested_category}' with analysis available")
             else:
                 print(f"\n⏭️  Skipping auto-selection: No suggested category from inventory analysis")
+        elif not is_product_shot_flow and not request.inspiration_links:
+            print(f"\n⏭️  Skipping auto-selection: Website analysis flow does not auto-select inspirations")
         
         # Step 3: Analyze inspiration links (25%)
         # Check both user-provided links, auto-selected inspirations, and selected_link from linksJson (with 10-day decay)
@@ -9300,9 +9430,14 @@ async def run_adhoc_generation_pipeline(job_id: str, request: DvybAdhocGeneratio
             # Pass clips_per_video to determine how much of the inspiration video to analyze
             clips_per_video = request.clips_per_video if hasattr(request, 'clips_per_video') and request.clips_per_video else 1
             
+            # Calculate total posts to generate for random selection of inspirations
+            num_images = request.number_of_images if hasattr(request, 'number_of_images') and request.number_of_images else 0
+            num_videos = request.number_of_videos if hasattr(request, 'number_of_videos') and request.number_of_videos else 0
+            total_posts_to_generate = num_images + num_videos
+            
             # Wrap inspiration analysis in try-except to ensure content generation continues even if analysis fails
             try:
-                link_analysis = await analyze_inspiration_links(links_to_analyze, context, request.account_id, clips_per_video)
+                link_analysis = await analyze_inspiration_links(links_to_analyze, context, request.account_id, clips_per_video, total_posts_to_generate)
                 context["link_analysis"] = link_analysis
                 
                 if not link_analysis or (not link_analysis.get("video_inspiration") and not link_analysis.get("image_inspiration") and not link_analysis.get("analysis")):

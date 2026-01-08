@@ -518,8 +518,8 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
       <header className="border-b bg-card">
         <div className="max-w-7xl mx-auto px-4 md:px-6 py-4">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-            <h1 className="text-xl md:text-2xl font-bold text-foreground">Content Library</h1>
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 md:gap-4 w-full md:w-auto">
+            <h1 className="text-xl md:hidden font-bold text-foreground">Content Library</h1>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 md:gap-4 w-full md:w-auto md:ml-auto">
               <div className="flex items-center gap-3">
                 <span className="text-sm font-medium">Posted Content</span>
                 <Switch checked={showPosted} onCheckedChange={setShowPosted} />
@@ -1153,9 +1153,8 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
         }}
       />
 
-      {/* Floating Generate Content Button - Always visible on scroll (all devices) */}
-      <div className="fixed bottom-6 right-6 lg:right-20 z-50">
-        {/* Mobile: round icon button */}
+      {/* Mobile: Floating Generate Content Button - Bottom right (unchanged) */}
+      <div className="fixed bottom-6 right-6 z-50 md:hidden">
         <Button 
           onClick={async () => {
             // Track event
@@ -1211,12 +1210,15 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
               setShowGenerateDialog(true);
             }
           }}
-          className="md:hidden btn-gradient-cta rounded-full h-14 w-14 p-0"
+          className="btn-gradient-cta rounded-full h-14 w-14 p-0"
           size="icon"
         >
           <Sparkles className="w-6 h-6" />
         </Button>
-        {/* Tablet/Desktop: full button with text */}
+      </div>
+      
+      {/* Tablet/Desktop: Prominent Generate Content Button - Top left, replacing Content Library heading */}
+      <div className="hidden md:block fixed top-[15px] left-[280px] lg:left-[300px] z-50">
         <Button 
           onClick={async () => {
             // Track event
@@ -1272,7 +1274,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
               setShowGenerateDialog(true);
             }
           }}
-          className="hidden md:flex btn-gradient-cta px-8 py-6 text-lg font-semibold"
+          className="btn-gradient-cta px-9 py-6 text-xl font-semibold shadow-lg hover:shadow-xl transition-shadow"
         >
           <Sparkles className="w-6 h-6 mr-2" />
           Generate Content
