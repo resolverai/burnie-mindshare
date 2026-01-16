@@ -8,14 +8,14 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Search, Filter, Eye, Heart, MessageCircle, Share2, Loader2, Play, Calendar as CalendarIcon, Sparkles } from "lucide-react";
 import { PostDetailDialog } from "@/components/calendar/PostDetailDialog";
 import { GenerateContentDialog } from "@/components/onboarding/GenerateContentDialog";
 import { PricingModal } from "@/components/PricingModal";
-import { contentLibraryApi } from "@/lib/api";
+import { contentLibraryApi, accountApi } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOnboardingGuide } from "@/hooks/useOnboardingGuide";
 import { clearOAuthFlowState, getOAuthFlowState } from "@/lib/oauthFlowState";
@@ -91,6 +91,10 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
   const [usageData, setUsageData] = useState<any>(null);
   const [canSkipPricingModal, setCanSkipPricingModal] = useState(false); // True if only one quota exhausted
   const [mustSubscribeToFreemium, setMustSubscribeToFreemium] = useState(false); // True if opt-out trial required
+  
+  // Trial limit exceeded dialog
+  const [showTrialLimitDialog, setShowTrialLimitDialog] = useState(false);
+  const [isEndingTrial, setIsEndingTrial] = useState(false);
   
   // Onboarding guide
   const { completeStep } = useOnboardingGuide();
@@ -627,6 +631,14 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                     return;
                   } else {
                     setMustSubscribeToFreemium(false);
+                  }
+                  
+                  // Check if user is in trial and has exceeded trial limits
+                  // Offer them the option to pay immediately or wait
+                  if (data.data.isTrialLimitExceeded) {
+                    console.log('⚠️ [ContentLibrary] User is in trial and exceeded limits - showing charge dialog');
+                    setShowTrialLimitDialog(true);
+                    return;
                   }
                   
                   // Check quota limits
@@ -1266,6 +1278,13 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                   setMustSubscribeToFreemium(false);
                 }
                 
+                // Check if user is in trial and has exceeded trial limits
+                if (data.data.isTrialLimitExceeded) {
+                  console.log('⚠️ [ContentLibrary Mobile] User is in trial and exceeded limits - showing charge dialog');
+                  setShowTrialLimitDialog(true);
+                  return;
+                }
+                
                 // Check quota limits
                 const noImagesLeft = data.data.remainingImages === 0;
                 const noVideosLeft = data.data.remainingVideos === 0;
@@ -1362,6 +1381,92 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
             >
               Close
             </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Trial Limit Exceeded Dialog - Pay Early or Wait */}
+      <AlertDialog open={showTrialLimitDialog} onOpenChange={setShowTrialLimitDialog}>
+        <AlertDialogContent className="w-[90vw] sm:w-[85vw] md:max-w-lg p-4 sm:p-6">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-center text-lg sm:text-xl">
+              Trial Limit Reached
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="text-center space-y-3 sm:space-y-4 pt-3 sm:pt-4">
+                <p className="text-sm sm:text-base text-muted-foreground">
+                  You&apos;ve used all your free trial content. To continue generating, you can:
+                </p>
+                <div className="bg-primary/5 dark:bg-primary/10 p-3 sm:p-4 rounded-lg space-y-2">
+                  <p className="text-sm sm:text-base font-medium text-foreground">
+                    💳 Pay now and continue creating
+                  </p>
+                  <p className="text-xs sm:text-sm text-muted-foreground">
+                    Your card will be charged immediately and you&apos;ll get full access to your plan.
+                  </p>
+                </div>
+                <p className="text-xs sm:text-sm text-muted-foreground">
+                  Or wait until your trial ends on{' '}
+                  <span className="font-medium text-foreground">
+                    {usageData?.freemiumTrialEndsAt 
+                      ? format(new Date(usageData.freemiumTrialEndsAt), 'MMM d, yyyy')
+                      : 'the scheduled date'}
+                  </span>
+                  , when your card will be charged automatically.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2 pt-4">
+            <AlertDialogCancel 
+              className="w-full sm:w-auto"
+              disabled={isEndingTrial}
+            >
+              Wait for Trial to End
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="w-full sm:w-auto btn-gradient-cta"
+              disabled={isEndingTrial}
+              onClick={async (e) => {
+                e.preventDefault();
+                setIsEndingTrial(true);
+                try {
+                  const result = await accountApi.endTrialEarly();
+                  if (result.success) {
+                    toast({
+                      title: "Payment Successful!",
+                      description: "Your subscription is now active. You can continue generating content.",
+                    });
+                    setShowTrialLimitDialog(false);
+                    // Refresh usage data and open generate dialog
+                    setShowGenerateDialog(true);
+                  } else {
+                    toast({
+                      variant: "destructive",
+                      title: "Payment Failed",
+                      description: result.error || "Could not process payment. Please try again.",
+                    });
+                  }
+                } catch (error: any) {
+                  toast({
+                    variant: "destructive",
+                    title: "Error",
+                    description: error.message || "An unexpected error occurred.",
+                  });
+                } finally {
+                  setIsEndingTrial(false);
+                }
+              }}
+            >
+              {isEndingTrial ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                "Pay Now & Continue"
+              )}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

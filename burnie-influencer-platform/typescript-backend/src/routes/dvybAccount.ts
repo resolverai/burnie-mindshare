@@ -14,6 +14,7 @@ import { DvybUpgradeRequest } from '../models/DvybUpgradeRequest';
 import { DvybAccountSubscription } from '../models/DvybAccountSubscription';
 import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddleware';
 import { DvybAuthService } from '../services/DvybAuthService';
+import { StripeService } from '../services/StripeService';
 
 const router = Router();
 
@@ -442,6 +443,11 @@ router.get('/usage', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Respo
                                      !hasActiveSubscription && 
                                      (imageUsage > 0 || videoUsage > 0);
 
+    // Check if user is in trial period AND has exceeded trial limits
+    // This is used to prompt user to end trial early and pay immediately
+    const isTrialLimitExceeded = isInFreemiumTrial && 
+                                  (imageUsage >= imageLimit || videoUsage >= videoLimit);
+
     return res.json({
       success: true,
       data: {
@@ -467,6 +473,8 @@ router.get('/usage', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Respo
         freemiumTrialEndsAt,
         isSubscribedToFreemium,
         mustSubscribeToFreemium,
+        // Trial limit exceeded - user can choose to pay early
+        isTrialLimitExceeded,
       },
       timestamp: new Date().toISOString(),
     });
@@ -614,6 +622,45 @@ router.get('/pricing-plans', async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to retrieve pricing plans',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * POST /api/dvyb/account/end-trial-early
+ * End trial period and charge immediately
+ * Used when user wants to continue generating content beyond trial limits
+ */
+router.post('/end-trial-early', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+  try {
+    const accountId = req.dvybAccountId!;
+    
+    logger.info(`⚡ Account ${accountId} requesting to end trial early and pay immediately`);
+    
+    const result = await StripeService.endTrialAndChargeImmediately(accountId);
+    
+    if (result.success) {
+      logger.info(`✅ Trial ended successfully for account ${accountId}`);
+      return res.json({
+        success: true,
+        message: result.message,
+        invoiceId: result.invoiceId,
+        timestamp: new Date().toISOString(),
+      });
+    } else {
+      logger.warn(`⚠️ Failed to end trial for account ${accountId}: ${result.message}`);
+      return res.status(400).json({
+        success: false,
+        error: result.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  } catch (error: any) {
+    logger.error('❌ Error ending trial early:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to end trial and process payment',
       timestamp: new Date().toISOString(),
     });
   }

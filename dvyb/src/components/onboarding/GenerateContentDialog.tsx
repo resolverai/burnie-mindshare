@@ -11,8 +11,9 @@ import { Slider } from "@/components/ui/slider";
 import { X, Plus, Upload, Link, Loader2, Twitter, Instagram, Linkedin, Heart, XCircle } from "lucide-react";
 import { PostDetailDialog } from "@/components/calendar/PostDetailDialog";
 import { ScheduleDialog } from "@/components/calendar/ScheduleDialog";
-import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { adhocGenerationApi, postingApi, oauth1Api, authApi, socialConnectionsApi, contentLibraryApi, contentStrategyApi, StrategyPreferences, inspirationsApi, InspirationItem } from "@/lib/api";
+import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
+import { adhocGenerationApi, postingApi, oauth1Api, authApi, socialConnectionsApi, contentLibraryApi, contentStrategyApi, StrategyPreferences, inspirationsApi, InspirationItem, accountApi } from "@/lib/api";
+import { format } from "date-fns";
 import { Play, ChevronDown } from "lucide-react";
 import { StrategyQuestionnaire } from "@/components/onboarding/StrategyQuestionnaire";
 import { saveOAuthFlowState, getOAuthFlowState, clearOAuthFlowState, updateOAuthFlowState } from "@/lib/oauthFlowState";
@@ -255,6 +256,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
   const isProductShotFlow = usageData?.initialAcquisitionFlow === 'product_photoshot';
   const [showUpgradePricingModal, setShowUpgradePricingModal] = useState(false);
   const [upgradeQuotaType, setUpgradeQuotaType] = useState<'image' | 'video' | 'both'>('both');
+  const [showTrialLimitDialog, setShowTrialLimitDialog] = useState(false);
+  const [isEndingTrial, setIsEndingTrial] = useState(false);
   const [generatedPosts, setGeneratedPosts] = useState<any[]>([]);
   const [selectedPost, setSelectedPost] = useState<any>(null);
   const [showPostDetail, setShowPostDetail] = useState(false);
@@ -730,6 +733,13 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
       console.log('🚫 User must subscribe to freemium before generating');
       setUpgradeQuotaType('both');
       setShowUpgradePricingModal(true);
+      return;
+    }
+    
+    // Check if user is in trial and has exceeded trial limits
+    if (usageData?.isTrialLimitExceeded) {
+      console.log('⚠️ [GenerateContentDialog] User is in trial and exceeded limits - showing charge dialog');
+      setShowTrialLimitDialog(true);
       return;
     }
     
@@ -3181,6 +3191,92 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
         userFlow={usageData?.initialAcquisitionFlow || 'website_analysis'}
         mustSubscribe={usageData?.mustSubscribeToFreemium || false}
       />
+
+      {/* Trial Limit Exceeded Dialog - Pay Early or Wait */}
+      <AlertDialog open={showTrialLimitDialog} onOpenChange={setShowTrialLimitDialog}>
+        <AlertDialogContent className="w-[90vw] sm:w-[85vw] md:max-w-lg p-4 sm:p-6">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-center text-lg sm:text-xl">
+              Trial Limit Reached
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="text-center space-y-3 sm:space-y-4 pt-3 sm:pt-4">
+                <p className="text-sm sm:text-base text-muted-foreground">
+                  You&apos;ve used all your free trial content. To continue generating, you can:
+                </p>
+                <div className="bg-primary/5 dark:bg-primary/10 p-3 sm:p-4 rounded-lg space-y-2">
+                  <p className="text-sm sm:text-base font-medium text-foreground">
+                    💳 Pay now and continue creating
+                  </p>
+                  <p className="text-xs sm:text-sm text-muted-foreground">
+                    Your card will be charged immediately and you&apos;ll get full access to your plan.
+                  </p>
+                </div>
+                <p className="text-xs sm:text-sm text-muted-foreground">
+                  Or wait until your trial ends on{' '}
+                  <span className="font-medium text-foreground">
+                    {usageData?.freemiumTrialEndsAt 
+                      ? format(new Date(usageData.freemiumTrialEndsAt), 'MMM d, yyyy')
+                      : 'the scheduled date'}
+                  </span>
+                  , when your card will be charged automatically.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2 pt-4">
+            <AlertDialogCancel 
+              className="w-full sm:w-auto"
+              disabled={isEndingTrial}
+            >
+              Wait for Trial to End
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="w-full sm:w-auto btn-gradient-cta"
+              disabled={isEndingTrial}
+              onClick={async (e) => {
+                e.preventDefault();
+                setIsEndingTrial(true);
+                try {
+                  const result = await accountApi.endTrialEarly();
+                  if (result.success) {
+                    toast({
+                      title: "Payment Successful!",
+                      description: "Your subscription is now active. You can continue generating content.",
+                    });
+                    setShowTrialLimitDialog(false);
+                    // Proceed with generation after payment
+                    handleGenerate();
+                  } else {
+                    toast({
+                      variant: "destructive",
+                      title: "Payment Failed",
+                      description: result.error || "Could not process payment. Please try again.",
+                    });
+                  }
+                } catch (error: any) {
+                  toast({
+                    variant: "destructive",
+                    title: "Error",
+                    description: error.message || "An unexpected error occurred.",
+                  });
+                } finally {
+                  setIsEndingTrial(false);
+                }
+              }}
+            >
+              {isEndingTrial ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                "Pay Now & Continue"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 };

@@ -203,6 +203,24 @@ export const accountApi = {
       '/dvyb/account/tiktok-connection'
     );
   },
+
+  /**
+   * End trial period early and charge the customer immediately
+   * Used when user wants to continue generating beyond trial limits
+   */
+  async endTrialEarly() {
+    return apiRequest<{ 
+      success: boolean; 
+      message: string;
+      invoiceId?: string;
+      error?: string;
+    }>(
+      '/dvyb/account/end-trial-early',
+      {
+        method: 'POST',
+      }
+    );
+  },
 };
 
 // Context API

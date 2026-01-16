@@ -171,6 +171,152 @@ export class StripeService {
   }
 
   /**
+   * Check if an account has ever been a paid customer (actually charged, not just trialing)
+   * Used to determine if they should EVER get a trial on ANY plan
+   * Once a user has paid once, no more trials on any plan upgrades/downgrades
+   */
+  static async hasAccountEverPaid(accountId: number): Promise<boolean> {
+    const paymentRepo = AppDataSource.getRepository(DvybAccountPayment);
+    
+    // Check if there's any successful payment record for this account
+    const payment = await paymentRepo.findOne({
+      where: {
+        accountId,
+        status: 'succeeded',
+      },
+    });
+    
+    if (payment) {
+      return true;
+    }
+    
+    // Also check subscription records for any that have had their trial end
+    // (meaning they were charged after trial or paid immediately)
+    const subscriptionRepo = AppDataSource.getRepository(DvybAccountSubscription);
+    const paidSubscription = await subscriptionRepo.findOne({
+      where: {
+        accountId,
+        status: 'active', // Active means they've been charged
+      },
+    });
+    
+    return !!paidSubscription;
+  }
+
+  /**
+   * End a trial early and charge the customer immediately
+   * Used when user wants to continue generating beyond trial limits
+   */
+  static async endTrialAndChargeImmediately(accountId: number): Promise<{
+    success: boolean;
+    message: string;
+    invoiceId?: string;
+  }> {
+    let trialingSubscription: DvybAccountSubscription | null = null;
+    
+    try {
+      // Find the trialing subscription for this account
+      const subscriptionRepo = AppDataSource.getRepository(DvybAccountSubscription);
+      trialingSubscription = await subscriptionRepo.findOne({
+        where: {
+          accountId,
+          status: 'trialing',
+        },
+        relations: ['plan'],
+      });
+
+      if (!trialingSubscription) {
+        logger.warn(`⚠️ No trialing subscription found for account ${accountId}`);
+        return {
+          success: false,
+          message: 'No active trial subscription found',
+        };
+      }
+
+      if (!trialingSubscription.stripeSubscriptionId) {
+        logger.warn(`⚠️ Subscription has no Stripe ID for account ${accountId}`);
+        return {
+          success: false,
+          message: 'Subscription has no Stripe ID',
+        };
+      }
+
+      logger.info(`⚡ Ending trial early for account ${accountId}, subscription ${trialingSubscription.stripeSubscriptionId}`);
+
+      // Update the Stripe subscription to end the trial immediately
+      // This will trigger an invoice and charge the customer
+      // Use 'now' as a special value that Stripe accepts to end trial immediately
+      logger.info(`📡 Calling Stripe API to end trial for ${trialingSubscription.stripeSubscriptionId}...`);
+      
+      let updatedSubscription;
+      try {
+        updatedSubscription = await stripe.subscriptions.update(
+          trialingSubscription.stripeSubscriptionId,
+          {
+            trial_end: 'now' as unknown as number, // 'now' is a special Stripe value, cast for TypeScript
+          }
+        );
+      } catch (stripeError: any) {
+        logger.error(`❌ Stripe API error:`, {
+          message: stripeError.message,
+          type: stripeError.type,
+          code: stripeError.code,
+          statusCode: stripeError.statusCode,
+        });
+        throw stripeError;
+      }
+
+      logger.info(`✅ Trial ended for subscription ${trialingSubscription.stripeSubscriptionId}, new status: ${updatedSubscription.status}`);
+
+      // Update our database record
+      trialingSubscription.status = updatedSubscription.status;
+      trialingSubscription.trialEnd = new Date();
+      await subscriptionRepo.save(trialingSubscription);
+
+      return {
+        success: true,
+        message: 'Trial ended and payment processed successfully',
+        invoiceId: updatedSubscription.latest_invoice as string,
+      };
+    } catch (error: any) {
+      logger.error(`❌ Error ending trial early for account ${accountId}:`, {
+        error: error.message,
+        type: error.type,
+        code: error.code,
+        stripeSubscriptionId: trialingSubscription?.stripeSubscriptionId,
+        stack: error.stack,
+      });
+      
+      // Handle specific Stripe errors
+      if (error.type === 'StripeCardError') {
+        return {
+          success: false,
+          message: `Payment failed: ${error.message}`,
+        };
+      }
+      
+      if (error.type === 'StripeInvalidRequestError') {
+        return {
+          success: false,
+          message: `Invalid request: ${error.message}`,
+        };
+      }
+
+      if (error.code === 'resource_missing') {
+        return {
+          success: false,
+          message: 'Subscription not found in Stripe. Please contact support.',
+        };
+      }
+      
+      return {
+        success: false,
+        message: error.message || 'Failed to end trial and process payment',
+      };
+    }
+  }
+
+  /**
    * Get the Free Trial plan for a specific flow
    * Used to determine trial limits during freemium period
    */
@@ -232,15 +378,22 @@ export class StripeService {
     // Determine if user should get an opt-out free trial
     // Trial is given ONLY if:
     // 1. Plan has opt-out trial enabled (isFreemium = true)
-    // 2. User has NEVER had this plan before (first time = trial, subsequent = charge immediately)
+    // 2. User has NEVER PAID before (once a paid customer, no trials on any plan)
     let trialDays = 0;
     if (plan.isFreemium && !plan.isFreeTrialPlan) {
-      const hadPlanBefore = await this.hasAccountPreviouslyHadPlan(accountId, planId);
-      if (!hadPlanBefore) {
-        trialDays = plan.freemiumTrialDays || 7;
-        logger.info(`🎁 Account ${accountId} qualifies for ${trialDays}-day opt-out free trial on plan ${planId}`);
+      // First check: Has user ever paid for ANY plan? If yes, no trial ever again
+      const hasEverPaid = await this.hasAccountEverPaid(accountId);
+      if (hasEverPaid) {
+        logger.info(`⚡ Account ${accountId} is a previous paid customer - no trial on any plan, charging immediately`);
       } else {
-        logger.info(`⚡ Account ${accountId} previously had plan ${planId} - no trial, charging immediately`);
+        // Second check: Has user had THIS specific plan before? If yes, no trial for this plan
+        const hadPlanBefore = await this.hasAccountPreviouslyHadPlan(accountId, planId);
+        if (!hadPlanBefore) {
+          trialDays = plan.freemiumTrialDays || 7;
+          logger.info(`🎁 Account ${accountId} qualifies for ${trialDays}-day opt-out free trial on plan ${planId}`);
+        } else {
+          logger.info(`⚡ Account ${accountId} previously had plan ${planId} - no trial, charging immediately`);
+        }
       }
     }
 
