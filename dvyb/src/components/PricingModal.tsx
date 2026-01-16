@@ -940,9 +940,16 @@ export const PricingModal = ({
   
   const displayPlans = isAuthenticated 
     ? sortedPlans.filter(plan => {
-        if (plan.isFreeTrialPlan) {
+        // Check if this is a free/trial plan (multiple detection methods for robustness)
+        const isFreeOrTrialPlan = plan.isFreeTrialPlan || 
+                                   plan.monthlyPrice === 0 || 
+                                   plan.planName?.toLowerCase().includes('free trial');
+        
+        if (isFreeOrTrialPlan) {
           // When mustSubscribe is true, NEVER show free plan - user must choose a paid opt-out plan
+          // This applies to BOTH website_analysis AND product_photoshot flows
           if (mustSubscribe) {
+            console.log('🚫 [PricingModal] Filtering out free plan because mustSubscribe=true:', plan.planName);
             return false;
           }
           // Show free plan only if user is actually on it (and doesn't have a Stripe subscription)

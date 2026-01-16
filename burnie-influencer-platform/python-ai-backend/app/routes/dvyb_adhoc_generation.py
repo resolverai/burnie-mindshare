@@ -6854,7 +6854,9 @@ Generate {number_of_posts} pieces of content for the topic: "{request.topic}"
 - Use your expertise and the guidelines below to decide\""""
     
     # Build storytelling framework section based on category and mode
-    storytelling_section = f"""
+    # ONLY include video-specific storytelling framework if there are videos to generate
+    if num_clips > 0:
+        storytelling_section = f"""
 🎬🎬🎬 **STORYTELLING FRAMEWORK - {storytelling_ctx['framework_type'].upper()}** 🎬🎬🎬
 
 **BRAND CATEGORY DETECTED**: {brand_category.upper()}
@@ -6895,17 +6897,51 @@ You MUST specify the duration for each clip in your output. The video generation
 
 **VARY DURATIONS for cinematic rhythm** - don't make every clip the same length!
 """
+    else:
+        # IMAGE-ONLY mode - no video storytelling framework needed
+        storytelling_section = f"""
+🖼️🖼️🖼️ **IMAGE GENERATION MODE** 🖼️🖼️🖼️
+
+**BRAND CATEGORY DETECTED**: {brand_category.upper()}
+**EMOTIONAL GOAL**: {storytelling_ctx['goal']}
+**CONTENT TYPE**: Static images (1:1 aspect ratio for social media)
+**TOTAL IMAGES TO GENERATE**: {len(image_only_indices)}
+
+**VISUAL STYLE TO APPLY** (for this category):
+- Emotions to evoke: {', '.join(storytelling_ctx['emotions'])}
+- Visual elements: {', '.join(storytelling_ctx['visual_levers'][:5])}
+
+🎯 **IMAGE PROMPT REQUIREMENTS**:
+- Generate detailed image prompts for STATIC IMAGES (not videos)
+- Use 1:1 aspect ratio for social media
+- Focus on high-quality product photography / lifestyle imagery
+- Apply engagement-boosting elements (human interaction, action, desire-triggering details)
+"""
     
-    system_prompt = f"""{persona_intro}
-
-{storytelling_section}
-
-🎯 YOUR DECISION-MAKING RESPONSIBILITY:
+    # Build different decision-making sections for video vs image-only
+    if num_clips > 0:
+        decision_making_section = """🎯 YOUR DECISION-MAKING RESPONSIBILITY:
 
 1. **DECIDE VIDEO TYPE** (product_marketing / ugc_influencer / brand_marketing)
    - Analyze brand context, inventory, user instructions, and link analysis
-   - Set appropriate flags based on your decision
+   - Set appropriate flags based on your decision"""
+    else:
+        decision_making_section = """🎯 YOUR DECISION-MAKING RESPONSIBILITY:
 
+1. **DECIDE CONTENT STYLE** (product_marketing / ugc_influencer / brand_marketing)
+   - This affects the style of your IMAGE prompts
+   - Analyze brand context, inventory, user instructions
+   - Set appropriate flags based on your decision
+   
+⚠️ **IMPORTANT - IMAGE-ONLY MODE**:
+- You are generating IMAGES, not videos
+- Use `image_prompt_X` keys for each image (e.g., image_prompt_0, image_prompt_1)
+- Do NOT use video clip format (video_X_clip_Y_...) 
+- Each image should be a standalone, high-quality visual"""
+    
+    # Build video-specific instructions only when there are videos
+    if num_clips > 0:
+        video_specific_instructions = f"""
 2. **🎤 PER-CLIP VOICEOVER - YOUR CREATIVE FREEDOM**:
    {"🚨 VOICEOVER FORCED OFF: Inspiration detected. Set has_voiceover=false for ALL clips." if voiceover_forced_off else f'''You decide voiceover for EACH CLIP independently based on:
    - Brand Category: {brand_category} → {storytelling_ctx["goal"]}
@@ -7010,6 +7046,32 @@ You MUST specify the duration for each clip in your output. The video generation
      * ✅ CORRECT: "video_0_clip_1_prompt": "Camera zooms in, no text overlays. Voiceover in professional voice: {dvyb_context.get('accountName', 'the brand')} revolutionizes content creation."
      * ✅ CORRECT: "video_0_clip_1_prompt": "Influencer smiling, no text overlays. Saying in excited tone: I love using {dvyb_context.get('accountName', 'the brand')} for my posts."
      * ❌ WRONG: "video_0_clip_1_prompt": "Voiceover: This product revolutionizes content creation, no text overlays." (no text overlays should NOT come after speech)
+
+7. **MODEL/CHARACTER CONSISTENCY**:"""
+    else:
+        # IMAGE-ONLY: Simpler instructions without video-specific sections
+        video_specific_instructions = """
+2. **IMAGE PROMPT GUIDELINES**:
+   - Generate detailed, high-quality image prompts
+   - Use 1:1 aspect ratio for social media
+   - Include engagement-boosting elements
+   - Focus on professional photography aesthetics
+   - no_characters=true → NO human characters in prompts
+
+3. **PRODUCT MAPPING** (if products in inventory):
+   - Map images to product inventory using image_X_product_mapping
+   - Ensure products are prominently featured
+
+4. **LOGO PLACEMENT**:
+   - Set image_X_logo_needed=true for branded images
+   - Consider logo placement in composition"""
+    
+    system_prompt = f"""{persona_intro}
+
+{storytelling_section}
+
+{decision_making_section}
+{video_specific_instructions}
 
 5. **MODEL/CHARACTER CONSISTENCY**:
    - If has_model_image=true → Use "reference model" in ALL image prompts (UGC only)
