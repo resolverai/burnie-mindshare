@@ -35,6 +35,8 @@ export const ProductShotFlow = () => {
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showPricingModal, setShowPricingModal] = useState(false);
+  const [mustSubscribeToFreemium, setMustSubscribeToFreemium] = useState(false);
+  const [usageData, setUsageData] = useState<any>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -322,15 +324,20 @@ export const ProductShotFlow = () => {
       const data = await response.json();
       
       if (data.success && data.data) {
-        // Check if user has a paid plan (not free trial)
-        const isPaidCustomer = data.data.planId && !data.data.isFreeTrialPlan;
+        setUsageData(data.data);
+        
+        // Check if user has a paid plan (not free trial) or active subscription
+        const isPaidCustomer = data.data.hasActiveSubscription && !data.data.isInFreemiumTrial;
         
         // Check quota limits
         const hasImagesLeft = data.data.remainingImages > 0;
         const hasVideosLeft = data.data.remainingVideos > 0;
         const hasQuotaAvailable = hasImagesLeft || hasVideosLeft;
         
-        console.log('📊 Usage check:', { isPaidCustomer, hasQuotaAvailable, data: data.data });
+        // Check if user MUST subscribe to freemium to continue
+        const mustSubscribe = data.data.mustSubscribeToFreemium || false;
+        
+        console.log('📊 Usage check:', { isPaidCustomer, hasQuotaAvailable, mustSubscribe, data: data.data });
         
         if (isPaidCustomer && hasQuotaAvailable) {
           // Paid customer with quota available - go directly to content library
@@ -357,7 +364,8 @@ export const ProductShotFlow = () => {
           return;
         }
         
-        // Otherwise show pricing modal (skippable)
+        // Show pricing modal - mandatory if mustSubscribeToFreemium, otherwise skippable
+        setMustSubscribeToFreemium(mustSubscribe);
         trackProductShotPricingShown();
         setShowPricingModal(true);
       } else {
@@ -374,6 +382,11 @@ export const ProductShotFlow = () => {
   };
 
   const handlePricingClose = () => {
+    // If user MUST subscribe, don't allow closing
+    if (mustSubscribeToFreemium) {
+      return;
+    }
+    
     setShowPricingModal(false);
     
     // Track flow completed
@@ -427,9 +440,18 @@ export const ProductShotFlow = () => {
       <PricingModal
         open={showPricingModal}
         onClose={handlePricingClose}
-        canSkip={true}
-        reason="user_initiated"
+        currentPlanInfo={usageData ? {
+          planName: usageData.planName || 'Free Trial',
+          planId: usageData.planId || null,
+          monthlyPrice: usageData.monthlyPrice || 0,
+          annualPrice: usageData.annualPrice || 0,
+          billingCycle: usageData.billingCycle || 'monthly',
+          isFreeTrialPlan: usageData.isFreeTrialPlan || false,
+        } : null}
+        canSkip={!mustSubscribeToFreemium}
+        reason={mustSubscribeToFreemium ? 'freemium_required' : 'user_initiated'}
         userFlow="product_photoshot"
+        mustSubscribe={mustSubscribeToFreemium}
       />
     </>
   );

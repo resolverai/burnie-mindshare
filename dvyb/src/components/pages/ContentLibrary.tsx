@@ -90,6 +90,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
   const [showInactiveAccountDialog, setShowInactiveAccountDialog] = useState(false);
   const [usageData, setUsageData] = useState<any>(null);
   const [canSkipPricingModal, setCanSkipPricingModal] = useState(false); // True if only one quota exhausted
+  const [mustSubscribeToFreemium, setMustSubscribeToFreemium] = useState(false); // True if opt-out trial required
   
   // Onboarding guide
   const { completeStep } = useOnboardingGuide();
@@ -518,8 +519,8 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
       <header className="border-b bg-card">
         <div className="max-w-7xl mx-auto px-4 md:px-6 py-4">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-            <h1 className="text-xl md:hidden font-bold text-foreground">Content Library</h1>
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 md:gap-4 w-full md:w-auto md:ml-auto">
+            <h1 className="text-xl font-bold text-foreground">Content Library</h1>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 md:gap-4 w-full md:w-auto">
               <div className="flex items-center gap-3">
                 <span className="text-sm font-medium">Posted Content</span>
                 <Switch checked={showPosted} onCheckedChange={setShowPosted} />
@@ -587,6 +588,82 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
 
       {/* Content Grid */}
       <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6 pb-24">
+        {/* Hero Generate Content Button - Desktop/Tablet */}
+        <div className="hidden md:flex items-center justify-center mb-8 md:mb-10 min-h-[180px] bg-gradient-to-b from-background to-muted/20 rounded-2xl">
+          <Button 
+            onClick={async () => {
+              // Track event
+              trackGenerateContentClicked('content_library');
+              
+              // Check account status and usage limits
+              try {
+                const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/usage`, {
+                  credentials: 'include',
+                  headers: {
+                    ...(() => {
+                      const accountId = localStorage.getItem('dvyb_account_id');
+                      return accountId ? { 'X-DVYB-Account-ID': accountId } : {};
+                    })(),
+                  },
+                });
+                const data = await response.json();
+                
+                if (data.success && data.data) {
+                  setUsageData(data.data);
+                  
+                  // First check if account is active
+                  if (data.data.isAccountActive === false) {
+                    setShowInactiveAccountDialog(true);
+                    return;
+                  }
+                  
+                  // Check if user MUST subscribe to opt-out trial first
+                  if (data.data.mustSubscribeToFreemium) {
+                    console.log('🚫 [ContentLibrary] User must subscribe to opt-out plan before generating');
+                    setMustSubscribeToFreemium(true);
+                    setQuotaType('both');
+                    setCanSkipPricingModal(false);
+                    setShowPricingModal(true);
+                    return;
+                  } else {
+                    setMustSubscribeToFreemium(false);
+                  }
+                  
+                  // Check quota limits
+                  const noImagesLeft = data.data.remainingImages === 0;
+                  const noVideosLeft = data.data.remainingVideos === 0;
+                  
+                  if (noImagesLeft && noVideosLeft) {
+                    // BOTH quotas exhausted - must upgrade, cannot skip
+                    setQuotaType('both');
+                    setCanSkipPricingModal(false);
+                    setShowPricingModal(true);
+                  } else if (noImagesLeft && !noVideosLeft) {
+                    // Only image quota exhausted - can skip and generate videos
+                    setQuotaType('image');
+                    setCanSkipPricingModal(true);
+                    setShowPricingModal(true);
+                  } else if (noVideosLeft && !noImagesLeft) {
+                    // Only video quota exhausted - can skip and generate images
+                    setQuotaType('video');
+                    setCanSkipPricingModal(true);
+                    setShowPricingModal(true);
+                  } else {
+                    setShowGenerateDialog(true);
+                  }
+                }
+              } catch (error) {
+                console.error('Failed to check usage:', error);
+                setShowGenerateDialog(true);
+              }
+            }}
+            className="btn-gradient-cta px-16 py-10 text-2xl font-bold shadow-xl hover:shadow-2xl transition-all hover:scale-105 rounded-xl"
+          >
+            <Sparkles className="w-7 h-7 mr-3" />
+            Generate Content
+          </Button>
+        </div>
+
         {showPosted ? (
           // Posted Content as Cards
           <>
@@ -665,12 +742,12 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
         ) : (
           // Scheduled and Not Selected Content
           <>
-            {/* Scheduled Section - Always visible */}
+            {/* Scheduled Section - Only show if has items */}
+            {scheduledContent.length > 0 && (
               <div className="mb-6 md:mb-8">
-              <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">
-                Scheduled {isLoading ? '' : `(${scheduledContent.length})`}
-              </h2>
-              {scheduledContent.length > 0 ? (
+                <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">
+                  Scheduled {isLoading ? '' : `(${scheduledContent.length})`}
+                </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
                   {scheduledContent.map((item) => (
                     <Card
@@ -736,13 +813,8 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                     </Card>
                   ))}
                 </div>
-              ) : (
-                <div className="text-center py-8 md:py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-                  <p className="text-gray-500 text-sm md:text-base font-medium">No posts scheduled</p>
-                  <p className="text-gray-400 text-xs md:text-sm mt-2">Schedule posts from the "Selected" or "Pending Review" sections below</p>
               </div>
             )}
-            </div>
 
             {/* Selected Section */}
             {selectedContent.length > 0 && (
@@ -1182,6 +1254,18 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                   return;
                 }
                 
+                // Check if user MUST subscribe to opt-out trial first
+                if (data.data.mustSubscribeToFreemium) {
+                  console.log('🚫 [ContentLibrary Mobile] User must subscribe to opt-out plan before generating');
+                  setMustSubscribeToFreemium(true);
+                  setQuotaType('both');
+                  setCanSkipPricingModal(false);
+                  setShowPricingModal(true);
+                  return;
+                } else {
+                  setMustSubscribeToFreemium(false);
+                }
+                
                 // Check quota limits
                 const noImagesLeft = data.data.remainingImages === 0;
                 const noVideosLeft = data.data.remainingVideos === 0;
@@ -1217,77 +1301,14 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
         </Button>
       </div>
       
-      {/* Tablet/Desktop: Prominent Generate Content Button - Top left, replacing Content Library heading */}
-      <div className="hidden md:block fixed top-[15px] left-[280px] lg:left-[300px] z-50">
-        <Button 
-          onClick={async () => {
-            // Track event
-            trackGenerateContentClicked('content_library');
-            
-            // Check account status and usage limits
-            try {
-              const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/usage`, {
-                credentials: 'include',
-                headers: {
-                  ...(() => {
-                    const accountId = localStorage.getItem('dvyb_account_id');
-                    return accountId ? { 'X-DVYB-Account-ID': accountId } : {};
-                  })(),
-                },
-              });
-              const data = await response.json();
-              
-              if (data.success && data.data) {
-                setUsageData(data.data);
-                
-                // First check if account is active
-                if (data.data.isAccountActive === false) {
-                  setShowInactiveAccountDialog(true);
-                  return;
-                }
-                
-                // Check quota limits
-                const noImagesLeft = data.data.remainingImages === 0;
-                const noVideosLeft = data.data.remainingVideos === 0;
-                
-                if (noImagesLeft && noVideosLeft) {
-                  // BOTH quotas exhausted - must upgrade, cannot skip
-                  setQuotaType('both');
-                  setCanSkipPricingModal(false);
-                  setShowPricingModal(true);
-                } else if (noImagesLeft && !noVideosLeft) {
-                  // Only image quota exhausted - can skip and generate videos
-                  setQuotaType('image');
-                  setCanSkipPricingModal(true);
-                  setShowPricingModal(true);
-                } else if (noVideosLeft && !noImagesLeft) {
-                  // Only video quota exhausted - can skip and generate images
-                  setQuotaType('video');
-                  setCanSkipPricingModal(true);
-                  setShowPricingModal(true);
-                } else {
-                  setShowGenerateDialog(true);
-                }
-              }
-            } catch (error) {
-              console.error('Failed to check usage:', error);
-              setShowGenerateDialog(true);
-            }
-          }}
-          className="btn-gradient-cta px-9 py-6 text-xl font-semibold shadow-lg hover:shadow-xl transition-shadow"
-        >
-          <Sparkles className="w-6 h-6 mr-2" />
-          Generate Content
-        </Button>
-      </div>
-
       {/* Full-screen Pricing Modal */}
       <PricingModal
         open={showPricingModal}
         onClose={() => {
           setShowPricingModal(false);
           // If user can skip (only one quota exhausted), proceed to generate
-          if (canSkipPricingModal) {
+          // Note: When mustSubscribeToFreemium is true, we don't auto-open GenerateContentDialog
+          if (canSkipPricingModal && !mustSubscribeToFreemium) {
             setShowGenerateDialog(true);
           }
         }}
@@ -1301,9 +1322,10 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
         } : null}
         quotaType={quotaType}
         isAuthenticated={true}
-        canSkip={canSkipPricingModal}
-        reason="quota_exhausted"
+        canSkip={!mustSubscribeToFreemium && canSkipPricingModal}
+        reason={mustSubscribeToFreemium ? 'freemium_required' : 'quota_exhausted'}
         userFlow={usageData?.initialAcquisitionFlow || 'website_analysis'}
+        mustSubscribe={mustSubscribeToFreemium}
       />
 
       {/* Inactive Account Dialog */}

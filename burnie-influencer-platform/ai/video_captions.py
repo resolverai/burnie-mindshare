@@ -226,7 +226,8 @@ class VideoCaptionStyler:
             return texts  # Return original texts on error
     
     def auto_generate_captions(self, max_words_per_caption=None, style_preset="karaoke", 
-                               word_effect="karaoke", custom_css=None, transliterate=False):
+                               word_effect="karaoke", custom_css=None, transliterate=False,
+                               caption_start_time: float = 0.0):
         """
         Automatically generate captions from transcription data
         
@@ -236,6 +237,8 @@ class VideoCaptionStyler:
             word_effect: Animation effect for words
             custom_css: Custom styling
             transliterate: If True, transliterate Devanagari text to English
+            caption_start_time: Start captions only after this time (seconds). 
+                               Words before this time will be excluded from captions.
         """
         if not self.transcription_data:
             print("No transcription data! Run transcribe_audio() first.")
@@ -256,7 +259,15 @@ class VideoCaptionStyler:
             print(f"⚠ Reducing max_words_per_caption from {max_words_per_caption} to 3 for vertical video")
             max_words_per_caption = 3
         
-        words = self.transcription_data.words
+        # Filter words to only include those after caption_start_time
+        all_words = self.transcription_data.words
+        if caption_start_time > 0:
+            words = [w for w in all_words if hasattr(w, 'start') and w.start >= caption_start_time]
+            excluded_count = len(all_words) - len(words)
+            if excluded_count > 0:
+                print(f"  🎬 Captions starting at {caption_start_time:.2f}s (skipped {excluded_count} words from Clip 0)")
+        else:
+            words = all_words
         total_words = len(words)
         
         # Apply transliteration if requested
@@ -504,8 +515,10 @@ class VideoCaptionStyler:
         # For karaoke and boxed styles, use fixed font sizes to ensure consistency
         base_size = 70 if self.is_vertical else 90
         
-        # Karaoke font size - larger for impact (60 for vertical, 70 for horizontal)
-        karaoke_fontsize = 60 if self.is_vertical else 70
+        # Karaoke font size - FIXED size for consistency across ALL clips
+        # This value is ALSO hardcoded in the karaoke effect logic to ensure consistency
+        # If you change this, also change KARAOKE_FIXED_FONTSIZE in _create_word_effect_filters
+        karaoke_fontsize = 55  # Fixed size - DO NOT make this dynamic!
         
         # ===========================================
         # BOLD & MODERN SOCIAL MEDIA PRESETS
@@ -632,97 +645,97 @@ class VideoCaptionStyler:
             
             # KARAOKE STYLES - Words stacked vertically, current word highlighted with colored box
             # Each word on its own line, up to 2 words visible (previous in white, current highlighted)
-            # Larger font size for impact (60 for vertical, 70 for horizontal)
+            # Fixed font size for consistency across all clips, pushed down for better visibility
             "karaoke": {
-                "fontsize": karaoke_fontsize,  # Larger font for impact
+                "fontsize": karaoke_fontsize,  # Fixed size for consistency
                 "fontcolor": "white",
                 "highlight_color": "#D946EF",  # Purple/pink
                 "fontfile": default_font,
-                "borderw": 0,  # No text border (box provides the border)
+                "borderw": 5,  # Thicker text border for bolder/heavier appearance
                 "bordercolor": "black",
-                "shadowx": 2,
-                "shadowy": 2,
-                "shadowcolor": "black@0.8",
+                "shadowx": 5,
+                "shadowy": 5,
+                "shadowcolor": "black@1.0",
                 "x": "(w-text_w)/2",
-                "y": "h*0.60"  # Slightly below center for vertical videos
+                "y": "h*0.85"  # Pushed down (85% from top)
             },
             "karaoke_pink": {
                 "fontsize": karaoke_fontsize,
                 "fontcolor": "white",
                 "highlight_color": "#FF1493",  # Hot pink
                 "fontfile": default_font,
-                "borderw": 0,
+                "borderw": 5,
                 "bordercolor": "black",
-                "shadowx": 2,
-                "shadowy": 2,
-                "shadowcolor": "black@0.8",
+                "shadowx": 5,
+                "shadowy": 5,
+                "shadowcolor": "black@1.0",
                 "x": "(w-text_w)/2",
-                "y": "h*0.60"
+                "y": "h*0.85"
             },
             "karaoke_blue": {
                 "fontsize": karaoke_fontsize,
                 "fontcolor": "white",
                 "highlight_color": "#3B82F6",  # Blue
                 "fontfile": default_font,
-                "borderw": 0,
+                "borderw": 5,
                 "bordercolor": "black",
-                "shadowx": 2,
-                "shadowy": 2,
-                "shadowcolor": "black@0.8",
+                "shadowx": 5,
+                "shadowy": 5,
+                "shadowcolor": "black@1.0",
                 "x": "(w-text_w)/2",
-                "y": "h*0.60"
+                "y": "h*0.85"
             },
             "karaoke_green": {
                 "fontsize": karaoke_fontsize,
                 "fontcolor": "white",
                 "highlight_color": "#22C55E",  # Green
                 "fontfile": default_font,
-                "borderw": 0,
+                "borderw": 5,
                 "bordercolor": "black",
-                "shadowx": 2,
-                "shadowy": 2,
-                "shadowcolor": "black@0.8",
+                "shadowx": 5,
+                "shadowy": 5,
+                "shadowcolor": "black@1.0",
                 "x": "(w-text_w)/2",
-                "y": "h*0.60"
+                "y": "h*0.85"
             },
             "karaoke_orange": {
                 "fontsize": karaoke_fontsize,
                 "fontcolor": "white",
                 "highlight_color": "#F97316",  # Orange
                 "fontfile": default_font,
-                "borderw": 0,
+                "borderw": 5,
                 "bordercolor": "black",
-                "shadowx": 2,
-                "shadowy": 2,
-                "shadowcolor": "black@0.8",
+                "shadowx": 5,
+                "shadowy": 5,
+                "shadowcolor": "black@1.0",
                 "x": "(w-text_w)/2",
-                "y": "h*0.60"
+                "y": "h*0.85"
             },
             "karaoke_red": {
                 "fontsize": karaoke_fontsize,
                 "fontcolor": "white",
                 "highlight_color": "#EF4444",  # Red
                 "fontfile": default_font,
-                "borderw": 0,
+                "borderw": 5,
                 "bordercolor": "black",
-                "shadowx": 2,
-                "shadowy": 2,
-                "shadowcolor": "black@0.8",
+                "shadowx": 5,
+                "shadowy": 5,
+                "shadowcolor": "black@1.0",
                 "x": "(w-text_w)/2",
-                "y": "h*0.60"
+                "y": "h*0.85"
             },
             "karaoke_yellow": {
                 "fontsize": karaoke_fontsize,
                 "fontcolor": "white",
                 "highlight_color": "#FBBF24",  # Yellow
                 "fontfile": default_font,
-                "borderw": 0,
+                "borderw": 5,
                 "bordercolor": "black",
-                "shadowx": 2,
-                "shadowy": 2,
-                "shadowcolor": "black@0.8",
+                "shadowx": 5,
+                "shadowy": 5,
+                "shadowcolor": "black@1.0",
                 "x": "(w-text_w)/2",
-                "y": "h*0.60"
+                "y": "h*0.85"
             },
             
             # BOXED PINK - Each word with pink box
@@ -877,17 +890,25 @@ class VideoCaptionStyler:
                 """Escape single quotes for FFmpeg text expressions"""
                 return t.replace("'", "''").replace("\\", "\\\\")
             
-            # Get font size and calculate line spacing
-            fontsize = style.get('fontsize', 60)  # Larger font for impact
-            line_height = fontsize * 1.3  # Spacing between lines (30% of font size)
+            # FIXED font size for consistency across ALL clips (AI_VIDEO, IMAGE_ONLY, etc.)
+            # This is hardcoded to ensure the same font size regardless of video dimensions
+            KARAOKE_FIXED_FONTSIZE = 55
+            fontsize = KARAOKE_FIXED_FONTSIZE
+            line_height = fontsize * 1.4  # Spacing between lines (40% of font size)
             
-            # Base y position (centered vertically, slightly below center for vertical videos)
-            base_y_pct = 0.60 if self.is_vertical else 0.50
+            # Base y position - pushed down to 85% from top for better visibility
+            base_y_pct = 0.85
             base_y = f"h*{base_y_pct}"
             
             # Base style for non-highlighted words (white text, no box)
             base_style = style.copy()
+            base_style['fontsize'] = KARAOKE_FIXED_FONTSIZE  # FORCE fixed font size
             base_style['fontcolor'] = 'white'
+            base_style['borderw'] = 5  # Thicker border for bolder/heavier appearance
+            base_style['bordercolor'] = 'black'
+            base_style['shadowx'] = 5
+            base_style['shadowy'] = 5
+            base_style['shadowcolor'] = 'black@1.0'
             base_style['x'] = '(w-text_w)/2'  # Centered horizontally
             # Remove box properties for base style
             for key in ['box', 'boxcolor', 'boxborderw']:
@@ -896,11 +917,15 @@ class VideoCaptionStyler:
             
             # Highlighted style for current word (white text with colored box)
             highlight_style = style.copy()
+            highlight_style['fontsize'] = KARAOKE_FIXED_FONTSIZE  # FORCE fixed font size
             highlight_style['fontcolor'] = 'white'
             highlight_style['box'] = 1
             highlight_style['boxcolor'] = style.get('highlight_color', '#D946EF') + '@0.95'
-            highlight_style['boxborderw'] = 14  # Thicker border for more impact
-            highlight_style['borderw'] = 0  # No text border, just the box
+            highlight_style['boxborderw'] = 14  # Thicker box border for more impact
+            highlight_style['borderw'] = 0  # No text border for highlighted word (box provides border)
+            highlight_style['shadowx'] = 5
+            highlight_style['shadowy'] = 5
+            highlight_style['shadowcolor'] = 'black@1.0'
             highlight_style['x'] = '(w-text_w)/2'  # Centered horizontally
             
             # Process each word, showing it and previous word(s) stacked vertically

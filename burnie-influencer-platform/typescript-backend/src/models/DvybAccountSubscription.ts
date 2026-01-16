@@ -42,6 +42,13 @@ export class DvybAccountSubscription {
   @Column({ type: 'timestamp', nullable: true })
   currentPeriodEnd!: Date | null;
 
+  // Freemium trial tracking
+  @Column({ type: 'timestamp', nullable: true })
+  trialStart!: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  trialEnd!: Date | null;
+
   @Column({ type: 'boolean', default: false })
   cancelAtPeriodEnd!: boolean;
 

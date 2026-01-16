@@ -94,6 +94,8 @@ router.post('/', async (req: Request, res: Response) => {
       isActive,
       isFreeTrialPlan,
       planFlow, // Flow type: 'website_analysis' or 'product_photoshot'
+      isFreemium, // Freemium flag: 7-day trial before charging
+      freemiumTrialDays, // Number of trial days (default 7)
       createStripeProduct, // Flag to auto-create Stripe product
     } = req.body;
 
@@ -126,6 +128,8 @@ router.post('/', async (req: Request, res: Response) => {
       isActive: isActive !== undefined ? isActive : true,
       isFreeTrialPlan: isFreeTrialPlan || false,
       planFlow: planFlow || 'website_analysis',
+      isFreemium: isFreemium || false,
+      freemiumTrialDays: freemiumTrialDays || 7,
     });
 
     await planRepo.save(newPlan);
@@ -200,6 +204,8 @@ router.patch('/:id', async (req: Request, res: Response) => {
       isActive,
       isFreeTrialPlan,
       planFlow, // Flow type: 'website_analysis' or 'product_photoshot'
+      isFreemium, // Freemium flag: 7-day trial before charging
+      freemiumTrialDays, // Number of trial days (default 7)
       // Stripe fields - can be manually updated
       stripeProductId,
       stripeMonthlyPriceId,
@@ -227,6 +233,8 @@ router.patch('/:id', async (req: Request, res: Response) => {
     if (isActive !== undefined) plan.isActive = isActive;
     if (isFreeTrialPlan !== undefined) plan.isFreeTrialPlan = isFreeTrialPlan;
     if (planFlow !== undefined) plan.planFlow = planFlow;
+    if (isFreemium !== undefined) plan.isFreemium = isFreemium;
+    if (freemiumTrialDays !== undefined) plan.freemiumTrialDays = freemiumTrialDays;
 
     // Update Stripe IDs (manual entry)
     if (stripeProductId !== undefined) plan.stripeProductId = stripeProductId || null;

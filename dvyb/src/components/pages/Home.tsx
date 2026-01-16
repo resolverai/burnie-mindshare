@@ -67,6 +67,7 @@ export const Home = () => {
   const [showInactiveAccountDialog, setShowInactiveAccountDialog] = useState(false);
   const [usageData, setUsageData] = useState<any>(null);
   const [canSkipPricingModal, setCanSkipPricingModal] = useState(false);
+  const [mustSubscribeToFreemium, setMustSubscribeToFreemium] = useState(false);
   const [activeView, setActiveView] = useState("home");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [accountName, setAccountName] = useState("User");
@@ -540,6 +541,18 @@ export const Home = () => {
                           // Account is not active - show inactive account dialog
                           setShowInactiveAccountDialog(true);
                           return;
+                        }
+                        
+                        // Check if user must subscribe to opt-out trial before generating
+                        if (data.data.mustSubscribeToFreemium) {
+                          console.log('🚫 User must subscribe to opt-out trial before generating');
+                          setMustSubscribeToFreemium(true);
+                          setQuotaType('both');
+                          setCanSkipPricingModal(false);
+                          setShowPricingModal(true);
+                          return;
+                        } else {
+                          setMustSubscribeToFreemium(false);
                         }
                         
                         // Check quota limits
@@ -1302,7 +1315,8 @@ export const Home = () => {
             onClose={() => {
               setShowPricingModal(false);
               // If user can skip (only one quota exhausted), proceed to generate
-              if (canSkipPricingModal) {
+              // Note: When mustSubscribeToFreemium is true, we don't auto-open GenerateContentDialog
+              if (canSkipPricingModal && !mustSubscribeToFreemium) {
                 setShowGenerateDialog(true);
               }
             }}
@@ -1316,9 +1330,10 @@ export const Home = () => {
             } : null}
             quotaType={quotaType}
             isAuthenticated={true}
-            canSkip={canSkipPricingModal}
-            reason="quota_exhausted"
+            canSkip={!mustSubscribeToFreemium && canSkipPricingModal}
+            reason={mustSubscribeToFreemium ? 'freemium_required' : 'quota_exhausted'}
             userFlow={usageData?.initialAcquisitionFlow || 'website_analysis'}
+            mustSubscribe={mustSubscribeToFreemium}
           />
 
           {/* Inactive Account Dialog */}

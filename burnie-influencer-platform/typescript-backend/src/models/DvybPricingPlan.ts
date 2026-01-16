@@ -60,6 +60,21 @@ export class DvybPricingPlan {
   })
   planFlow!: 'website_analysis' | 'product_photoshot';
 
+  // Freemium model - 7-day free trial with payment method required upfront
+  @Column({ 
+    type: 'boolean', 
+    default: false,
+    comment: 'If true, users get a free trial period before being charged'
+  })
+  isFreemium!: boolean;
+
+  @Column({ 
+    type: 'int', 
+    default: 7,
+    comment: 'Number of days for the free trial period (only applies if isFreemium is true)'
+  })
+  freemiumTrialDays!: number;
+
   @CreateDateColumn()
   createdAt!: Date;
 

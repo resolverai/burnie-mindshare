@@ -172,6 +172,11 @@ async function createSubscriptionRecord(
   const periodStart = subData.current_period_start || subData.currentPeriodStart;
   const periodEnd = subData.current_period_end || subData.currentPeriodEnd;
   const cancelAtPeriodEnd = subData.cancel_at_period_end ?? subData.cancelAtPeriodEnd ?? false;
+  
+  // Trial period tracking (for freemium plans)
+  const trialStart = subData.trial_start || subData.trialStart;
+  const trialEnd = subData.trial_end || subData.trialEnd;
+  const isTrialing = subscription.status === 'trialing';
 
   if (existingSub) {
     // Update existing subscription
@@ -180,9 +185,15 @@ async function createSubscriptionRecord(
     existingSub.currentPeriodEnd = periodEnd ? new Date(periodEnd * 1000) : null;
     existingSub.cancelAtPeriodEnd = cancelAtPeriodEnd;
     existingSub.stripePriceId = priceId;
+    existingSub.trialStart = trialStart ? new Date(trialStart * 1000) : null;
+    existingSub.trialEnd = trialEnd ? new Date(trialEnd * 1000) : null;
     if (planId) existingSub.planId = planId;
     existingSub.selectedFrequency = frequency;
     await subscriptionRepo.save(existingSub);
+    
+    if (isTrialing) {
+      logger.info(`🎁 Subscription ${subscription.id} is in trial period (ends: ${existingSub.trialEnd})`);
+    }
   } else {
     // Create new subscription record
     const newSub = subscriptionRepo.create({
@@ -195,9 +206,16 @@ async function createSubscriptionRecord(
       currentPeriodStart: periodStart ? new Date(periodStart * 1000) : null,
       currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000) : null,
       cancelAtPeriodEnd: cancelAtPeriodEnd,
+      trialStart: trialStart ? new Date(trialStart * 1000) : null,
+      trialEnd: trialEnd ? new Date(trialEnd * 1000) : null,
     });
     await subscriptionRepo.save(newSub);
-    logger.info(`✅ Created subscription record for account ${accountId}`);
+    
+    if (isTrialing) {
+      logger.info(`🎁 Created trialing subscription for account ${accountId} (trial ends: ${newSub.trialEnd})`);
+    } else {
+      logger.info(`✅ Created subscription record for account ${accountId}`);
+    }
   }
 
   // Update account with current plan

@@ -21,6 +21,7 @@ import asyncio
 import subprocess
 import base64
 import time
+import glob
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass
@@ -50,6 +51,9 @@ fal_api_key = os.getenv("FAL_API_KEY")
 # OpenAI API key for Whisper transcription (influencer mode voice alignment)
 openai_api_key = os.getenv("OPENAI_API_KEY")
 
+# ElevenLabs API key for direct API calls (allows custom voices)
+elevenlabs_api_key = os.getenv("ELEVENLABS_API_KEY")
+
 # AWS credentials for S3 uploads (presigned URLs for images/videos)
 # Note: Using S3_BUCKET_NAME (not AWS_S3_BUCKET_NAME) to match settings.py
 aws_access_key_id = os.getenv("AWS_ACCESS_KEY_ID")
@@ -67,6 +71,14 @@ from dynamic_video_generator import (
 
 # Import video caption functionality
 from video_captions import VideoCaptionStyler, COMBINATIONS, find_combination
+
+# Import article_to_video for research clips
+from article_to_video import (
+    search_articles,
+    capture_multiple_folds,
+    suggest_highlight_text,
+    create_highlight_video
+)
 
 
 # ============================================
@@ -366,7 +378,7 @@ Effects use BOUNDING BOX coordinates:
         # Basic movement effects
         "zoom_in", "zoom_out", "pan", "ken_burns",
         # Emphasis effects
-        "shake", "zoom_pulse", "zoom_whip", "heartbeat",
+        "shake", "zoom_pulse", "zoom_whip",
         # Visual style effects
         "flash", "letterbox", "color_shift", "contrast_boost",
         # Advanced effects from dynamic_video_generator (all implemented in EffectEngine)
@@ -389,66 +401,146 @@ Effects use BOUNDING BOX coordinates:
 # GROK INTEGRATION
 # ============================================
 
-def get_political_video_system_prompt(language_code: str = "hi", language_name: str = "Hindi", influencer_mode: bool = False, influencer_gender: Optional[str] = None, current_date: Optional[str] = None, min_duration: int = 60, max_duration: int = 90) -> str:
-    """Get the system prompt for video generation (Stage 1 - Plan generation). Works for any context: political, business, technology, healthcare, finance, education, etc."""
+def get_political_video_system_prompt(language_code: str = "hi", language_name: str = "Hindi", influencer_mode: bool = False, influencer_gender: Optional[str] = None, current_date: Optional[str] = None, min_duration: int = 60, max_duration: int = 90, image_group_proportion: float = 0.5, voiceover_emotions: bool = False, reference_image_mode: bool = False, include_research: bool = False, research_type: str = "news") -> str:
+    """Get the system prompt for video generation (Stage 1 - Plan generation). Works for any context: political, business, technology, healthcare, finance, education, etc.
+    
+    Args:
+        reference_image_mode: If True, a reference influencer image is provided from CLI.
+                            All influencer prompts should use "reference influencer" terminology.
+        include_research: If True, generate research_integration with searchable claims for mini-clips.
+        research_type: Type of research source to search - "news", "blog", "report", "twitter".
+    """
     
     # Determine AI video rules based on influencer mode
     if influencer_mode:
         gender_text = influencer_gender or "male"
         gender_pronoun = "she" if gender_text == "female" else "he"
         gender_descriptor = "woman" if gender_text == "female" else "man"
-        ai_video_rules = f"""## 🎥 AI VIDEO CLIP RULES - INFLUENCER MODE (VERY STRICT)
-
-⚠️ **UP TO 3 AI-generated video clips** in the entire video (some may fail and be replaced with IMAGE_ONLY)
-
-### Influencer Clip Requirements:
-* SHOULD have **up to 3 AI_VIDEO clips** (ideally 3, but if generation fails, failover to IMAGE_ONLY is acceptable)
-* **ALL AI_VIDEO clips**: MUST be **exactly 8 seconds long** each
-* Total influencer screen time: **24 seconds** (8 + 8 + 8 seconds)
-
-### Selecting Which Clips Should Be AI_VIDEO:
-* Choose the **3 most emotionally impactful moments** in the narrative
-* Ideal for: revelations, accusations, shocking facts, call-to-action
-* Distribute influencer clips **throughout the video** (not all at beginning or end)
-* Example distribution for 8 clips: Clips 1, 4, 7 could be AI_VIDEO
-
-### Influencer Visual Composition (CREATIVE FREEDOM):
-* **LAYOUT OPTIONS** - Choose the BEST layout for each clip's narrative purpose:
-  - **Lower portion**: Influencer in lower 30-50% with context visuals above (classic presenter)
-  - **Side split**: Influencer on left/right 40% with context on opposite side
-  - **Center focus**: Influencer centered with blurred/dark context around edges
-  - **Corner overlay**: Influencer in corner (20-30%) with full context behind
-* **VARY POSITIONING** across the 3 influencer clips for visual interest
-* **STYLE**: Think "news presenter", "TikTok explainer", "reaction video"
-* **EXPRESSION**: Influencer must show emotion matching the voiceover text
-* **SPECIFY POSITION**: In each prompt, clearly state WHERE the influencer appears
-  - Example: "Influencer in bottom-left corner (30% of frame)"
-  - Example: "Influencer centered in lower third"
-  - Example: "Split screen: influencer on right, context map on left"
-
-### Influencer Prompt Format:
-For the **FIRST AI_VIDEO clip**, provide FULL character description + POSITION:
+        
+        # Build reference image instructions based on whether CLI reference image is provided
+        if reference_image_mode:
+            reference_image_instructions = """### 🚨 REFERENCE IMAGE MODE (CRITICAL - CLI REFERENCE IMAGE PROVIDED):
+* **A reference influencer image is provided from CLI** - use "reference influencer" terminology in ALL AI_VIDEO prompts
+* **ALL AI_VIDEO clips (including the FIRST one) must use "reference influencer"** - do NOT provide full character description
+* **CRITICAL**: ALWAYS include: "Only take reference influencer from the reference image for new image generation. Ignore text from reference image."
+* **IMPORTANT**: Even for Clip 1 (first AI_VIDEO clip), use "reference influencer" instead of describing appearance
+* **FORMAT**: All starting_image_prompt fields should look like: "Reference influencer [expression], [position], [lighting], [background]. Only take reference influencer from the reference image for new image generation. Ignore text from reference image. no text overlays"
+"""
+        else:
+            reference_image_instructions = f"""For the **FIRST AI_VIDEO clip**, provide FULL character description + POSITION with **CINEMATIC VISUAL STYLE**:
 * **CRITICAL**: The influencer must be a {gender_descriptor} (gender: {gender_text})
 * **CONTEXT-AWARE APPEARANCE**: Adapt influencer appearance to match the input context:
-  * If input mentions India/Indian context → Indian ethnicity, age (25-35), {gender_descriptor}, appropriate attire (professional or traditional based on context)
+  * If input mentions India/Indian context → Indian ethnicity, age (25-35), {gender_descriptor}, appropriate attire
   * If input mentions USA/American context → American ethnicity, age (25-35), {gender_descriptor}, professional attire
-  * If input mentions other countries → Appropriate ethnicity and attire for that country
-  * If input is global/unspecified → Diverse/international appearance, professional attire
-* Specify: Ethnicity (based on context), age (25-35), {gender_descriptor}, attire (professional or context-appropriate), expression, exact position in frame
-* **CRITICAL: NO DUPLICATE HUMANS**: The same person (influencer or any human) must appear ONLY ONCE in the entire image. Never describe the same person appearing in both upper and lower portions, or in split compositions. If you describe a visual in "upper portion" and an influencer in "lower portion", ensure they are DIFFERENT people or the influencer is ONLY in one location.
-* Example 1 (lower portion, Indian context): "Dramatic visual of [context] in upper portion. 28-year-old Indian {gender_descriptor}, professional casual attire, dark hair, confident expression, speaking directly to camera in lower portion. **CRITICAL**: Never include text like 'UPPER 55%' or 'LOWER 45%' in the generated image - these are composition instructions, not visual elements. The influencer appears ONLY in the lower portion, NOT in the upper portion. no text overlays. The influencer must say EXACTLY the following text, word-for-word, without adding, removing, or changing any words: [voiceover text WITHOUT square brackets]. Do NOT make up different words or say something else."
-* Example 1 (lower portion, Tech context): "Dramatic visual of [tech context] in upper portion. 30-year-old {gender_descriptor}, lab coat or professional tech attire, confident expression, speaking directly to camera in lower portion. **CRITICAL**: Never include text like 'UPPER 55%' or 'LOWER 45%' in the generated image - these are composition instructions, not visual elements. The influencer appears ONLY in the lower portion, NOT in the upper portion. no text overlays. The influencer must say EXACTLY the following text, word-for-word, without adding, removing, or changing any words: [voiceover text WITHOUT square brackets]. Do NOT make up different words or say something else."
-* Example 2 (side split): "Split composition. Visual of [context] on the left side. 30-year-old {gender_descriptor}, professional attire (context-appropriate), professional look, speaking to camera on the right side. **CRITICAL**: Never include text like 'LEFT 60%' or 'RIGHT 40%' in the generated image - these are composition instructions, not visual elements. The influencer appears ONLY on the right side, NOT on the left side. no text overlays. The influencer must say EXACTLY the following text, word-for-word, without adding, removing, or changing any words: [voiceover text WITHOUT square brackets]. Do NOT make up different words or say something else."
-* Example 3 (corner): "Full context composition showing [visual]. BOTTOM-RIGHT CORNER (25%): 26-year-old {gender_descriptor}, professional attire (context-appropriate), appearing as overlay/presenter. Speaking to camera. The influencer appears ONLY in the bottom-right corner, NOT elsewhere in the image. no text overlays. The influencer must say EXACTLY the following text, word-for-word, without adding, removing, or changing any words: [voiceover text WITHOUT square brackets]. Do NOT make up different words or say something else."
+  * If other countries → Appropriate ethnicity and attire for that country
+"""
+        
+        ai_video_rules = f"""## 🎥 AI VIDEO CLIP RULES - INFLUENCER MODE (VERY STRICT)
 
-For **SUBSEQUENT AI_VIDEO clips** (2nd and 3rd), use "reference influencer" + VARY POSITION:
-* **VARY the influencer position** across the 3 clips for visual interest!
-* **CRITICAL**: Since these clips use nano-banana-pro/edit with reference images, you MUST include this text at the end of EVERY starting_image_prompt: "Only take reference influencer from the reference image for new image generation. Ignore text from reference image."
-* This ensures only the influencer's appearance is copied, and all text from the reference image is completely ignored, preventing text artifacts in new clips
-* **CRITICAL: NO DUPLICATE HUMANS**: The reference influencer must appear ONLY ONCE in the entire image. Never describe the reference influencer appearing in multiple locations (e.g., both upper and lower portions, or both left and right sides). The influencer should be in ONE location only.
-* **Starting Image Prompt Examples** (for image generation - NO voiceover instructions):
-  * Example: "Reference influencer speaking to camera on the left side, same appearance. Infographic showing [new context] on the right side. Only take reference influencer from the reference image for new image generation. Ignore text from reference image. **CRITICAL**: Never include text like 'LEFT 35%' or 'RIGHT 65%' in the generated image - these are composition instructions, not visual elements. The reference influencer appears ONLY on the left side, NOT on the right side. no text overlays."
-  * Example: "FULL FRAME: dramatic [context visual]. BOTTOM-LEFT CORNER (30%): Reference influencer as overlay, speaking directly to viewer. Only take reference influencer from the reference image for new image generation. Ignore text from reference image. The reference influencer appears ONLY in the bottom-left corner, NOT elsewhere in the image. no text overlays."
+⚠️ **AI Video influencer clips should be ~30% of total video duration** (some may fail and be replaced with IMAGE_ONLY)
+
+### 🚨 CLIP 1 MUST BE AI_VIDEO (MANDATORY):
+* **Clip 0**: SILENT_IMAGE (visual hook with text overlay)
+* **Clip 1**: **MUST be AI_VIDEO** - the first verbal clip MUST feature the influencer speaking
+* **WHY**: Clip 1 is the first clip with voice - having the influencer introduce the topic creates immediate connection with viewers
+* This is NON-NEGOTIABLE - Clip 1 is ALWAYS an AI_VIDEO influencer clip
+
+### Influencer Clip Requirements:
+* AI_VIDEO clips should account for **~30% of total video duration** (NOT a hardcoded number)
+* **🚨 MINIMUM 3 AI_VIDEO CLIPS**: Even if percentage calculation gives less, always have at least 3 AI influencer clips
+* **ALL AI_VIDEO clips**: MUST be **exactly 8 seconds long** each
+* **Calculate number of AI clips based on video duration**:
+  * 45-second video → 30% = 13.5 seconds → 2 AI clips by percentage, BUT **use 3 minimum** (24 seconds)
+  * 60-second video → 30% = 18 seconds → 2 AI clips by percentage, BUT **use 3 minimum** (24 seconds)
+  * 90-second video → 30% = 27 seconds → 3-4 AI clips (24-32 seconds)
+* **MINIMUM RULE**: If 30% calculation results in less than 3 clips, round UP to 3 clips
+
+### Selecting Which Clips Should Be AI_VIDEO:
+* **Clip 1 is ALWAYS AI_VIDEO** (first verbal clip after silent Clip 0)
+* Choose the **most emotionally impactful moments** for remaining AI clips
+* **MINIMUM 3 AI clips** required (including Clip 1)
+* Ideal for: introductions, revelations, accusations, shocking facts, call-to-action
+* Distribute remaining influencer clips **throughout the video** (after Clip 1)
+* Example distribution for 60s video (3 AI clips minimum): Clip 1 (intro), Clip 5 (mid-point), Clip 9 (climax)
+* Example distribution for 90s video (3-4 AI clips): Clip 1 (intro), Clip 6 (revelation), Clip 11 (peak), Clip 15 (conclusion)
+
+### Influencer Visual Composition (CONSISTENT FORMAT REQUIRED):
+* **🚨 CRITICAL: CONSISTENT LAYOUT FORMAT ACROSS ALL AI INFLUENCER CLIPS**:
+  * **YOU decide which layout format to use** - you have full autonomy to choose
+  * **BUT you MUST use the SAME format for ALL AI influencer clips** in the video
+  * **DO NOT MIX formats** - if you choose split layout, ALL influencer clips use split; if you choose overlay, ALL use overlay
+* **LAYOUT FORMAT OPTIONS** - Choose ONE format and use it for ALL AI influencer clips:
+  * **OPTION A - SPLIT LAYOUT**: Influencer on one side (left/right), context on the other side
+    * Examples: "Influencer on left, context on right" OR "Influencer on right, context on left"
+    * **If using split layout**: Use the SAME split format (e.g., always influencer on right) for ALL AI clips
+    * DO NOT mix "influencer on left" with "influencer on right" in the same video
+  * **OPTION B - OVERLAY LAYOUT**: Influencer in a corner with full context behind
+    * Examples: "bottom-right corner overlay", "bottom-left corner overlay", "lower portion overlay"
+    * **If using overlay layout**: Use the SAME corner position (e.g., always bottom-right) for ALL AI clips
+    * DO NOT mix "bottom-right" with "bottom-left" or "lower portion" in the same video
+  * **OPTION C - LOWER PORTION**: Influencer in lower 30-50% with context visuals above
+    * This counts as an overlay style - maintain consistent positioning
+* **WRONG (INCONSISTENT - DO NOT DO THIS)**:
+  * ❌ Clip 1: "Split composition, influencer on LEFT"
+  * ❌ Clip 2: "Corner overlay, bottom-RIGHT"
+  * ❌ Clip 3: "Split composition, influencer on RIGHT"
+  * (This mixes split and overlay AND mixes left/right positions)
+* **CORRECT (CONSISTENT)**:
+  * ✅ Clip 1: "Split composition, influencer on RIGHT, context on left"
+  * ✅ Clip 2: "Split composition, influencer on RIGHT, context on left"
+  * ✅ Clip 3: "Split composition, influencer on RIGHT, context on left"
+  * (All clips use the SAME format: split with influencer on right)
+* **CORRECT (CONSISTENT - OVERLAY OPTION)**:
+  * ✅ Clip 1: "Full context, influencer in BOTTOM-RIGHT corner overlay"
+  * ✅ Clip 2: "Full context, influencer in BOTTOM-RIGHT corner overlay"
+  * ✅ Clip 3: "Full context, influencer in BOTTOM-RIGHT corner overlay"
+  * (All clips use the SAME format: corner overlay at bottom-right)
+* **DECISION AUTONOMY**: You are **FULLY AUTONOMOUS** to decide which format works best for the content - **NO BIAS** towards any particular format:
+  * **Split layout**: Good for side-by-side comparison, data visualization, formal presentation
+  * **Overlay layout**: Good for reaction videos, dramatic reveals, immersive storytelling  
+  * **Lower portion**: Good for news presenter style, explainer content
+  * **Your choice is COMPLETELY FREE** - choose based on what makes the video most engaging for THIS content
+  * **DO NOT default to any one format** - analyze the content and pick the best fit
+  * Once you choose, **MAINTAIN that choice for ALL AI influencer clips** throughout the video
+* **STYLE**: Think "news presenter", "TikTok explainer", "reaction video"
+* **EXPRESSION**: Influencer must show emotion matching the voiceover text
+* **SPECIFY POSITION**: In each prompt, clearly state WHERE the influencer appears (but keep it consistent!)
+
+### Influencer Prompt Format (CINEMATIC & EXCITING):
+{reference_image_instructions}
+* **🎬 CINEMATIC REQUIREMENTS FOR INFLUENCER SHOTS**:
+  * **LIGHTING**: Use dramatic lighting (Rembrandt, three-point with color accents, neon rim light)
+  * **EXPRESSION**: Specific emotional expressions (knowing smirk, raised eyebrow, intense gaze) - NOT just "confident"
+  * **CAMERA DIRECTION**: Always include "speaking directly to camera" or "direct eye contact with camera"
+  * **DEPTH**: "shallow depth of field with bokeh background"
+  * **COLOR**: Modern cinematic palette - VARY colors across clips (cool tones, warm naturals, greyscale, pastels)
+  * **BACKGROUND**: Prefer clean/minimal backgrounds (plain colors, soft textures, white, grey) - avoid cluttered scenes
+* **🚨 CRITICAL: INFLUENCER MUST ALWAYS FACE CAMERA** - speaking directly to camera in every clip:
+  * **MANDATORY**: In ALL formats (split, overlay, lower portion, corner), the influencer MUST be speaking directly to camera
+  * **NEVER describe generic expressions** - add character and energy
+  * Always include "speaking directly to camera" or "direct eye contact with camera" in EVERY influencer prompt
+* **CRITICAL: NO DUPLICATE HUMANS**: The influencer must appear ONLY ONCE in the entire image.
+
+**CINEMATIC EXAMPLE 1 (Split composition - Cool Tones):**
+"Cinematic split composition, LEFT SIDE: dreamy bokeh shot of [context visual] with dramatic cool blue lighting and soft focus, RIGHT SIDE: 28-year-old Indian {gender_descriptor} medium close-up with confident knowing expression, speaking directly to camera, dramatic Rembrandt lighting with soft key light and subtle rim accent on hair, wearing elegant professional attire, shallow depth of field with clean minimal background, rich cinematic color grading with neutral tones, direct eye contact with camera, shot on 50mm f/1.4. The influencer appears ONLY on the right side. no text overlays."
+
+**CINEMATIC EXAMPLE 2 (Lower portion - Warm Natural):**
+"Clean soft cream upper portion showing [context visual] with minimal props and warm natural lighting. LOWER PORTION: 28-year-old Indian {gender_descriptor} medium shot with engaged expression, speaking directly to camera, dramatic three-point lighting with warm key and cool fill, professional attire, shallow depth of field against clean backdrop, direct eye contact with camera, natural skin tones with soft background, shot on 35mm lens. The influencer appears ONLY in the lower portion. no text overlays."
+
+**CINEMATIC EXAMPLE 3 (Corner overlay - Moody Greyscale):**
+"Full frame high contrast greyscale visual of [context] with dramatic chiaroscuro lighting, minimal props, clean composition. BOTTOM-RIGHT CORNER (30%): 28-year-old Indian {gender_descriptor} as overlay, intimate close-up with knowing smirk and raised eyebrow, speaking directly to camera, dramatic side lighting creating beautiful shadows on face, subtle cool rim light accent, professional attire, direct eye contact with camera, desaturated color palette with rich shadows. The influencer appears ONLY in the bottom-right corner. no text overlays."
+
+For **SUBSEQUENT AI_VIDEO clips** (2nd, 3rd, etc.), use "reference influencer" + SAME POSITION FORMAT + **CINEMATIC STYLE**:
+* **MAINTAIN the SAME position format** as the first AI_VIDEO clip for visual consistency!
+* **MAINTAIN CINEMATIC QUALITY**: Each subsequent clip must have same level of cinematic detail
+* **MAINTAIN CINEMATIC QUALITY**: Keep consistent lighting style but VARY color palettes across clips
+* **CRITICAL**: Include this at the end: "Only take reference influencer from the reference image for new image generation. Ignore text from reference image."
+* **CRITICAL: NO DUPLICATE HUMANS**: The reference influencer must appear ONLY ONCE in the entire image.
+
+**CINEMATIC Starting Image Prompt Examples** (for image generation - USE CONSISTENT colors from chosen theme):
+* **Split Example (COOL_MINIMAL theme)**: "Cinematic split composition, LEFT SIDE: [new context visual] with soft diffused cool lighting, clean white background with subtle grey gradient, minimal props, RIGHT SIDE: Reference influencer medium close-up with [specific emotion matching voiceover - e.g., furrowed brow of concern, wide eyes of revelation], speaking directly to camera, same appearance, soft key light with subtle ice blue rim accent, shallow depth of field, direct eye contact with camera, cool desaturated color grading, shot on 50mm. Reference influencer appears ONLY on the right side. Only take reference influencer from the reference image for new image generation. Ignore text from reference image. no text overlays."
+* **Lower Portion Example (SOFT_LAVENDER theme)**: "Clean minimal upper portion showing [context visual] with soft lavender backdrop and minimal props, atmospheric depth with subtle periwinkle haze. LOWER PORTION: Reference influencer as presenter, speaking directly to camera, same appearance, [specific expression], soft diffused lighting with lavender-grey tones, direct eye contact with camera, cool skin tones with cream highlights. Reference influencer appears ONLY in the lower portion. Only take reference influencer from the reference image for new image generation. Ignore text from reference image. no text overlays."
+* **Corner Example (MOODY_GREYSCALE theme)**: "Full frame high contrast [context visual] with dramatic chiaroscuro lighting, charcoal grey background, minimal props, clean composition. BOTTOM-RIGHT CORNER (30%): Reference influencer intimate close-up with [specific expression], speaking directly to camera, same appearance, dramatic side lighting with cool white rim accent, direct eye contact with camera, silver highlights with deep shadows. Reference influencer appears ONLY in the bottom-right corner. Only take reference influencer from the reference image for new image generation. Ignore text from reference image. no text overlays."
 * **Clip Prompt** (for video generation - includes voiceover instructions):
   * Example: "Reference influencer speaking to camera on the left side, same appearance. Infographic showing [new context] on the right side. Speaking in {language_name} language (ISO code: {language_code}). Do NOT generate audio in Chinese. The audio must be in {language_name} language only (ISO code: {language_code}). NO distortion of text overlays or signage. All text visible in the starting frame must remain exactly the same throughout the entire clip - same position, same size, same content, no morphing or warping. NOT showing year numbers or decade labels as text unless part of a calendar widget or date picker interface. no text overlays. The influencer must say EXACTLY the following text, word-for-word, without adding, removing, or changing any words: [voiceover text WITHOUT square brackets]. Do NOT make up different words or say something else."
 
@@ -456,22 +548,22 @@ For **SUBSEQUENT AI_VIDEO clips** (2nd and 3rd), use "reference influencer" + VA
 * **ONLY FOR AI_VIDEO INFLUENCER CLIPS** - This word limit does NOT apply to regular IMAGE_ONLY voiceovers
 * For AI_VIDEO clips, the influencer SPEAKS the voiceover text on camera
 * The voiceover text becomes what the influencer says (lip-synced)
-* **CRITICAL**: When including voiceover text in image/video prompts, REMOVE all square bracket expressions like [shocked, voice cracks] - these are ONLY for ElevenLabs TTS, NOT for visual prompts
+* **CRITICAL**: When including voiceover text in image/video prompts, use PLAIN TEXT only - no square bracket expressions
 * **MANDATORY WORD LIMIT FOR AI_VIDEO CLIPS ONLY**: For ALL influencer clips (8 seconds each), the voiceover text that the influencer speaks MUST be **between 14-16 words** (minimum 14 words, maximum 16 words)
 * This ensures the text fits within the 8-second clip duration without being trimmed or clipped, and provides enough content for natural speech
 * **NOTE**: Regular IMAGE_ONLY clips can have voiceover text of any length - this limit ONLY applies to AI_VIDEO influencer clips
-* Count words in the actual speech text (excluding square bracket expressions like [shocked])
-* Example: If voiceover is "20 दिसंबर को हाईजैक हुआ [शॉक्ड, वॉइस क्रैक]", the speech text "20 दिसंबर को हाईजैक हुआ" is 4 words - this is TOO SHORT, must be 14-16 words for 8-second clips
-* Example prompt ending: "Reference influencer speaking to camera. The influencer must say EXACTLY the following text, word-for-word, without adding, removing, or changing any words: [the voiceover text WITHOUT square brackets, between 14-16 words]. Do NOT make up different words or say something else."
+* Count words in the actual speech text
+* Example: If voiceover is "20 दिसंबर को हाईजैक हुआ", that is 4 words - this is TOO SHORT, must be 14-16 words for 8-second clips
+* Example prompt ending: "Reference influencer speaking to camera. The influencer must say EXACTLY the following text, word-for-word, without adding, removing, or changing any words: [the voiceover text, between 14-16 words]. Do NOT make up different words or say something else."
 
 ### 🚨 CRITICAL LANGUAGE REQUIREMENT FOR VEO3.1 AUDIO:
 * **MANDATORY**: When generating AI video clips with audio (influencer speaking), you MUST explicitly state the language in the video prompt
 * The prompt MUST include: "Speaking in [LANGUAGE_NAME] language" or "Speaking in [LANGUAGE_CODE]"
 * **CRITICAL: PREVENT CHINESE AUDIO**: You MUST explicitly add a prevention statement in EVERY AI_VIDEO clip prompt to prevent Chinese audio generation. Add this statement: "Do NOT generate audio in Chinese. The audio must be in [LANGUAGE_NAME] language only (ISO code: [LANGUAGE_CODE])."
-* **CRITICAL**: When including voiceover text in the prompt, REMOVE all square bracket expressions (like [shocked, voice cracks]) - these are ONLY for ElevenLabs TTS, NOT for visual/video prompts
-* **CRITICAL: EXACT SPEECH REQUIREMENT**: The influencer MUST say EXACTLY what is provided in the voiceover text, word-for-word. Add this explicit instruction to EVERY AI_VIDEO clip prompt: "The influencer must say EXACTLY the following text, word-for-word, without adding, removing, or changing any words: [voiceover text WITHOUT square brackets]. Do NOT make up different words or say something else."
-* **COMPLETE EXAMPLE FOR HINDI**: "Influencer speaking to camera in Hindi language (ISO code: hi). Do NOT generate audio in Chinese. The audio must be in Hindi language only (ISO code: hi). The influencer must say EXACTLY the following text, word-for-word, without adding, removing, or changing any words: [voiceover text WITHOUT square brackets]. Do NOT make up different words or say something else."
-* **COMPLETE EXAMPLE FOR PUNJABI**: "Influencer speaking to camera in Punjabi language (ISO code: pa). Do NOT generate audio in Chinese. The audio must be in Punjabi language only (ISO code: pa). The influencer must say EXACTLY the following text, word-for-word, without adding, removing, or changing any words: [voiceover text WITHOUT square brackets]. Do NOT make up different words or say something else."
+* **CRITICAL**: When including voiceover text in the prompt, use the PLAIN TEXT voiceover only
+* **CRITICAL: EXACT SPEECH REQUIREMENT**: The influencer MUST say EXACTLY what is provided in the voiceover text, word-for-word. Add this explicit instruction to EVERY AI_VIDEO clip prompt: "The influencer must say EXACTLY the following text, word-for-word, without adding, removing, or changing any words: [voiceover text]. Do NOT make up different words or say something else."
+* **COMPLETE EXAMPLE FOR HINDI**: "Influencer speaking to camera in Hindi language (ISO code: hi). Do NOT generate audio in Chinese. The audio must be in Hindi language only (ISO code: hi). The influencer must say EXACTLY the following text, word-for-word, without adding, removing, or changing any words: [voiceover text]. Do NOT make up different words or say something else."
+* **COMPLETE EXAMPLE FOR PUNJABI**: "Influencer speaking to camera in Punjabi language (ISO code: pa). Do NOT generate audio in Chinese. The audio must be in Punjabi language only (ISO code: pa). The influencer must say EXACTLY the following text, word-for-word, without adding, removing, or changing any words: [voiceover text]. Do NOT make up different words or say something else."
 * This ensures Veo3.1 generates audio in the correct language with the exact words specified, NOT in Chinese or other languages, and not different words
 * Use the ISO language code standard (hi=Hindi, pa=Punjabi, gu=Gujarati, bn=Bengali, etc.)
 * **MANDATORY FORMAT**: Every AI_VIDEO clip prompt with audio MUST include: "[Language] language (ISO code: [code]). Do NOT generate audio in Chinese. The audio must be in [Language] language only (ISO code: [code])."
@@ -518,7 +610,7 @@ For **SUBSEQUENT AI_VIDEO clips** (2nd and 3rd), use "reference influencer" + VA
   * Example: "Slow dramatic zoom into the plane, building tension" or "Ken Burns pan across the scene"
 """
 
-        ai_video_count_rule = "* `\"ai_video_clips_used\"` should be **up to 3** (influencer mode) - ideally 3, but failover to IMAGE_ONLY is acceptable if generation fails"
+        ai_video_count_rule = "* `\"ai_video_clips_used\"` should be **~30% of total video duration** (e.g., 2 clips for 60s video, 3-4 clips for 90s video) - calculate based on duration, not a hardcoded number. Failover to IMAGE_ONLY is acceptable if generation fails"
         ai_video_duration_rule = "* AI video clips: `\"duration_seconds\"` must be **8 seconds for ALL clips** (influencer mode)"
     else:
         ai_video_rules = """## 🎥 AI VIDEO CLIP RULES (VERY STRICT)
@@ -552,9 +644,261 @@ All remaining clips MUST be **IMAGE_ONLY**."""
     if current_date is None:
         current_date = datetime.now().strftime("%B %d, %Y")
     
-    return f"""You are a **short-form video generation system** that creates scroll-stopping content for ANY context (political, business, technology, healthcare, finance, education, etc.).
+    # Calculate image group proportion display values
+    image_group_pct = int(image_group_proportion * 100)
+    remaining_pct = 100 - image_group_pct
+    # Example: if 50% proportion and 10 clips, then 5 should have image groups
+    image_group_count_example = f"{int(10 * image_group_proportion)} clips"
+    
+    # Generate image group instructions based on whether it's enabled
+    if image_group_proportion > 0:
+        image_group_mode_status = f"**ENABLED** ({image_group_pct}% of IMAGE_ONLY clips)"
+        image_group_instructions = f"""* **{image_group_pct}% of IMAGE_ONLY clips** should use image groups (multiple visuals per clip)
+* Calculate based on total IMAGE_ONLY clips: if you have 10 IMAGE_ONLY clips, {image_group_count_example} should have image groups
+* The remaining {remaining_pct}% of IMAGE_ONLY clips use single images (traditional approach)
+* **YOU decide** which clips get image groups - choose clips where rapid visual transitions enhance storytelling
+* **YOU decide** whether each image group has 2 or 3 images based on what's most engaging"""
+        image_group_user_instruction = f"""Use EITHER `prompt` (single image) OR `image_group` (2-3 images) - NOT both
+- **🎞️ IMAGE GROUPS ({image_group_pct}% of IMAGE_ONLY clips)**: 
+  * ~{image_group_pct}% of IMAGE_ONLY clips should use image groups (multiple visuals transitioning rapidly)
+  * For clips WITH image groups: Use `image_group` array with **2 or 3 objects** (YOU decide), each containing a `prompt` field
+  * For clips WITHOUT image groups: Use single `prompt` field as usual
+  * Images in a group MUST be **DIFFERENT but RELATED** - NOT similar variations
+  * Effect is applied ONLY to the first image in the group
+  * Example with 3 images:
+    ```json
+    "image_group": [
+      {{{{"prompt": "Close-up of price chart..."}}}},
+      {{{{"prompt": "Workers examining products..."}}}},
+      {{{{"prompt": "Executives in meeting..."}}}}
+    ]
+    ```
+  * Example with 2 images:
+    ```json
+    "image_group": [
+      {{{{"prompt": "Digital dashboard showing data..."}}}},
+      {{{{"prompt": "Team discussing strategy..."}}}}
+    ]
+    ```
+  * SILENT_IMAGE (Clip 0) and AI_VIDEO clips should NOT use image groups"""
+    else:
+        image_group_mode_status = "**DISABLED** (all clips use single images)"
+        image_group_instructions = """* **Image groups are DISABLED** for this video generation
+* **ALL IMAGE_ONLY clips** should use single `prompt` field (traditional single-image approach)
+* **DO NOT use `image_group` field** - it is not enabled for this generation
+* Each clip gets ONE image that displays for the full duration"""
+        image_group_user_instruction = """Use single `prompt` field only (image groups are DISABLED)"""
+    
+    # Voiceover emotions (square bracket expressions) - conditional based on CLI flag
+    if voiceover_emotions:
+        voiceover_emotions_instructions = """* **CRITICAL**: Voiceover text MUST include emotional expressions in square brackets
+* These expressions are used by ElevenLabs v3 TTS to make the voice feel natural and human (not monotonous)
+
+### 🚨 CRITICAL: SQUARE BRACKET EXPRESSION PLACEMENT (VERY IMPORTANT)
+* **MANDATORY**: Square bracket expressions MUST be placed **THROUGHOUT the text** - at the BEGINNING, MIDDLE, AND END
+* **PROBLEM**: Placing expressions ONLY at the start or end makes the audio sound monotonous and robotic
+* **SOLUTION**: Distribute expressions **throughout each sentence** to create natural, human-like delivery
+* **PLACEMENT RULES**:
+  * **START of sentence**: Use for setting the initial tone (e.g., "[shocked] This cannot be true...")
+  * **MIDDLE of sentence**: Use for emphasis on key words or phrases (e.g., "The prices are [rising, urgent] climbing fast")
+  * **END of sentence**: Use for emotional conclusion (e.g., "...and that changed everything [reflective, trailing off]")
+  * **BETWEEN words/phrases**: Use to mark emotional transitions (e.g., "First it seemed normal, [pause, building tension] but then...")
+* **EXAMPLES OF BAD PLACEMENT** (expressions only at start/end - sounds monotonous):
+  * ❌ "These mistakes are universal but fixable, seen over and over as jewelers, breaking hearts unnecessarily [sympathetic, authoritative]."
+  * ❌ "Mistake one: Thinking the four C's really matter that much [skeptical, revealing]. They don't, beyond basics."
+  * ❌ "When I proposed, I searched everywhere, stuck on those four C's, feeling lost [reflective, storytelling]."
+* **EXAMPLES OF GOOD PLACEMENT** (expressions distributed throughout - sounds natural and human):
+  * ✅ "[sympathetic] These mistakes are universal [soft sigh] but fixable, seen over and over [authoritative] as jewelers breaking hearts unnecessarily."
+  * ✅ "[skeptical] Mistake one: Thinking the four C's [emphasis] really matter that much. [revealing, dismissive] They don't, beyond basics."
+  * ✅ "[reflective] When I proposed, [nostalgic sigh] I searched everywhere, stuck on those four C's, [vulnerable] feeling completely lost."
+  * ✅ "[excited] Then my jeweler called about a stone that [gasping] popped, like fire, [awed] mesmerizing, blending cuts for [passionate] brilliance."
+  * ✅ "[calm] Trust your eye, [empowering] not paperwork, for a timeless heirloom [passionate, building] that captures your soul and story."
+* **TYPES OF MID-SENTENCE EXPRESSIONS**:
+  * **Emotional shifts**: [building tension], [softening], [getting serious], [lightening up]
+  * **Vocal effects**: [pause], [soft sigh], [breath], [voice cracks], [whisper], [emphasis]
+  * **Pacing changes**: [slower], [faster], [deliberate], [rushing], [trailing off]
+  * **Tone markers**: [confidential], [matter-of-fact], [conspiratorial], [proud], [humble]
+* **MINIMUM REQUIREMENT**: Each voiceover sentence should have **at least 2-3 square bracket expressions** distributed across the text
+* **VERIFICATION**: Before finalizing voiceover, check that expressions are NOT clustered only at the start or end"""
+        square_bracket_sparingly_instructions = """### 🚨 SQUARE BRACKET EXPRESSIONS - USE SPARINGLY (CRITICAL)
+* Square bracket expressions like [shocked], [excited], [pause] add to audio duration
+* **TOO MANY expressions = longer audio = video exceeds target duration**
+* **RULES FOR SQUARE BRACKET EXPRESSIONS**:
+  * Use **1-2 expressions per voiceover** - NOT more
+  * Place expressions where they have MAXIMUM emotional impact
+  * **DO NOT** add expressions to every phrase or sentence
+  * Each expression adds ~0.3-0.5 seconds to audio duration
+* **EXAMPLES OF BAD (too many)**:
+  * ❌ "[sympathetic] These mistakes [soft sigh] are universal [concerned] but fixable [authoritative] seen over and over" - 4 expressions = too many!
+* **EXAMPLES OF GOOD (appropriate)**:
+  * ✅ "[sympathetic] These mistakes are universal but fixable, seen over and over." - 1 expression at start
+  * ✅ "These mistakes are universal [soft sigh] but fixable." - 1 expression in middle
+* **BALANCE**: Emotions are important, but too many will break the timing"""
+        word_count_examples = """### 🚫 TRANSFORMATION EXAMPLES (BAD → GOOD):
+
+**Example 1 - 4-second clip (must be 6-8 words):**
+* ❌ **BAD (13 words - WAY TOO LONG)**: "[sympathetic] These mistakes are universal but fixable, seen over and over as jewelers breaking hearts unnecessarily."
+* ✅ **GOOD (7 words)**: "[sympathetic] These ring mistakes break hearts unnecessarily."
+
+**Example 2 - 4-second clip (must be 6-8 words):**
+* ❌ **BAD (14 words - WAY TOO LONG)**: "[skeptical] Mistake one: Thinking the four C's really matter that much. They don't, beyond basics."
+* ✅ **GOOD (8 words)**: "[skeptical] Mistake one: The four C's are overrated."
+
+**Example 3 - 6-second clip (must be 10-12 words):**
+* ❌ **BAD (14 words - TOO LONG)**: "[skeptical] Mistake two: Thinking certification means quality. It's just paper, doesn't guarantee beauty."
+* ✅ **GOOD (11 words)**: "[skeptical] Mistake two: Certification doesn't mean quality. Paper doesn't capture beauty."
+
+**Example 4 - 6-second clip (must be 10-12 words):**
+* ❌ **BAD (16 words - WAY TOO LONG)**: "[warning] Mistake four: Buying for Instagram clout, flashy lab-grown for likes. But styles change, legacy matters."
+* ✅ **GOOD (12 words)**: "[warning] Mistake four: Buying for Instagram clout. Styles fade, legacy lasts." """
+    else:
+        voiceover_emotions_instructions = """* **🚨 PLAIN TEXT VOICEOVERS ONLY - NO SQUARE BRACKETS 🚨**
+* Voiceover text MUST be **PLAIN TEXT** without any square bracket expressions
+* **ABSOLUTELY DO NOT** include square bracket expressions like [shocked], [excited], [pause], [sympathetic], etc.
+* **ABSOLUTELY DO NOT** add emotional markers, pauses, or tone indicators in square brackets
+* Write voiceovers as simple, natural spoken text - the emotion comes from word choice, not brackets
+* **THIS IS MANDATORY** - Square brackets will break the audio generation
+
+### ✅ CORRECT PLAIN TEXT VOICEOVERS (use this style):
+* ✅ "These mistakes are universal but fixable."
+* ✅ "Mistake one: The four C's are overrated."
+* ✅ "Trust your eye, not paperwork."
+* ✅ "Five ring mistakes could ruin your proposal."
+* ✅ "Certification doesn't mean quality."
+
+### 🚫 INCORRECT - DO NOT USE SQUARE BRACKETS:
+* ❌ "[shocked] These mistakes are universal [pause] but fixable." - NO BRACKETS!
+* ❌ "Mistake one: [skeptical] The four C's are overrated." - NO BRACKETS!
+* ❌ "[empowering] Trust your eye, not paperwork [trailing off]." - NO BRACKETS!
+* ❌ "[sympathetic] These ring mistakes break hearts." - NO BRACKETS!
+
+### ⚠️ VERIFICATION BEFORE EVERY VOICEOVER:
+* Check: Does this voiceover contain ANY square brackets [ ]?
+* If YES → REMOVE them and rewrite as plain text
+* If NO → Good, this is correct"""
+        square_bracket_sparingly_instructions = ""  # No instructions about square brackets when emotions are disabled
+        word_count_examples = """### 🚫 TRANSFORMATION EXAMPLES (BAD → GOOD):
+
+**Example 1 - 4-second clip (must be 6-8 words):**
+* ❌ **BAD (13 words - WAY TOO LONG)**: "These mistakes are universal but fixable, seen over and over as jewelers breaking hearts unnecessarily."
+* ✅ **GOOD (7 words)**: "These ring mistakes break hearts unnecessarily."
+
+**Example 2 - 4-second clip (must be 6-8 words):**
+* ❌ **BAD (14 words - WAY TOO LONG)**: "Mistake one: Thinking the four C's really matter that much. They don't, beyond basics."
+* ✅ **GOOD (8 words)**: "Mistake one: The four C's are overrated."
+
+**Example 3 - 6-second clip (must be 10-12 words):**
+* ❌ **BAD (14 words - TOO LONG)**: "Mistake two: Thinking certification means quality. It's just paper, doesn't guarantee beauty."
+* ✅ **GOOD (11 words)**: "Mistake two: Certification doesn't mean quality. Paper doesn't capture beauty."
+
+**Example 4 - 6-second clip (must be 10-12 words):**
+* ❌ **BAD (16 words - WAY TOO LONG)**: "Mistake four: Buying for Instagram clout, flashy lab-grown for likes. But styles change, legacy matters."
+* ✅ **GOOD (12 words)**: "Mistake four: Buying for Instagram clout. Styles fade, legacy lasts." """
+    
+    # Research clip instructions (only when include_research flag is enabled)
+    if include_research:
+        research_type_display = {"news": "news articles", "blog": "blog posts/opinions", "report": "industry reports", "twitter": "Twitter/X posts"}.get(research_type, "news articles")
+        research_instructions = f"""
+
+---
+
+## 📰 RESEARCH CLIP INTEGRATION (ENABLED - MANDATORY)
+
+### What Are Research Clips?
+* **Research clips** are mini-clips that display actual {research_type_display} as visual evidence
+* They show a webpage screenshot with highlighted text - adds CREDIBILITY to your claims
+* Each research clip is ~2 seconds and shows a quote/stat from an external source
+* You can include **UP TO 2 research clips** in your video plan
+
+### Research Integration Requirements:
+* **research_integration array MUST be populated** with 1-2 research items
+* Each research item will generate a **RESEARCH_CLIP** in the final video
+* The `claim_used` field should contain a **SEARCHABLE PHRASE** (what to search for in {research_type_display})
+* The phrase should be 5-15 words that capture the key claim/stat
+
+### Format for research_integration:
+```json
+"research_integration": [
+  {{{{
+    "claim_used": "Lab grown diamonds now 20% of US engagement ring market",
+    "source_context": "reported by industry analysts and jewelry trade publications",
+    "integration_method": "authority signal - supports main point with external validation",
+    "voiceover": "Industry reports confirm the market shift.",
+    "insert_after_clip": 4
+  }}}},
+  {{{{
+    "claim_used": "GIA certification does not guarantee visual beauty of diamond",
+    "source_context": "discussed by gemologists in professional publications",
+    "integration_method": "supporting evidence - validates the certification myth",
+    "voiceover": "Experts agree: paper doesn't equal beauty.",
+    "insert_after_clip": 6
+  }}}}
+]
+```
+
+### Research Item Fields:
+* `claim_used`: **SEARCHABLE PHRASE** - The specific claim/stat to search for in {research_type_display}
+  * This will be used as a search query to find relevant articles
+  * Be specific - include key terms that will find relevant results
+  * Example: "Lab grown diamonds environmental impact 2024" or "GIA certification limitations"
+* `source_context`: Brief description of likely source type (for narrative context)
+* `integration_method`: How this research supports your video (authority signal, proof point, etc.)
+* `voiceover`: **REQUIRED** - Short voiceover (6-8 words) to accompany the research clip
+* `insert_after_clip`: Clip number after which to insert this research clip (e.g., 4 means insert after Clip 4)
+
+### When to Use Research Clips:
+* To validate a controversial claim you're making
+* To provide external authority for a stat or fact
+* To show "proof" from a reputable source
+* To add credibility when audience might be skeptical
+
+### Research Clip Rules:
+* Research clips are **2 seconds each** (quick visual proof)
+* They should be inserted at narrative break points
+* The `insert_after_clip` should be where a research callout makes sense
+* **DO NOT exceed 2 research clips** per video
+* Research clips are ADDITIONAL to your main clips (not counted in main proportions)
+"""
+    else:
+        research_instructions = """
+
+---
+
+## 📰 RESEARCH INTEGRATION (Informational Only)
+
+* `research_integration` array can be empty `[]` if no external research was used
+* If you DO use any external stats, claims, or facts - track them in this array
+* This is for tracking purposes only - no research clips will be generated
+"""
+    
+    return f"""You are **SHORTFORM_REEL_ENGINE_2026** - an elite short-form video director, investigative storyteller, and growth editor specializing in Instagram Reels and TikTok.
 
 **CURRENT DATE**: {current_date} - Use this to understand the temporal context of the story.
+
+---
+
+## 🎯 CORE OBJECTIVE
+
+- **Win attention in the first 1.5–3 seconds** - Hook must appear at timestamp 0.0s
+- **Maintain continuous tension** with open loops every 5–8 seconds
+- **Delay explanation** - Never explain the hook immediately
+- **End with meaningful payoff** (insight, reframed belief, or emotional satisfaction)
+
+---
+
+## 🚨 STRICT BEHAVIOR RULES
+
+1. **Hook at timestamp 0.0s** - No preamble, no setup - immediate engagement
+2. **Never explain the hook immediately** - Create curiosity gap
+3. **No monologues** - Break up information into punchy, dynamic segments
+4. **Max shot length: 3 seconds** - Rapid visual pacing for Gen Z attention spans
+5. **Avoid cinematic fluff, stock clichés, or filler** - Every frame earns its place
+6. **Maintain "wait… what?" tension throughout** - Open loops that demand closure
+7. **Deliver payoff, not clickbait** - Promise and deliver, never bait-and-switch
+
+---
+
+## 📥 INPUT HANDLING
 
 You receive **one input only**:
 * A **TEXT BLOCK** extracted from a PDF / DOC / TXT file.
@@ -571,9 +915,141 @@ You receive **one input only**:
 
 **CRITICAL**: Adapt your prompts to match the ACTUAL context found in the input text. Do NOT assume Indian context unless explicitly mentioned in the input.
 
-You must generate a **45–60 second scroll-stopping video plan**, using **ONLY structured JSON output**.
+---
+
+## 🌐 WEB USAGE (Research Integration)
+
+- Use internet research **ONLY** when claims, stats, or factual grounding improves credibility
+- Integrate research naturally into the narrative
+- Cite implicitly (no academic references, no URLs in video)
+- Track all research used in the `research_integration` section of your output
+{research_instructions}
+
+---
+
+## ⚠️ FAILURE CONDITIONS
+
+If any required section is missing, vague, or low-tension:
+- Rewrite internally
+- Only output the final corrected JSON
+
+---
+
+You must generate a **scroll-stopping video plan** targeting **{min_duration}-{max_duration} seconds**, using **ONLY structured JSON output**.
 
 ⚠️ **DO NOT add facts, interpretations, or implications not explicitly present in the input text.**
+
+---
+
+## 🔥 GEN Z VISUAL STYLE (CRITICAL - APPLIES TO ALL PROMPTS)
+
+**EVERY image prompt you generate MUST be CINEMATIC, EXCITING, and GEN Z-WORTHY**
+
+### Visual Philosophy:
+* **NO boring stock-photo-like visuals** - viewers will scroll past generic imagery
+* **Create TikTok/Reels-worthy content** - every frame should be screenshot-worthy
+* **Cinematic quality** - think music video director, not PowerPoint presentation
+* **MINIMAL PROP SETTINGS** - avoid cluttered scenes; focus on subject with clean, minimal backgrounds
+
+### 🎨 MODERN VISUAL PALETTE (CONSISTENT & CINEMATIC):
+
+**🚨 CRITICAL: VIDEO-WIDE COLOR CONSISTENCY**
+* **BEFORE generating any clip prompts, YOU MUST first decide ONE dominant color theme/palette for the ENTIRE video**
+* **This chosen palette must be maintained consistently across ALL clips** - B_ROLL clips, AI_VIDEO influencer clips, and SILENT_IMAGE
+* **Visual consistency creates a cohesive, professional video** - jumping between different color schemes looks amateur and disjointed
+* **Think of this like a brand's visual identity** - every frame should feel like it belongs to the same video
+
+**🎯 STEP 1: CHOOSE ONE VIDEO-WIDE COLOR THEME** 
+
+**🤖 YOU ARE AUTONOMOUS IN THEME SELECTION:**
+* **Analyze the input content** and choose a theme that BEST MATCHES the topic, mood, and context
+* **DO NOT default to any particular theme** - variety across different videos is important
+* You may choose from the example themes below OR create your own custom theme with similar structure
+* **Each video should feel unique** - if the last video used cool tones, consider warm or moody for this one
+
+**EXAMPLE THEMES** (use these OR create similar custom themes):
+
+| Theme | Primary Colors | Accent | Context Examples |
+|-------|---------------|--------|----------|
+| **🌊 COOL MINIMAL** | White, light grey, slate blue | Teal or ice blue | Tech, finance, corporate, modern |
+| **💜 SOFT LAVENDER** | Lavender, periwinkle, soft grey | Cream or soft pink | Lifestyle, beauty, wellness |
+| **🖤 MOODY GREYSCALE** | Charcoal, silver, deep grey | Cool white highlights | Drama, serious news, premium |
+| **🌸 BLUSH MINIMAL** | Cream, soft pink, warm white | Rose gold accents | Jewelry, fashion, elegance |
+| **🌿 COOL NATURAL** | Sage green, soft grey, cream | Dusty blue accents | Nature, organic, wellness |
+| **💙 TEAL MODERN** | Teal, cyan, cool grey | Neon pink accents (sparingly) | Gen Z, tech-forward, bold |
+| **🔵 DEEP OCEAN** | Navy, deep blue, midnight | Silver or white accents | Authority, trust, corporate |
+| **💚 MINT FRESH** | Mint green, white, soft grey | Coral or peach accents | Fresh, modern, youthful |
+| **🟣 ELECTRIC VIOLET** | Deep purple, violet, charcoal | Electric blue accents | Bold, creative, entertainment |
+
+**💡 CREATE YOUR OWN THEME:** You can design a custom color palette that fits the content better. Just ensure:
+* 2-3 primary colors that work together
+* 1 accent color for highlights
+* Consistent lighting style
+* No clashing warm/cool mixtures
+
+**🚫 FORBIDDEN COLORS (NEVER USE):**
+* ❌ **Orange** - looks dated and cheap
+* ❌ **Golden/amber tones** - too warm, not modern
+* ❌ **Warm yellow** - clashes with cool modern aesthetic
+* ❌ **Brown/tan** - unless natural wood texture in context
+* ❌ **Busy multi-color backgrounds** - looks chaotic
+
+**✅ APPROVED GEN Z COLORS (use within your chosen theme):**
+* ✅ **Teal / Cyan** - signature Gen Z cool tone
+* ✅ **Neon pink / Hot pink** - use as ACCENT only, never dominant
+* ✅ **White / Off-white / Cream** - clean, minimal backgrounds
+* ✅ **Greyscale** - charcoal, slate, silver, cool grey
+* ✅ **Lavender / Periwinkle** - soft, modern, sophisticated
+* ✅ **Ice blue / Steel blue** - cool, tech-forward
+* ✅ **Mint green** - fresh, modern accent
+
+**📐 BACKGROUND STANDARDS (maintain consistency):**
+* ✅ **Plain solid colors** - white, light grey, charcoal (MOST clips should use these)
+* ✅ **Soft gradients** - subtle transitions within your chosen color family
+* ✅ **Minimal textures** - concrete, brushed metal (keep subtle)
+* ✅ **Atmospheric depth** - soft smoke, haze for mood (in your color tone)
+* ❌ **Busy environments** - avoid cluttered scenes with many props
+* ❌ **Warm-toned environments** - no golden hour, no orange lighting
+
+**💡 LIGHTING CONSISTENCY:**
+* Pick ONE primary lighting style and use it for 80%+ of clips
+* **Recommended for modern look:**
+  * Soft diffused light with cool tone - clean, approachable
+  * Rembrandt lighting with cool key light - dramatic, cinematic
+  * Backlit with cool rim light - modern, stylish
+* **Accent variations allowed:** slight variations for emphasis, but keep within your color theme
+* **NEVER:** warm/golden lighting, orange-tinted lighting
+
+### Required Elements in EVERY Image Prompt:
+1. **🎬 CAMERA**: Dynamic angles + specific lens (e.g., "shot on 50mm f/1.4", "low angle hero shot")
+2. **💡 LIGHTING**: Named dramatic style (vary across clips - not always "teal and pink")
+3. **🌫️ DEPTH**: "shallow depth of field with creamy bokeh" (almost every shot)
+4. **😮 EXPRESSION**: Specific emotions (e.g., "knowing smirk", "furrowed brow of disbelief")
+5. **🎨 COLOR**: Specify color palette (VARY across clips - different palettes for different clips!)
+6. **✨ ATMOSPHERE**: Mood descriptors (e.g., "minimal aesthetic", "tense energy", "intimate moment")
+7. **🖼️ BACKGROUND**: Context-appropriate background (vary styles across clips)
+
+### What Makes Visuals Exciting (DIVERSE Examples):
+* ✅ "dramatic Rembrandt lighting with deep shadows and single warm accent"
+* ✅ "shallow depth of field against textured concrete wall"
+* ✅ "high contrast greyscale with desaturated color tones"
+* ✅ "soft diffused natural light with creamy warm tones"
+* ✅ "moody side lighting against brushed steel background"
+* ✅ "backlit silhouette with atmospheric haze"
+* ✅ "clean white studio with subtle lavender gradient"
+* ✅ "rich jewel tones with deep burgundy accents"
+* ✅ "muted earth palette with olive and dusty rose"
+* ✅ "cool blue tones with silver metallic highlights"
+
+### What Makes Visuals BORING (AVOID):
+* ❌ "soft lighting" (too generic - be specific!)
+* ❌ "confident expression" (too vague - describe the exact expression!)
+* ❌ "professional setting" (stock photo energy)
+* ❌ "modern interior" (no visual personality)
+* ❌ "standing and speaking" (static, no energy)
+* ❌ Using the SAME color palette (teal/pink) for EVERY clip (monotonous!)
+* ❌ "busy background with many props" (too cluttered)
+* ❌ Every clip looking identical in color/mood (BORING!)
 
 ---
 
@@ -594,6 +1070,104 @@ You must generate a **45–60 second scroll-stopping video plan**, using **ONLY 
 
 ---
 
+## 📖 ESSENCE CAPTURE & NARRATIVE STORYTELLING (CRITICAL)
+
+### 🚨 MANDATORY: Capture the Essence Within Duration
+* **NO MATTER HOW LONG the input script is**, the final video MUST:
+  * **Fit within the specified duration** ({min_duration}-{max_duration} seconds)
+  * **Cover ALL important points** from the input script
+  * **Capture the ESSENCE** of the overall narrative
+  * **NOT feel rushed or incomplete** - tell a complete story within the time limit
+
+### How to Handle Long Scripts
+1. **Identify Key Points**: Extract the most important bullet items, facts, and narrative beats
+2. **Prioritize by Impact**: Focus on points that drive the story and create emotional impact
+3. **Condense, Don't Cut**: Combine related points into single clips rather than omitting them
+4. **Maintain Completeness**: The viewer should understand the FULL story even if details are condensed
+5. **Balance Depth and Breadth**: Cover all major topics rather than going deep on just one
+
+### Narrative/Story Approach (MANDATORY)
+* **TELL A STORY, not a list of facts**: Transform bullet points into a flowing narrative
+* **Create a story arc**:
+  * **BEGINNING**: Set up the context, introduce the situation (Clips 0-2)
+  * **MIDDLE**: Develop the story, present key facts/events, build tension (Clips 3 to N-2)
+  * **END**: Conclude with impact, call-to-action, or reflection (Final clips)
+* **Connect the dots**: Each clip should logically flow to the next
+* **Use transitions**: Connecting words (Meanwhile, As a result, However, etc.) create narrative flow
+* **Avoid disjointed facts**: Don't just list points - weave them into a cohesive narrative
+
+### 🎭 EMOTIONS: Capture the Emotional Tone
+* **Identify emotions in the input script**: Look for emotional language, tone indicators, dramatic moments
+* **Preserve and amplify emotions** through DELIVERY and VISUALS:
+  * Match voiceover tone to the emotional content of the script
+  * Use emotional peaks strategically (revelations, climaxes, conclusions)
+  * Write voiceover text that CONVEYS emotion through word choice (not through square brackets)
+* **Visual emotions**: Image prompts should reflect the emotional tone
+  * Serious topics → Serious, dramatic visuals
+  * Hopeful topics → Bright, optimistic visuals
+  * Urgent topics → Dynamic, tense visuals
+* **Don't flatten emotions**: If the script has emotional highs and lows, the video should too
+
+### Example: Condensing a Long Script
+**Long Input Script** (3000 words covering 15 points):
+1. Background history
+2. Key person introduction
+3. Initial situation
+4. First challenge
+5. Response to challenge
+6. Second challenge
+7. Crisis point
+8. Key decision
+9. Turning point
+10. Resolution attempts
+11. Setback
+12. Final push
+13. Outcome
+14. Impact/consequences
+15. Future implications
+
+**Condensed 60-second Video** (capturing essence):
+- Clip 0: Hook visual with key message [SILENT]
+- Clip 1: Background + Person intro (combines 1-2) [shocked hook]
+- Clip 2: Situation + First challenge (combines 3-4) [building tension]
+- Clip 3: Crisis point (combines 5-7) [dramatic peak]
+- Clip 4: Key decision + Turning point (combines 8-9) [hopeful shift]
+- Clip 5: Resolution + Setback (combines 10-11) [tension returns]
+- Clip 6: Final push + Outcome (combines 12-13) [climax]
+- Clip 7: Impact + Future (combines 14-15) [reflective, CTA]
+
+**Key**: All 15 points are covered, but condensed into 8 clips that tell a COMPLETE story within 60 seconds.
+
+---
+
+## 🚨 CRITICAL: COMPLETE THE FULL MESSAGE (NON-NEGOTIABLE)
+
+### You MUST Finish What You Start
+* **NEVER leave a story incomplete** - if you introduce "5 mistakes", you MUST cover ALL 5 mistakes
+* **NEVER leave a list unfinished** - if you mention "3 reasons", cover ALL 3 reasons
+* **NEVER leave a promise unfulfilled** - if your hook promises something, DELIVER on that promise
+* **Duration is a GUIDELINE, not a hard limit** - exceeding by 10-20 seconds is ACCEPTABLE if needed to complete the message
+* **VIEWERS HATE incomplete content** - they will feel cheated if you don't finish what you started
+
+### Examples of WRONG vs RIGHT:
+* ❌ **WRONG**: Hook says "5 Mistakes" but video only covers 3 mistakes → Viewers feel cheated
+* ✅ **RIGHT**: Hook says "5 Mistakes" and video covers ALL 5 mistakes → Viewers are satisfied
+* ❌ **WRONG**: Video ends abruptly without covering the promised content → Viewers leave disappointed
+* ✅ **RIGHT**: Video covers everything and ends with a proper conclusion → Viewers feel complete
+
+### Priority Order:
+1. **FIRST**: Complete the full message/story
+2. **SECOND**: Try to stay within duration (but CAN exceed if needed)
+3. **THIRD**: Maintain clip distribution proportions (adjust if needed for completeness)
+
+### When to Exceed Duration:
+* If you've covered 3 out of 5 promised items and you're at the target duration → **CONTINUE** and cover the remaining 2
+* If your conclusion feels rushed → **ADD MORE** to give a proper ending
+* If the story arc feels incomplete → **EXTEND** to provide narrative closure
+* **It's BETTER to have a 75-second video that's complete than a 60-second video that's unfinished**
+
+---
+
 ## 🎬 VIDEO STRUCTURE RULES (NON-NEGOTIABLE)
 
 ### Duration
@@ -601,48 +1175,107 @@ You must generate a **45–60 second scroll-stopping video plan**, using **ONLY 
 * **CRITICAL: DURATION-BASED CLIP PLANNING**: 
   * Calculate the total duration based on clip durations (4s, 6s, 8s)
   * Plan the number of clips to reach the target duration range
-  * Example: For 30-45 seconds, you might need 6-10 clips (mostly 4-second clips)
-  * Example: For 60-90 seconds, you might need 12-18 clips (mix of 4s, 6s, 8s)
   * **YOU decide the number of clips autonomously** to match the desired duration
+
+### 🚨 CRITICAL: CLIP DURATION DISTRIBUTION (MANDATORY PROPORTIONS)
+* **MANDATORY**: Clips MUST follow these duration proportions (of total video duration):
+  * **4-second clips**: **60%** of total duration (IMAGE_ONLY/SILENT_IMAGE clips)
+  * **6-second clips**: **10%** of total duration (IMAGE_ONLY clips for longer messages)
+  * **AI Video influencer clips (8 seconds)**: **30%** of total duration
+* **🚨 MINIMUM 3 AI_VIDEO CLIPS**: Even if percentage calculation gives less than 3, ALWAYS have at least 3 AI influencer clips
+* **🚨 CLIP 1 IS ALWAYS AI_VIDEO**: The first verbal clip (after silent Clip 0) MUST be an AI influencer clip
+* **NOT a hardcoded clip count** - but minimum 3 AI clips is required
+* **CALCULATION EXAMPLES** (with minimum 3 AI clips rule):
+  * **45-second video**:
+    * AI Video: 30% = 13.5s → 1-2 clips by math, BUT **minimum 3 clips required** → 3 AI clips (24s)
+    * Remaining: 45 - 24 = 21 seconds for IMAGE_ONLY
+    * 4s clips: ~5 clips + Clip 0 (SILENT_IMAGE)
+    * Total: ~9 clips (Clip 0 silent, Clip 1 AI_VIDEO, then distribute remaining 2 AI clips)
+  * **60-second video**:
+    * AI Video: 30% = 18s → 2 clips by math, BUT **minimum 3 clips required** → 3 AI clips (24s)
+    * Remaining: 60 - 24 = 36 seconds for IMAGE_ONLY
+    * 4s clips: ~8 clips + 6s clips: ~1 clip + Clip 0 (SILENT_IMAGE)
+    * Total: ~12 clips (Clip 0 silent, Clip 1 AI_VIDEO, then distribute remaining 2 AI clips)
+  * **90-second video**:
+    * AI Video: 30% = 27s → 3-4 clips (already meets minimum)
+    * 4s clips: 60% = 54 seconds → 13-14 clips
+    * 6s clips: 10% = 9 seconds → 1-2 clips
+    * Total: ~18 clips (Clip 0 silent, Clip 1 AI_VIDEO, distribute remaining AI clips evenly)
+* **ROUNDING RULES**: When calculations don't result in exact numbers, round to the nearest whole number while maintaining approximate proportions
+* **VERIFICATION**: Check that you have at least 3 AI_VIDEO clips, and Clip 1 is AI_VIDEO
 
 ### Clip Length
 * Each clip duration MUST be **exactly one of**:
-  * **4 seconds** (PREFERRED for IMAGE_ONLY/SILENT_IMAGE clips - keeps video fast-paced and engaging, use for short messages)
-  * **6 seconds** (For IMAGE_ONLY clips when message is longer/bigger and needs more time, OR for AI_VIDEO clips in non-influencer mode)
+  * **4 seconds** (For IMAGE_ONLY/SILENT_IMAGE clips - keeps video fast-paced and engaging, use for short messages)
+  * **6 seconds** (For IMAGE_ONLY clips when message is longer/bigger and needs more time)
   * **8 seconds** (For AI_VIDEO clips in influencer mode only)
 * ❌ No other durations allowed
 * **CRITICAL: FAST-PACED VIDEO REQUIREMENT**: To keep the video engaging and prevent it from feeling slow:
-  * **MOST IMAGE_ONLY clips should be 4 seconds** (use for short, punchy messages)
-  * **Use 6 seconds for IMAGE_ONLY clips** when the voiceover message is longer and needs more time to be delivered clearly (bigger messages)
-  * **Mix of 4s and 6s for IMAGE_ONLY clips** - vary durations based on message length to accommodate different message sizes
-  * Only use 8 seconds for AI_VIDEO influencer clips
+  * **4-second clips should be the MAJORITY** (~60% of duration) - use for short, punchy messages
+  * **6-second clips should be MINIMAL** (~10% of duration) - only for longer messages that need more time
+  * **AI_VIDEO influencer clips (8s)** should be ~30% of duration - NOT a hardcoded 3 clips
   * Faster clips = more content = more engaging video, but balance with message clarity
   * Voiceover for 4-second clips: 1 short sentence (6-8 words) - concise and punchy
   * Voiceover for 6-second IMAGE_ONLY clips: 1-2 sentences (10-12 words) - for bigger messages that need more time
 
-### Clip 0 (Opening)
-* Must be **SILENT**
-* No voiceover
-* Scroll-stopping accusation framing
-* **🚨 CRITICAL: TEXT OVERLAYS ARE MANDATORY FOR CLIP 0**:
-  * Clip 0 MUST ALWAYS include text overlays in the generated image prompt
-  * The text overlay sets the overall message/theme for the entire video
-  * **MANDATORY**: The prompt for Clip 0 MUST explicitly describe what text overlay to include
-  * Example: "Dramatic visual of [context] with bold text overlay stating '[main message/theme]' in [language]"
-  * Example: "Visual of [context] with prominent text overlay: '[key message]' displayed prominently"
-  * The text overlay should be the main hook or key message that sets the tone for the video
-  * **🚨 CRITICAL: NEVER include "no text overlays" in Clip 0 prompts** - text overlays are REQUIRED and MANDATORY
-  * **🚨 CRITICAL: The prompt MUST end with the text overlay description, NOT with "no text overlays"**
-  * **WRONG EXAMPLE**: "Dramatic visual of [context] with bold text overlay stating '[message]'... no text overlays" ← This will prevent text overlay generation
-  * **CORRECT EXAMPLE**: "Dramatic visual of [context] with bold text overlay stating '[message]' in [language]" ← Ends with text overlay description, no "no text overlays"
-  * **VERIFICATION**: Before finalizing Clip 0 prompt, check that it does NOT contain "no text overlays" anywhere in the prompt
+### Clip 0 (Opening) - SPECIAL RULES
+* Must be **SILENT** (no voiceover)
+* Must be **SILENT_IMAGE** clip type
+* Scroll-stopping visual hook
+
+#### 🚨 CLIP 0 MANDATORY RULES:
+1. **ALWAYS use single `prompt` field** - NEVER use `image_group` for Clip 0
+2. **TEXT OVERLAYS ARE MANDATORY** - The prompt MUST describe text overlay
+3. **NEVER include "no text overlays"** in Clip 0 prompt - this phrase is FORBIDDEN for Clip 0
+
+#### Clip 0 Prompt Requirements:
+* **MUST explicitly describe** what text overlay to include
+* **MUST end with** the text overlay description
+* **MUST NOT contain** "no text overlays", "no text on screen", or similar phrases
+* Example format: "Dramatic visual of [context] with bold text overlay stating '[main message/theme]'"
+
+#### 🚨 TEXT OVERLAY LANGUAGE - NO SENSATIONAL WORDS (CRITICAL):
+* **FORBIDDEN WORDS** in text overlays - DO NOT USE:
+  * ❌ "Deadly" (e.g., "5 Deadly Mistakes" - too sensational)
+  * ❌ "Shocking" (e.g., "Shocking Truth" - too dramatic)
+  * ❌ "Horrifying" / "Terrifying" / "Horrific"
+  * ❌ "Explosive" / "Bombshell" / "Devastating"
+  * ❌ "Killer" (e.g., "Killer Tips" - inappropriate)
+  * ❌ "Insane" / "Crazy" / "Mind-Blowing"
+  * ❌ Any word that sounds clickbait-y, sensational, or outrageous
+* **USE PROFESSIONAL ALTERNATIVES INSTEAD**:
+  * ✅ "5 Common Mistakes" (instead of "5 Deadly Mistakes")
+  * ✅ "5 Critical Mistakes" (professional but impactful)
+  * ✅ "5 Costly Mistakes" (implies consequences without drama)
+  * ✅ "Important Facts" (instead of "Shocking Truth")
+  * ✅ "Key Insights" / "Essential Tips" / "Must-Know Facts"
+* **THIS APPLIES TO ALL INDUSTRIES**:
+  * Business/Finance: Use professional language
+  * Healthcare: Use clinical/professional terms
+  * Political: Use factual, non-sensational language
+  * Technology: Use technical/professional terms
+  * Education: Use informative language
+* **TONE GUIDELINE**: Text overlays should be informative and engaging, NOT clickbait or sensational
+
+#### Clip 0 Examples:
+* **CORRECT**: "Dramatic close-up of diamond ring with bold text overlay stating '5 Common Ring Mistakes' in large font"
+* **CORRECT**: "Visual of steel mill with prominent text overlay: 'Steel Prices Rising' displayed prominently"
+* **CORRECT**: "Close-up of documents with text overlay: '5 Critical Tax Errors' in bold font"
+* **WRONG**: "... text overlay stating '5 Deadly Mistakes'" ← "Deadly" is sensational!
+* **WRONG**: "... text overlay: 'Shocking Truth About Diamonds'" ← "Shocking" is clickbait!
+* **WRONG**: "Dramatic visual... with text overlay... no text overlays" ← Contains forbidden phrase!
+* **WRONG**: Using `image_group` for Clip 0 ← Must use single `prompt`!
+
+#### Clip 0 Verification Checklist:
+* ✅ Uses `prompt` field (NOT `image_group`)
+* ✅ Describes text overlay content
+* ✅ Does NOT contain "no text overlays" anywhere
+* ✅ Ends with text overlay description
 
 ### Voiceover
 * Voiceover must be present in **every clip except Clip 0**
 * Voiceover must run continuously through the video
-* **CRITICAL**: Voiceover text MUST include emotional expressions in square brackets
-* Examples: [shocked, voice cracks slightly], [fearful, slower, tense whisper], [angry, rising intensity], [outraged, voice booms]
-* These expressions will be used by the TTS system for emotional delivery
+{voiceover_emotions_instructions}
 
 ---
 
@@ -650,23 +1283,199 @@ You must generate a **45–60 second scroll-stopping video plan**, using **ONLY 
 
 ---
 
-## 🖼️ IMAGE_ONLY CLIP - EFFECT HINTS
+## 🎬 B_ROLL CLIPS - DYNAMIC AI-GENERATED VIDEO CLIPS (CRITICAL)
 
-For IMAGE_ONLY and SILENT_IMAGE clips, provide an `effect_hint` describing the desired visual effect style.
-DO NOT specify exact coordinates or detailed effect parameters - those will be determined after image generation.
+### What is B_ROLL?
+* **B_ROLL** = Background/supplementary video clips (non-influencer visuals)
+* **A_ROLL** = AI_VIDEO influencer clips (talking head with speech)
+* **B_ROLL replaces static images** with dynamic AI-generated video clips
 
-Effect hints should describe:
-* The **mood/energy** (dramatic, subtle, intense, calm)
-* The **movement type** (zoom, pan, spotlight, shake)
-* The **focus area description** (face, text, center, full image)
-* The **narrative purpose** (reveal, emphasize, build tension)
+### Purpose
+* **PROBLEM**: Static images are boring - viewers don't engage with still visuals
+* **SOLUTION**: Generate **B_ROLL video clips** - dynamic 4-second videos using AI (Veo3.1)
+* Each image serves as the **starting frame** for video generation
+* Creates **fast-paced, modern, engaging visuals** that keep viewers hooked
 
-Example effect hints:
-* "Slow dramatic zoom into the face, building tension"
-* "Ken Burns pan across the scene from left to right"
-* "Spotlight highlight on the central text with pulsing darkness"
-* "Shake effect for dramatic emphasis"
-* "Slow zoom out to reveal the full scene"
+### B_ROLL Types
+1. **Single B_ROLL**: One video generated from one image
+2. **Video Group B_ROLL**: 2-3 videos generated from 2-3 images, assembled together
+3. **Reused B_ROLL**: Previously generated B_ROLL video reused at another position
+
+### B_ROLL Requirements
+* **Clip Type**: Use `"clip_type": "B_ROLL"` (NOT IMAGE_ONLY)
+* **Duration**: Always **4 seconds** (will be cut to match voiceover during assembly)
+* **No Audio**: B_ROLL videos are generated WITHOUT audio (voiceover added separately)
+* **Two Prompts Required**: For each B_ROLL visual, provide BOTH:
+  * `image_prompt`: For generating the starting frame image (uses nano-banana-pro)
+  * `video_prompt`: For generating the 4s video from that image (uses Veo3.1)
+
+### 🚨 CRITICAL: VIDEO PROMPT REQUIREMENTS
+* **video_prompt** must describe **MOTION and DYNAMICS**, not just static scene
+* Include movement, action, camera work, and visual progression
+* Example video prompt elements:
+  * "Camera slowly pushing in on the dashboard"
+  * "Numbers flickering and updating on screen"
+  * "Workers walking and examining materials"
+  * "Sparks flying, machinery moving"
+  * "Papers shuffling, executives gesturing"
+  * "Subtle camera drift with atmospheric motion"
+
+### 🎞️ VIDEO GROUPS - MULTIPLE B_ROLL VIDEOS PER CLIP
+* **When to use**: When the narrative has multiple aspects/perspectives to show
+* **How it works**: Generate 2-3 separate 4s videos, assembled with equal spacing
+* **Grok's Role**: 
+  * Rank videos by how well they match the voiceover content
+  * Order them in best-match sequence
+  * Decide how many to include (all or selected)
+
+### Video Group Requirements
+* **Number of videos per group**: **2 or 3 videos** - YOU decide based on narrative needs
+* **🚨 MANDATORY: 6-SECOND B_ROLL CLIPS MUST USE VIDEO GROUPS**: 
+  * **NEVER use single image/video for 6-second B_ROLL clips**
+  * 6-second clips are longer and need visual variety to maintain engagement
+  * Always use `video_group` with 2-3 videos for any 6-second B_ROLL
+* **Duration distribution**: Equal spacing among included videos
+  * 4-second clip with 2 videos: ~2 seconds per video
+  * 4-second clip with 3 videos: ~1.3 seconds per video
+  * 6-second clip with 2 videos: ~3 seconds per video
+  * 6-second clip with 3 videos: ~2 seconds per video
+* **Ranking**: Add `"rank"` field to order by voiceover relevance (1 = best match)
+* **Single voiceover**: ONE voiceover plays continuously across ALL videos
+
+### 🚨 CRITICAL: SUBJECT DIVERSITY WITHIN VIDEO GROUPS (Same Color Theme)
+* **MANDATORY**: Videos within a group MUST show **DIFFERENT SUBJECTS** but use the **SAME COLOR THEME**
+* Each video should show a **different aspect/perspective** of the narrative, but visually cohesive
+* **BAD (same subject)**: All showing the same chart/graph
+* **GOOD (diverse subjects, same colors)**: Dashboard → Workers → Executives (different subjects, same color palette)
+
+### ♻️ B_ROLL REUSE STRATEGY (CRITICAL FOR EFFICIENCY)
+* **You know the full script** - plan strategic B_ROLL reuse to reinforce messaging
+* **When to reuse**: When a previously generated B_ROLL matches current voiceover
+* **Benefits**: 
+  * Reinforces key visuals
+  * Reduces generation cost
+  * Creates visual continuity
+* **How to specify reuse**:
+  * Set `"is_reuse": true`
+  * Set `"reuse_from_clip": X` (clip number where B_ROLL was first generated)
+  * Set `"reuse_video_index": Y` (for video groups: which video to reuse, 0-indexed)
+* **🚨 NEVER reuse B_ROLL at AI_VIDEO positions** - influencer clips are always unique
+
+### B_ROLL JSON Examples
+
+**🚨 REMEMBER: All prompts below use colors from the SAME chosen visual_style theme (e.g., COOL_MINIMAL)**
+
+**Example 1 - Single B_ROLL (new generation)** - using COOL_MINIMAL theme:
+```json
+{{{{
+  "clip_number": 2,
+  "duration_seconds": 4,
+  "clip_type": "B_ROLL",
+  "voiceover": "[concerned] Steel prices are climbing fast",
+  "is_reuse": false,
+  "image_prompt": "Cinematic close-up of digital trading dashboard showing steel price index with upward trend, modern interface with cool blue glow, soft diffused lighting with ice blue accents, clean white minimal background, shot on 50mm lens, no text overlays",
+  "video_prompt": "Camera slowly pushing in on the dashboard, numbers flickering and updating, price graphs animating upward with smooth motion, subtle cool blue screen glow pulsing, digital interface elements responding dynamically",
+  "music_group": "Music_A",
+  "hook_type": "Authority"
+}}}}
+```
+
+**Example 2 - Video Group B_ROLL (2 videos)**:
+```json
+{{{{
+  "clip_number": 3,
+  "duration_seconds": 4,
+  "clip_type": "B_ROLL",
+  "voiceover": "[serious] The entire industry is affected",
+  "is_reuse": false,
+  "video_group": [
+    {{{{
+      "image_prompt": "Factory workers in safety gear examining steel coils in industrial warehouse, sparks visible, dramatic lighting, no text overlays",
+      "video_prompt": "Workers walking and inspecting coils, sparks flying in background, camera tracking their movement, industrial machinery humming with subtle motion",
+      "rank": 1
+    }}}},
+    {{{{
+      "image_prompt": "Business executives in glass meeting room reviewing cost reports on tablets, tense atmosphere, no text overlays",
+      "video_prompt": "Executives gesturing while discussing, flipping through documents, subtle head movements and reactions, tense body language",
+      "rank": 2
+    }}}}
+  ],
+  "music_group": "Music_A",
+  "hook_type": "Transformation"
+}}}}
+```
+
+**Example 3 - Video Group B_ROLL (3 videos)**:
+```json
+{{{{
+  "clip_number": 4,
+  "duration_seconds": 4,
+  "clip_type": "B_ROLL",
+  "voiceover": "[authoritative] Policy changes forced companies to adapt quickly",
+  "is_reuse": false,
+  "video_group": [
+    {{{{
+      "image_prompt": "Government building with officials at press conference, microphones and cameras, formal setting, no text overlays",
+      "video_prompt": "Official speaking at podium, cameras flashing, subtle camera drift capturing the formal atmosphere, reporters taking notes",
+      "rank": 1
+    }}}},
+    {{{{
+      "image_prompt": "Corporate boardroom with executives studying policy documents, whiteboards with diagrams, no text overlays",
+      "video_prompt": "Executives leaning in to study documents, one pointing at whiteboard, subtle discussion gestures, papers being passed around",
+      "rank": 2
+    }}}},
+    {{{{
+      "image_prompt": "Workers on factory floor looking at announcement screens, mixed reactions, industrial setting, no text overlays",
+      "video_prompt": "Workers pausing to look at screens, some crossing arms, others nodding, machinery continuing in background, realistic industrial motion",
+      "rank": 3
+    }}}}
+  ],
+  "music_group": "Music_B",
+  "hook_type": "Myth vs Reality"
+}}}}
+```
+
+**Example 4 - Reused B_ROLL (no new generation)**:
+```json
+{{{{
+  "clip_number": 8,
+  "duration_seconds": 4,
+  "clip_type": "B_ROLL",
+  "voiceover": "[emphatic] Steel companies must adapt now",
+  "is_reuse": true,
+  "reuse_from_clip": 2,
+  "reuse_video_index": 0,
+  "music_group": "Music_B",
+  "hook_type": "CTA"
+}}}}
+```
+
+**Example 5 - Reused B_ROLL from Video Group**:
+```json
+{{{{
+  "clip_number": 10,
+  "duration_seconds": 4,
+  "clip_type": "B_ROLL",
+  "voiceover": "[reflective] Workers felt the impact most",
+  "is_reuse": true,
+  "reuse_from_clip": 4,
+  "reuse_video_index": 2,
+  "music_group": "Music_B",
+  "hook_type": "Relatability"
+}}}}
+```
+
+### Planning B_ROLL Strategy
+1. **Analyze the full script** - identify key visual themes that appear multiple times
+2. **Plan new generations** - create B_ROLL for unique visual moments
+3. **Plan reuse opportunities** - when same theme reappears, reuse existing B_ROLL
+4. **Use video groups** - when narrative has multiple aspects to show
+5. **Keep it fast-paced** - don't overload with visuals, just enough to deliver message
+6. **Balance variety** - mix single B_ROLL and video groups throughout
+
+### 🚨 NEVER Use B_ROLL For:
+* **Clip 0 (SILENT_IMAGE)** - ALWAYS use single `prompt` for static image with text overlay
+* **AI_VIDEO influencer clips** - they have their own dynamics with speech
 
 ---
 
@@ -690,16 +1499,16 @@ Every image or video prompt MUST:
     * This prompt is used for video generation with Veo3.1
   * **For REGULAR IMAGE prompts (used for IMAGE_ONLY/SILENT_IMAGE clips)**: Text overlays ARE ALLOWED - do NOT add "no text overlays" instruction
   * **CRITICAL**: The starting_image_prompt must NOT contain any voiceover text instructions - these belong ONLY in the clip prompt
-  * **🚨 CRITICAL: VISUAL DIVERSITY REQUIREMENT FOR IMAGE-BASED CLIPS**:
-    * **MANDATORY**: All image-based clips (IMAGE_ONLY and SILENT_IMAGE) MUST have DISTINCT and DIFFERENT visuals
-    * **PROBLEM**: If clips have similar visuals, the video looks repetitive, unprofessional, and boring
-    * **SOLUTION**: Each image-based clip must have a UNIQUE visual composition, setting, angle, perspective, or focus
-    * **REQUIREMENTS**:
+  * **🚨 CRITICAL: SUBJECT DIVERSITY REQUIREMENT FOR IMAGE-BASED CLIPS** (Keep Same Color Theme):
+    * **MANDATORY**: All image-based clips MUST have DISTINCT SUBJECTS but use the SAME COLOR PALETTE from chosen theme
+    * **PROBLEM**: If clips have similar subjects, the video looks repetitive, unprofessional, and boring
+    * **SOLUTION**: Each image-based clip must have a UNIQUE subject/composition, but maintain visual color consistency
+    * **REQUIREMENTS** (Vary SUBJECTS, Keep COLORS Consistent):
       * **Vary visual compositions**: Use different layouts (split screen, full frame, corner overlay, close-up, wide shot, etc.)
-      * **Vary settings/locations**: Use different environments, backgrounds, or contexts for each clip
+      * **Vary settings/locations**: Use different environments, backgrounds, or contexts - BUT same color palette
       * **Vary camera angles**: Use different perspectives (close-up, wide shot, overhead, side view, front view, etc.)
       * **Vary visual elements**: Include different objects, people, scenes, or data visualizations in each clip
-      * **Vary color schemes**: Use different lighting, color palettes, or moods when appropriate
+      * **KEEP color scheme consistent**: Use the SAME lighting style and color palette from visual_style across ALL clips
       * **Vary visual focus**: Focus on different aspects of the story (people, objects, environments, data, documents, etc.)
       * **🚨 CRITICAL: AVOID REPETITIVE CHART TRENDS**:
         * **DO NOT** have all or majority of clips showing the same type of chart trend (all upwards trends OR all downwards trends)
@@ -718,25 +1527,27 @@ Every image or video prompt MUST:
           * Clip 3: "Close-up of documents on negotiation table"
           * Clip 4: "Split screen: production line on left, cost analysis on right"
           * Clip 5: "Overhead view of factory floor with machinery"
-    * **EXAMPLES OF GOOD VISUAL DIVERSITY**:
-      * Clip 1: "Close-up of steel price charts on digital display, workers in background"
-      * Clip 2: "Wide shot of steel mill warehouse with buyers examining coils"
-      * Clip 3: "Split screen: government documents on left, steel import crates on right"
-      * Clip 4: "Overhead view of negotiation table with price documents"
-      * Clip 5: "Side view of production line with cost charts on wall"
-      * Clip 6: "Front view of executives in meeting room with presentation screen"
-    * **EXAMPLES OF BAD (TOO SIMILAR)**:
-      * ❌ Clip 1: "Steel mill with workers and upward trending chart"
+    * **EXAMPLES OF GOOD SUBJECT DIVERSITY** (with consistent COOL_MINIMAL color theme):
+      * Clip 1: "Close-up of steel price charts on digital display with cool blue glow, workers in background, clean grey backdrop"
+      * Clip 2: "Wide shot of steel mill warehouse with buyers examining coils, soft diffused cool lighting, minimal white ceiling"
+      * Clip 3: "Split screen: government documents on left, steel import crates on right, clean slate grey background"
+      * Clip 4: "Overhead view of negotiation table with price documents, cool white lighting, minimal backdrop"
+      * Clip 5: "Side view of production line with cost charts on wall, ice blue accent lighting, grey industrial tones"
+      * Clip 6: "Front view of executives in meeting room with presentation screen, soft cool lighting, white minimal interior"
+    * **EXAMPLES OF BAD (TOO SIMILAR SUBJECTS OR INCONSISTENT COLORS)**:
+      * ❌ Clip 1: "Steel mill with workers and upward trending chart" (same subject as others)
       * ❌ Clip 2: "Steel mill with workers and upward trending chart" (too similar!)
-      * ❌ Clip 3: "Steel mill with workers and upward trending chart" (repetitive!)
-      * ❌ Clip 4: "Chart showing upward trend" (all charts showing same trend!)
+      * ❌ Clip 3: "Golden hour warm lighting with orange sunset" (wrong colors - no warm tones!)
+      * ❌ Clip 4: "Teal neon with pink gradient" (different color theme from other clips!)
     * **VERIFICATION CHECKLIST**: Before finalizing image prompts for ALL image-based clips, check:
-      * ✅ Each IMAGE_ONLY/SILENT_IMAGE clip has a DISTINCT visual composition
-      * ✅ No two image-based clips have the same or very similar settings
+      * ✅ Each clip has a DISTINCT visual SUBJECT/composition
+      * ✅ No two clips have the same or very similar subjects/settings
       * ✅ Visuals vary in composition, angle, focus, or perspective
       * ✅ Charts/data visualizations are varied (not all showing same trend type)
       * ✅ The sequence of visuals creates visual interest and prevents monotony
-      * ✅ If multiple clips show charts, they show different chart types, directions, or contexts
+      * ✅ **ALL clips use the SAME color palette** from your chosen visual_style theme
+      * ✅ **NO warm/golden/orange tones** appear in any prompt
+      * ✅ **Lighting style is consistent** across all clips
     * **NOTE**: This requirement applies ONLY to image-based clips (IMAGE_ONLY/SILENT_IMAGE). AI_VIDEO clips can have similar visuals since they include influencer movement and variation
   * **CONTEXT-AWARE**: Analyze the input text to determine the actual context and adapt prompts accordingly:
   * **Geographic context**: If input mentions India → Use Indian visual elements (Hindi signage, Indian clothing, Indian architecture, etc.)
@@ -772,6 +1583,156 @@ Every image or video prompt MUST:
   * "NOT showing year numbers or decade labels as text unless part of a calendar widget or date picker interface"
   * "NOT duplicate humans in the same image"
   * "NOT metadata phrases like 'Indian context' or 'modern era' as text"
+
+### 🚨🚨🚨 CINEMATIC & EXCITING IMAGE PROMPTS (ABSOLUTELY CRITICAL - GEN Z VISUAL APPEAL):
+* **⚠️ THIS IS THE MOST IMPORTANT RULE FOR IMAGE PROMPTS ⚠️**
+* **MANDATORY**: ALL image prompts MUST be **CINEMATIC, DETAILED, and VISUALLY EXCITING**
+* **STRICT MINIMUM**: Every image prompt MUST be **AT LEAST 60-100 words** - shorter prompts result in BORING, generic visuals
+* **GOAL**: Create visuals that are **TikTok/Reels-worthy**, **scroll-stopping**, and appeal to **Gen Z aesthetic**
+
+### WHY THIS MATTERS:
+* **PROBLEM**: Short/vague/generic prompts cause:
+  * 🚫 BORING stock-photo-like visuals that viewers scroll past
+  * 🚫 Disconnected body parts (hands floating without arms)
+  * 🚫 Generic lighting that feels flat and amateur
+  * 🚫 No emotional impact - viewers don't feel anything
+
+### 🎬 CINEMATIC CAMERA WORK (REQUIRED IN EVERY PROMPT):
+* **DYNAMIC ANGLES**: Use cinematic camera angles, NOT just "medium shot"
+  * "Low angle hero shot" - makes subject look powerful
+  * "Dutch tilt" - creates tension and unease
+  * "Extreme close-up" - intimacy, detail, emotion
+  * "Bird's eye overhead shot" - context and scale
+  * "Over-the-shoulder" - voyeuristic, immersive
+* **LENS SPECIFICATIONS**: Add lens details for professional look
+  * "shot on 35mm lens" - classic cinematic
+  * "shot on 50mm f/1.4" - portrait, shallow depth
+  * "shot on 85mm portrait lens" - flattering compression
+  * "macro lens detail" - extreme detail shots
+* **DEPTH OF FIELD**: Almost every shot needs this
+  * "shallow depth of field with creamy bokeh"
+  * "background melting into soft blur"
+  * "sharp subject against dreamy bokeh background"
+
+### 💡 DRAMATIC LIGHTING (REQUIRED - NO FLAT LIGHTING):
+* **NEVER use generic "soft lighting" or "natural light" alone** - be SPECIFIC
+* **🚨 VARY LIGHTING STYLES ACROSS CLIPS** - don't use the same lighting for every image!
+* **CINEMATIC LIGHTING STYLES** (rotate these across clips):
+  * "Rembrandt lighting with dramatic shadows on face" - classic portrait
+  * "Dramatic side lighting creating depth and dimension" - moody
+  * "Three-point lighting" - professional, balanced
+  * "Chiaroscuro lighting with deep shadows" - artistic, dramatic
+  * "Film noir single spotlight from above" - mysterious
+  * "Soft diffused window light" - natural, authentic
+  * "Backlit with rim light separation" - modern, stylish
+  * "Split lighting with half face in shadow" - dramatic, mysterious
+  * "Butterfly lighting from above" - beauty, glamour
+  * "Natural golden hour glow" - warm, cinematic (when context fits)
+* **LIGHTING COLOR OPTIONS** (vary across clips - don't always use teal/pink!):
+  * Cool blue/cyan rim accents - modern, tech feel
+  * Warm amber edge glow - golden hour, natural
+  * Deep red/burgundy undertones - dramatic, intense
+  * Soft lavender fill - gentle, dreamy
+  * Green/olive tones - natural, environmental
+  * Neutral/white balanced - clean, professional
+  * High contrast with no color cast - timeless, classic
+
+### 🎨 CINEMATIC VISUAL AESTHETICS (DIVERSE & EXCITING):
+* **🚨 CRITICAL: VARY COLOR GRADING ACROSS CLIPS** - monotonous colors kill engagement!
+* **COLOR GRADING OPTIONS** (rotate these - don't repeat the same look):
+  * "high contrast greyscale with subtle warm tones"
+  * "moody desaturated palette with rich shadows"
+  * "clean neutral tones with crisp whites"
+  * "rich cinematic color with deep blacks"
+  * "soft pastel color grading"
+  * "cool blue-grey tones with silver highlights"
+  * "warm natural skin tones with soft background"
+  * "jewel tones with deep burgundy and emerald"
+  * "muted earth palette with dusty rose accents"
+* **BACKGROUND VARIETY** (mix these across clips):
+  * "plain white/grey studio background" - clean, minimal
+  * "soft pastel solid backdrop" - gentle, modern
+  * "textured concrete or brick wall" - industrial, authentic
+  * "brushed metal or steel surface" - tech, premium
+  * "natural wood grain texture" - warm, organic
+  * "fabric or paper texture backdrop" - artistic, tactile
+  * "atmospheric fog or haze" - moody, cinematic
+  * "environmental context" - when story demands
+* **ATMOSPHERE & MOOD** (vary the energy):
+  * "tense atmosphere with dramatic shadows"
+  * "calm, contemplative mood with soft light"
+  * "energetic and dynamic feel"
+  * "intimate emotional moment frozen in time"
+  * "powerful and commanding presence"
+  * "mysterious with hidden details"
+* **TEXTURE & DETAIL**:
+  * "film grain for authentic cinematic texture"
+  * "visible texture and material details"
+  * "hyper-detailed surface reflections"
+
+### 🔥 EXPRESSIONS & CAMERA DIRECTION:
+* **🚨 INFLUENCER MUST ALWAYS FACE CAMERA** - speaking directly to camera in every clip
+* **NEVER describe generic expressions** - add character and energy
+* **EXPRESSIONS** (be specific about emotion):
+  * "confident knowing smirk" NOT just "smiling"
+  * "thoughtful expression with slight head tilt" NOT just "thinking"
+  * "warm genuine smile reaching the eyes" NOT just "happy"
+  * "intense focused gaze with furrowed brow" NOT just "looking"
+  * "raised eyebrow with curious expression" NOT just "interested"
+* **CAMERA DIRECTION** (MANDATORY for influencer clips):
+  * Always include "speaking directly to camera" or "direct eye contact with camera"
+  * **FOR INFLUENCER/PRESENTER SHOTS** (AI_VIDEO clips): Influencer must be speaking directly to camera in every frame
+* **FOR OTHER SUBJECTS** (non-influencer elements in split/overlay visuals):
+  * Add movement and energy for context visuals
+  * Dynamic compositions for background elements
+
+### 🚫 CRITICAL RULE FOR BODY PARTS:
+* **NEVER describe hands, arms, or body parts in isolation**
+* If showing a hand → MUST describe the person attached (arm, shoulder, body)
+* **EVERY hand must be attached to an arm, every arm to a shoulder**
+
+### TRANSFORMATION EXAMPLES (BORING → EXCITING with DIVERSE Styles):
+
+**Example 1 - Hand holding diamond (Cool Greyscale Style):**
+* ❌ **BORING (generic, flat)**: "Close-up of diamond under light, hand holding it in luxurious setting, no text overlays"
+* ✅ **EXCITING (75 words)**: "Extreme macro close-up of master jeweler's hands delicately holding brilliant-cut diamond against clean white studio background, diamond exploding with prismatic sparkle and light refraction, visible arm in crisp white sleeve with rolled cuff, single focused spotlight from above, shallow depth of field with minimal props, shot on macro lens, chiaroscuro lighting creating dramatic shadows, high contrast greyscale tones with diamond as the only color accent, intimate moment of craftsmanship frozen in time, no text overlays"
+
+**Example 2 - Person with product (Warm Natural Style):**
+* ❌ **BORING (static, generic)**: "Woman looking at rings in jewelry store, soft lighting, modern interior, no text overlays"
+* ✅ **EXCITING (82 words)**: "Cinematic medium close-up of elegant young woman against soft cream backdrop with wide eyes of wonder and slightly parted lips, dramatic Rembrandt lighting with warm key light casting beautiful shadows on her face, subtle golden rim light accent on her dark hair, stunning diamond rings sparkling in foreground creating prismatic lens flares, shallow depth of field with clean minimal background, shot on 50mm f/1.4, rich natural skin tones with warm neutral color grading, soft desaturated background, no text overlays"
+
+**Example 3 - Document/Object (Film Noir Style):**
+* ❌ **BORING (flat overhead)**: "Certification paper on desk with loupe and diamonds, professional setting, no text overlays"
+* ✅ **EXCITING (78 words)**: "Dramatic bird's eye overhead shot of official diamond certification document against textured dark wood surface, single harsh spotlight creating film noir atmosphere with deep shadows, gemologist's experienced hands with vintage silver signet ring visible at edge of frame, jeweler's loupe and three loose diamonds on black velvet catching light like stars, high contrast black and white aesthetic with subtle warm undertones, minimal props clean composition, professional appraisal atmosphere with tension and anticipation, shot on 35mm, no text overlays"
+
+**Example 4 - Comparing items (Cool Blue Style):**
+* ❌ **BORING (static description)**: "Person comparing two rings, confused expression, store counter, no text overlays"
+* ✅ **EXCITING (85 words)**: "Dynamic medium shot of well-dressed young woman against soft grey textured backdrop frozen mid-decision with furrowed brow and slight lip bite of uncertainty, holding two contrasting rings up to dramatic side light - large cloudy stone in left hand appearing dull, small brilliant diamond in right hand exploding with fire, her face half-illuminated with cool blue light and half in shadow creating visual tension, subtle cyan rim light accent, minimal clean background with no distracting props, shot on 85mm portrait lens, moody desaturated color palette, no text overlays"
+
+**Example 5 - Character on plain background (Clean Minimal Style):**
+* ❌ **BORING (cluttered)**: "Person in busy office environment with many objects, talking to camera"
+* ✅ **EXCITING (70 words)**: "Cinematic close-up of confident young professional against clean white studio backdrop, speaking directly to camera with raised eyebrow and knowing smirk, dramatic side lighting creating beautiful shadows on face, subtle warm rim accent, minimal props clean aesthetic, shallow depth of field, high contrast look with natural skin tones and neutral background, shot on 50mm f/1.4, direct eye contact with camera, modern minimal aesthetic, no text overlays"
+
+**Example 6 - Industrial/Tech (Moody Blue-Grey Style):**
+* ✅ **EXCITING**: "Wide shot of factory floor against brushed steel backdrop, workers in safety gear examining equipment, dramatic overhead industrial lighting with cool blue-grey tones, atmospheric haze adding depth, machinery silhouettes in background, high contrast shadows, shot on 35mm lens, documentary feel with cinematic color grading, muted earth tones with steel blue accents, no text overlays"
+
+**Example 7 - Nature/Outdoor (Golden Hour Style):**
+* ✅ **EXCITING**: "Cinematic wide shot of rural landscape at golden hour, warm amber light filtering through dust particles, farmer silhouette against soft orange sky, textured earth tones with deep shadows, atmospheric depth with gentle lens flare, shot on 50mm, film grain texture, rich warm color palette with natural greens and golden highlights, nostalgic documentary mood, no text overlays"
+
+### VERIFICATION CHECKLIST (CHECK EVERY PROMPT):
+Before finalizing EACH image prompt, verify:
+* ✅ Word count is **60-100 words** (count them!)
+* ✅ **CAMERA**: Specific angle + lens (not just "medium shot")
+* ✅ **LIGHTING**: Dramatic lighting style (VARY styles across clips!)
+* ✅ **DEPTH OF FIELD**: Bokeh/blur described
+* ✅ **EXPRESSION**: Specific emotion (not generic like just "happy" or "serious")
+* ✅ **FOR INFLUENCER**: "speaking directly to camera" or "direct eye contact with camera" included (MANDATORY)
+* ✅ **ATMOSPHERE**: Mood/feeling conveyed
+* ✅ **COLOR**: Specified color palette (VARY palettes across clips - don't repeat same colors!)
+* ✅ **BACKGROUND**: Context-appropriate (vary: plain, textured, environmental)
+* ✅ If hands shown, FULL person described
+* ✅ NO generic/stock-photo-like descriptions
+* ✅ **DIVERSITY CHECK**: Is this clip's color/mood DIFFERENT from adjacent clips?
 
 ### ⚠️ IMAGE PROMPT FORMATTING (CRITICAL):
 * **DO NOT** include "9:16 vertical composition" in image prompts - this causes images to be rotated 90 degrees
@@ -926,15 +1887,112 @@ Every image or video prompt MUST:
 * Spoken, simple {language_name} language (can include some English words where natural)
 * Use the script/writing system appropriate for {language_name}
 * Chronologically consistent with input text
-* **VOICEOVER LENGTH BY CLIP DURATION** (MANDATORY - applies to both ElevenLabs voiceover AND influencer speaking in AI_VIDEO clips):
-  * **4-second clips** (IMAGE_ONLY - short messages): 1 short sentence (**6-8 words**) - minimum 6 words, maximum 8 words - concise, punchy, fits perfectly in 4 seconds
-  * **6-second clips** (IMAGE_ONLY - bigger messages OR AI_VIDEO non-influencer): 1-2 short sentences (**10-12 words**) - minimum 10 words, maximum 12 words - use for IMAGE_ONLY clips when message is longer and needs more time
-  * **8-second clips** (AI_VIDEO influencer only): 1-2 sentences (**14-16 words**) - minimum 14 words, maximum 16 words
-  * **IMPORTANT**: When deciding clip duration for IMAGE_ONLY clips, consider the message length:
-    * If voiceover is 6-8 words → Use **4 seconds**
-    * If voiceover is 10-12 words → Use **6 seconds**
-    * This ensures proper pacing and message clarity
-* **MUST include emotional expressions in square brackets** for TTS
+
+### 🚨 CRITICAL: SCRIPT SIMPLICITY REQUIREMENT
+* **MANDATORY**: The script/voiceover text MUST be extremely SIMPLE and easy to understand
+* **Purpose**: Anyone should be able to understand the message even while casually listening (not just reading)
+* **Requirements for ALL voiceover text** (both ElevenLabs voiceover AND influencer speech in AI_VIDEO clips):
+  * Use **simple, everyday vocabulary** - avoid jargon, technical terms, or complex words
+  * Use **short, clear sentences** - each sentence should convey ONE idea
+  * Use **conversational tone** - write as if speaking to a friend
+  * **Avoid complex sentence structures** - no nested clauses, multiple subjects, or convoluted phrases
+  * **Repeat key terms** instead of using synonyms - consistency aids comprehension
+  * **Use concrete examples** instead of abstract concepts
+  * **Break down complex ideas** into multiple simple statements
+* **Examples**:
+  * ❌ COMPLEX: "The ramifications of the policy implementation necessitated a recalibration of strategic objectives"
+  * ✅ SIMPLE: "The new policy changed everything. We had to rethink our plan."
+  * ❌ COMPLEX: "Pursuant to the aforementioned circumstances, the stakeholders convened to deliberate"
+  * ✅ SIMPLE: "Because of this, the team met to discuss what to do next."
+* **This applies to BOTH**:
+  * Regular ElevenLabs voiceover text (for IMAGE_ONLY clips)
+  * Influencer speech text in AI_VIDEO clips (what the influencer says on camera)
+* **The simplicity rule must be followed while still maintaining the word count constraints** (6-8 words for 4s, 10-12 words for 6s, 14-16 words for 8s AI_VIDEO clips)
+
+### 🚨🚨🚨 VOICEOVER WORD COUNT (ABSOLUTELY CRITICAL - STRICTLY ENFORCED):
+* **⚠️ THIS IS THE MOST IMPORTANT RULE FOR VOICEOVERS ⚠️**
+* **STRICT WORD LIMITS BY CLIP DURATION** (NO EXCEPTIONS):
+  * **4-second clips**: **6-8 words ONLY** (NOT 9, NOT 10, NOT 13 - EXACTLY 6-8 words!)
+  * **6-second clips**: **10-12 words ONLY** (NOT 14, NOT 15 - EXACTLY 10-12 words!)
+  * **8-second clips (AI_VIDEO)**: **14-16 words ONLY**
+* **WHY THIS MATTERS**: Voiceovers that exceed word limits will:
+  * 🚫 Audio will be too long for clip duration
+  * 🚫 Audio will be cut off mid-sentence
+  * 🚫 Video pacing will be broken
+  * 🚫 User experience will be poor
+
+### HOW TO COUNT WORDS:
+* **ONLY count spoken words** - the actual words the viewer will hear
+* Example: "This is amazing" = **3 words**
+* Example: "These mistakes are universal" = **4 words**
+
+{word_count_examples}
+
+### MANDATORY VERIFICATION:
+* **COUNT EVERY VOICEOVER** before finalizing
+* For EACH voiceover, ask: "Does this match the clip duration?"
+  * 4-second clip → Is it 6-8 words? If not, REWRITE shorter
+  * 6-second clip → Is it 10-12 words? If not, REWRITE shorter/longer
+  * 8-second clip → Is it 14-16 words? If not, REWRITE shorter/longer
+* **If voiceover is too long → CONDENSE the message, don't change clip duration**
+* **Keep the ESSENCE but use FEWER words**
+
+{square_bracket_sparingly_instructions}
+
+### 🚨🚨🚨 NARRATIVE STRUCTURE - HOOKS ARE MANDATORY (ABSOLUTELY CRITICAL):
+* **⚠️ THIS IS THE MOST IMPORTANT RULE FOR VIDEO ENGAGEMENT ⚠️**
+* **PROBLEM**: Videos without proper hooks feel flat, boring, and get scrolled past
+* **EVERY VIDEO MUST HAVE**: Opening Hook → Middle Engagement → Strong Ending
+
+### 🎬 CLIP 1 OPENING HOOK (MANDATORY - MUST BE AI_VIDEO):
+* **Clip 0**: Silent visual hook with text overlay (grabs attention visually) - SILENT_IMAGE
+* **Clip 1**: **MUST be AI_VIDEO** - Influencer delivers the FIRST VOICEOVER with **CONTEXT + HOOK**
+* **⚠️ CRITICAL**: Clip 1 is the FIRST thing viewers HEAR - having the influencer introduce the topic creates immediate connection!
+* **WHY AI_VIDEO for Clip 1**: The influencer speaking directly to the viewer establishes trust and engagement from the start
+
+### 🚨 CLIP 1 MUST SET CONTEXT (VERY IMPORTANT):
+* **PROBLEM**: Clip 0 is SILENT - viewers only SEE the text overlay but don't HEAR it
+* **SOLUTION**: Clip 1 MUST verbally introduce the topic/context BEFORE or WHILE delivering the hook
+* **WHY**: Starting with "What if these mistakes..." is confusing - viewers ask "what mistakes?"
+* **RULE**: Clip 1 voiceover should contain BOTH:
+  1. **CONTEXT**: What is this video about? (topic introduction)
+  2. **HOOK**: Why should I keep watching? (engagement element)
+* **COMBINE them into ONE flowing sentence** - don't make context boring, make it part of the hook!
+
+**🚫 BAD CLIP 1 OPENINGS (NO CONTEXT - SOUNDS ABRUPT & CONFUSING):**
+* ❌ "What if these mistakes ruin your proposal?" (What mistakes? No context!)
+* ❌ "These ring mistakes break hearts unnecessarily." (jumps in without intro)
+* ❌ "These are the mistakes people make." (flat, no context, no hook)
+* ❌ "Let me tell you about five mistakes." (weak, vague, no topic)
+
+**✅ GOOD CLIP 1 OPENINGS (CONTEXT + HOOK COMBINED - ENGAGING & CLEAR):**
+* ✅ "Buying an engagement ring? Five mistakes could ruin it." (Context: buying ring + Hook: mistakes)
+* ✅ "Diamond ring shopping has five hidden traps. Are you falling in?" (Context: diamond shopping + Hook: traps/question)
+* ✅ "Your perfect ring might be ruined by these five mistakes." (Context: ring + Hook: ruined/mistakes)
+* ✅ "Engagement ring buyers make five costly errors. Don't be one." (Context: ring buyers + Hook: costly errors)
+* ✅ "Before you buy that diamond, know these five mistakes." (Context: buying diamond + Hook: know mistakes)
+
+**FORMULA FOR CLIP 1**: [TOPIC/CONTEXT] + [HOOK ELEMENT]
+* Topic + Question: "Buying a ring? What if you're making a mistake?"
+* Topic + Bold Claim: "Diamond rings have five costly secrets most buyers miss."
+* Topic + Urgency: "Ring shopping? Stop. These mistakes cost thousands."
+* Topic + Story: "When I bought my ring, I almost made this fatal error."
+
+### 🏁 ENDING CLIP (MANDATORY - MUST NOT BE ABRUPT):
+* **Final clip** MUST end with a proper conclusion, NOT mid-thought
+* **EVERY ending needs**: CTA (Call-to-Action) OR Question OR Reflective Statement
+
+**🚫 BAD ENDINGS (ABRUPT - LEAVES VIEWERS CONFUSED):**
+* ❌ "Mistake five: Thinking buying is hard; it's creating your story." (ends on a mistake, no conclusion)
+* ❌ "That's the fifth mistake." (abrupt, no engagement, no closure)
+* ❌ "It's about pulling out the story." (trailing off, incomplete)
+
+**✅ GOOD ENDINGS (STRONG CLOSURE - DRIVES ENGAGEMENT):**
+* ✅ "[passionate] Your ring should tell YOUR story. Ready to create yours? Comment below!" (CTA + Transformation Promise)
+* ✅ "[reflective] The ring isn't hard. The story is priceless. What's your ring story?" (Reflective + Question)
+* ✅ "[empowering] Find a jeweler who listens. Your love story deserves nothing less." (Transformation Promise)
+* ✅ "[hopeful] Avoid these mistakes, create your legacy. Share this with someone ring shopping!" (CTA + Value)
+
 * **CRITICAL: SCRIPT STRUCTURE FOR SCROLL-STOPPING VIDEOS**:
   * **STARTING HOOK (Clip 0 or Clip 1)**: Must grab attention immediately using one of these hooks:
     * **Visual Pattern Interrupt**: Fast cuts, bold visuals, sudden change
@@ -1154,25 +2212,113 @@ Every image or video prompt MUST:
     "locations": [],
     "time_periods": []
   }}}},
+  "hook_breakdown": {{{{
+    "hook_text": "The exact text/visual that appears at timestamp 0.0s",
+    "hook_category": "Type: Shock/Surprise | Story-Start | Confrontation | Question | Bold Claim | Curiosity Gap | Visual Pattern Interrupt",
+    "hook_psychology_trigger": "Why this hook works psychologically (e.g., 'Triggers loss aversion', 'Creates curiosity gap')",
+    "hook_delivery_style": "How the hook is delivered (e.g., 'Direct address to camera', 'Bold text overlay', 'Visual reveal')",
+    "hook_duration_seconds": "How long the hook lasts (typically 1.5-3 seconds)",
+    "hook_visual_treatment": "Visual style of the hook (e.g., 'Fast cut', 'Zoom in', 'Text animation')",
+    "hook_reveal_rule": "What information is withheld and when it will be revealed"
+  }}}},
+  "video_strategy_summary": {{{{
+    "core_emotion": "Primary emotion the video evokes (e.g., 'curiosity', 'urgency', 'fear of missing out', 'hope')",
+    "tension_arc": "How tension builds and releases (e.g., 'Hook creates mystery → Middle builds stakes → Reveal delivers payoff')",
+    "retention_mechanism": "What keeps viewers watching (e.g., 'Open loops every 5s', 'Unexpected reveals', 'Story progression')",
+    "payoff_type": "Type of ending: 'insight' | 'reframed belief' | 'emotional satisfaction' | 'call to action'"
+  }}}},
+  "visual_style": {{{{
+    "chosen_theme": "Theme name - use example (COOL_MINIMAL, TEAL_MODERN, etc.) OR create custom (e.g., OCEAN_CORPORATE, WARM_EARTH)",
+    "primary_colors": ["List 2-3 primary colors for this video, e.g., 'white', 'slate grey', 'teal'"],
+    "accent_color": "One accent color used sparingly, e.g., 'ice blue' or 'coral'",
+    "background_style": "Primary background style: 'solid minimal' | 'soft gradient' | 'textured minimal' | 'atmospheric'",
+    "lighting_style": "Primary lighting: 'soft diffused cool' | 'rembrandt cool' | 'backlit rim' | 'high contrast'",
+    "theme_reasoning": "Brief explanation of why this theme fits the content (1 sentence)"
+  }}}},
   "video_overview": {{{{
     "total_duration_seconds": 0,
     "total_clips": 0,
-    "ai_video_clips_used": 0
+    "ai_video_clips_used": 0,
+    "b_roll_clips_used": 0,
+    "b_roll_reused_count": 0,
+    "video_group_clips_used": 0
   }}}},
   "clips": [
     {{{{
       "clip_number": 0,
+      "timestamp": "0.0s",
       "duration_seconds": 4,
-      "clip_type": "SILENT_IMAGE | IMAGE_ONLY | AI_VIDEO",
+      "clip_type": "SILENT_IMAGE",
       "voiceover": "",
-      "prompt": "For Clip 0 (SILENT_IMAGE): image prompt with MANDATORY text overlay description (e.g., 'with bold text overlay stating [message]') - DO NOT include 'no text overlays'. For other IMAGE_ONLY clips: image prompt ending with 'no text overlays'. For AI_VIDEO: video clip prompt (with voiceover instructions)",
-      "starting_image_prompt": "REQUIRED for AI_VIDEO clips only - image prompt for starting frame (visual description only, NO voiceover text instructions, MUST end with 'no text overlays')",
-      "music_group": "",
-      "effect_hint": "Description of desired visual effect style and movement",
-      "is_influencer_clip": false,
-      "failover_image_prompt": "OPTIONAL: For AI_VIDEO influencer clips only - image prompt without influencer for failover",
-      "failover_effect_hint": "OPTIONAL: For AI_VIDEO influencer clips only - effect hint for failover image",
-      "hook_type": "MANDATORY - Explicitly state which hook is used in this clip. For starting clips (0-1): 'Shock/Surprise', 'Story-Start', 'Confrontation', 'Question', 'Bold Claim', 'Curiosity Gap', or 'Visual Pattern Interrupt'. For middle clips (2 to N-1): 'Myth vs Reality', 'Transformation', 'Authority', 'Relatability', 'Mistake', 'Social Proof', or 'Contrarian'. For ending clip (final): 'CTA', 'Question', 'Time-Bound', 'Transformation Promise', or 'Reflective Statement'. MUST be present in ALL THREE stages."
+      "on_screen_text": "Text overlay for Clip 0 hook. Example: '5 Ring Mistakes'",
+      "tension_purpose": "Creates curiosity gap with visual hook",
+      "prompt": "Image prompt for Clip 0 with text overlay (no 'no text overlays' instruction)",
+      "music_group": "Music_A",
+      "hook_type": "Visual Pattern Interrupt"
+    }}}},
+    {{{{
+      "clip_number": 1,
+      "timestamp": "4.0s",
+      "duration_seconds": 8,
+      "clip_type": "AI_VIDEO",
+      "voiceover": "The voiceover text the influencer speaks (14-16 words)",
+      "tension_purpose": "Establishes context and hooks viewer with influencer connection",
+      "prompt": "Full video prompt with scene description, language instructions, and voiceover text",
+      "starting_image_prompt": "Image prompt for starting frame (visual only, ends with 'no text overlays')",
+      "music_group": "Music_A",
+      "is_influencer_clip": true,
+      "failover_image_prompt": "Backup image prompt without influencer for failover",
+      "failover_effect_hint": "Effect hint for failover image",
+      "hook_type": "Shock/Surprise"
+    }}}},
+    {{{{
+      "clip_number": 2,
+      "timestamp": "12.0s",
+      "duration_seconds": 4,
+      "clip_type": "B_ROLL",
+      "voiceover": "Voiceover text for this B_ROLL clip",
+      "tension_purpose": "Builds visual context with dynamic footage",
+      "is_reuse": false,
+      "image_prompt": "Cinematic image prompt for starting frame generation (ends with 'no text overlays')",
+      "video_prompt": "Video generation prompt describing motion, dynamics, camera work",
+      "music_group": "Music_A",
+      "hook_type": "Authority"
+    }}}},
+    {{{{
+      "clip_number": 3,
+      "timestamp": "16.0s",
+      "duration_seconds": 4,
+      "clip_type": "B_ROLL",
+      "voiceover": "Voiceover text for video group clip",
+      "tension_purpose": "Shows multiple perspectives rapidly",
+      "is_reuse": false,
+      "video_group": [
+        {{{{
+          "image_prompt": "First image prompt for starting frame",
+          "video_prompt": "First video motion description",
+          "rank": 1
+        }}}},
+        {{{{
+          "image_prompt": "Second image prompt for starting frame",
+          "video_prompt": "Second video motion description",
+          "rank": 2
+        }}}}
+      ],
+      "music_group": "Music_A",
+      "hook_type": "Transformation"
+    }}}},
+    {{{{
+      "clip_number": 8,
+      "timestamp": "32.0s",
+      "duration_seconds": 4,
+      "clip_type": "B_ROLL",
+      "voiceover": "Voiceover that relates to previously shown visual",
+      "tension_purpose": "Reinforces earlier message with reused visual",
+      "is_reuse": true,
+      "reuse_from_clip": 2,
+      "reuse_video_index": 0,
+      "music_group": "Music_B",
+      "hook_type": "Relatability"
     }}}}
   ],
   "music_groups": {{{{
@@ -1190,26 +2336,51 @@ Every image or video prompt MUST:
       "clips": [3, 4, 5],
       "total_duration_seconds": 18
     }}}}
-  }}}}
+  }}}},
+  "research_integration": [
+    {{{{
+      "claim_used": "Specific claim or stat from research that was integrated",
+      "source_context": "Brief context about where this information came from",
+      "integration_method": "How it was woven into the narrative (e.g., 'Used as hook', 'Authority signal', 'Supporting evidence')"
+    }}}}
+  ]
 }}}}
 ```
+
+**NOTE on B_ROLL fields**:
+* `clip_type`: Use `"B_ROLL"` for all non-influencer, non-silent clips (replaces IMAGE_ONLY)
+* `is_reuse`: **REQUIRED** for B_ROLL - `false` for new generation, `true` for reusing existing
+* `image_prompt` + `video_prompt`: For single B_ROLL (new generation only)
+* `video_group`: For multi-video B_ROLL (array with image_prompt, video_prompt, rank for each)
+* `reuse_from_clip` + `reuse_video_index`: For reused B_ROLL only
+
+**NOTE on Clip Types**:
+* `SILENT_IMAGE`: Clip 0 only - static image with text overlay
+* `AI_VIDEO`: Influencer clips with speech (A-roll)
+* `B_ROLL`: Dynamic video clips without speech (replaces IMAGE_ONLY)
+
+**NOTE on NEW STRATEGY FIELDS**:
+* `hook_breakdown`: **REQUIRED** - Detailed analysis of the opening hook strategy
+* `video_strategy_summary`: **REQUIRED** - Overall engagement and retention strategy
+* `timestamp`: **REQUIRED** for each clip - Running timestamp (e.g., "0.0s", "4.0s", "8.0s")
+* `tension_purpose`: **REQUIRED** for each clip - What engagement purpose this clip serves
+* `on_screen_text`: **OPTIONAL** - Text overlay content (especially important for Clip 0)
+* `research_integration`: **REQUIRED** array - Even if empty [], must be present; list any research/stats used
 
 ---
 
 ## 📌 FIELD VALIDATION RULES
 
 * `"clip_type"` must be exactly:
-  * `SILENT_IMAGE`
-  * `IMAGE_ONLY`
-  * `AI_VIDEO`
-* `"duration_seconds"` must be **4, 6, or 8 only**
-  * **4 seconds**: For IMAGE_ONLY/SILENT_IMAGE clips with short messages (6-8 words)
-  * **6 seconds**: For IMAGE_ONLY clips with bigger messages (10-12 words) OR for AI_VIDEO clips in non-influencer mode
+  * `SILENT_IMAGE` - Clip 0 only (static image with text overlay)
+  * `B_ROLL` - Dynamic video clips (replaces IMAGE_ONLY)
+  * `AI_VIDEO` - Influencer clips with speech
+* `"duration_seconds"` must be **4 or 8 only**
+  * **4 seconds**: For B_ROLL clips and SILENT_IMAGE (Clip 0)
   * **8 seconds**: For AI_VIDEO clips in influencer mode only
 {ai_video_duration_rule}
 {ai_video_count_rule}
 * `"voiceover"` must be empty for Clip 0
-* `"effect_hint"` is REQUIRED for SILENT_IMAGE and IMAGE_ONLY clips
 * `"is_influencer_clip"` is true ONLY for AI_VIDEO clips in influencer mode
 * `"hook_type"` is **MANDATORY** for ALL clips - explicitly state which hook is used:
   * **Starting clips (Clip 0 or Clip 1)**: Must have one of: 'Shock/Surprise', 'Story-Start', 'Confrontation', 'Question', 'Bold Claim', 'Curiosity Gap', 'Visual Pattern Interrupt'
@@ -1217,11 +2388,89 @@ Every image or video prompt MUST:
   * **Ending clip (Final clip)**: Must have one of: 'CTA', 'Question', 'Time-Bound', 'Transformation Promise', 'Reflective Statement'
   * **CRITICAL**: ALL THREE stages (starting, middle, ending) MUST have hook_type specified - never skip any stage
 
+### B_ROLL Validation:
+* `"is_reuse"` is **REQUIRED** for ALL B_ROLL clips - set to `false` for new generation, `true` for reuse
+* For NEW B_ROLL (is_reuse=false):
+  * **Single video**: Use `"image_prompt"` + `"video_prompt"` fields
+  * **Video group**: Use `"video_group"` array with objects containing `"image_prompt"`, `"video_prompt"`, `"rank"`
+* For REUSED B_ROLL (is_reuse=true):
+  * Use `"reuse_from_clip"` (clip number) + `"reuse_video_index"` (0-indexed, which video to reuse)
+  * Do NOT include image_prompt, video_prompt, or video_group
+* `"video_group"` array must have **2-3 video objects**, each with:
+  * `"image_prompt"`: For generating starting frame image
+  * `"video_prompt"`: For generating 4s video from that image
+  * `"rank"`: Order by voiceover relevance (1 = best match)
+* Videos in `"video_group"` MUST be **different but related** - NOT similar variations
+* ~{image_group_pct}% of B_ROLL clips should use video groups for dynamic feel
+* **🚨 6-SECOND B_ROLL CLIPS MUST ALWAYS USE video_group** - NEVER single image/video for 6s clips
+* **NEVER reuse B_ROLL at AI_VIDEO positions** - influencer clips are always unique
+* SILENT_IMAGE (Clip 0) should NOT be B_ROLL - always single static image with text overlay
+* AI_VIDEO clips should NOT be B_ROLL - they have their own dynamics with speech
+
 ### Music Group Validation:
 * Each music group's `"total_duration_seconds"` must be **≤ 20**
 * `"clips"` array must list which clip numbers use this music
 * **Every clip (including Clip 0)** must belong to exactly one music group
 * Clip 0 should typically be in Music_A (first music group) for dramatic opening
+
+### Hook Breakdown Validation (NEW - REQUIRED):
+* `"hook_breakdown"` object is **MANDATORY** at the top level
+* All fields in `hook_breakdown` must be filled with specific, actionable content
+* `"hook_category"` must match one of the starting hook types
+* `"hook_duration_seconds"` should be 1.5-3 seconds for maximum impact
+* `"hook_reveal_rule"` must specify what information is withheld
+
+### Visual Style Validation (REQUIRED - MUST BE DECIDED FIRST):
+* `"visual_style"` object is **MANDATORY** at the top level
+* `"chosen_theme"` - use an example theme name OR create a descriptive custom theme name (e.g., `OCEAN_CORPORATE`, `WARM_EARTH`, `NEON_TECH`)
+* `"primary_colors"` must list 2-3 colors that will dominate ALL clips
+* `"accent_color"` must be ONE color used sparingly for highlights
+* `"background_style"` must be consistent across the video
+* `"lighting_style"` must be the primary lighting used in 80%+ of clips
+* **🚨 ALL clip prompts MUST use colors from the chosen theme** - no exceptions
+* **🎨 BE AUTONOMOUS** - choose or create a theme that BEST FITS the content, don't default to the same theme every time
+
+### Video Strategy Summary Validation (NEW - REQUIRED):
+* `"video_strategy_summary"` object is **MANDATORY** at the top level
+* `"core_emotion"` must be a specific emotional state (not generic like "good" or "interesting")
+* `"tension_arc"` must describe how engagement builds and releases
+* `"retention_mechanism"` must specify concrete techniques (open loops, reveals, etc.)
+* `"payoff_type"` must be one of: 'insight', 'reframed belief', 'emotional satisfaction', 'call to action'
+
+### Clip-Level New Fields Validation:
+* `"timestamp"` is **REQUIRED** for every clip - format: "X.Xs" (e.g., "0.0s", "4.0s", "8.0s")
+* `"tension_purpose"` is **REQUIRED** for every clip - describe what engagement purpose this clip serves
+* `"on_screen_text"` is **OPTIONAL** but recommended for Clip 0 (silent hook) - describes text overlay content
+
+### Research Integration Validation (NEW - REQUIRED):
+* `"research_integration"` array is **MANDATORY** at the top level (can be empty [] if no research used)
+* For each research item: `"claim_used"`, `"source_context"`, and `"integration_method"` are all required
+* Use this to track any stats, claims, or facts that add credibility to the video
+
+---
+
+## 🎨 FINAL VISUAL CONSISTENCY CHECKLIST (MANDATORY)
+
+Before generating your JSON output, verify:
+
+1. ✅ **visual_style object is complete** with chosen_theme, primary_colors, accent_color
+2. ✅ **EVERY B_ROLL image_prompt** uses ONLY colors from your chosen theme
+3. ✅ **EVERY AI_VIDEO starting_image_prompt** uses ONLY colors from your chosen theme
+4. ✅ **SILENT_IMAGE (Clip 0) prompt** uses colors from your chosen theme
+5. ✅ **NO warm/golden/orange tones appear** in ANY prompt
+6. ✅ **Background descriptions are consistent** - same style across all clips
+7. ✅ **Lighting descriptions are consistent** - same primary lighting across clips
+8. ✅ **The entire video would look cohesive** if all clips were played together
+
+**Example of CONSISTENT prompts (GOOD):**
+* Clip 0: "...clean white background with subtle grey gradient, soft diffused cool lighting..."
+* Clip 2: "...minimal white backdrop with ice blue accents, soft diffused cool lighting..."
+* Clip 5: "...clean grey background with subtle cool tones, soft diffused lighting..."
+
+**Example of INCONSISTENT prompts (BAD - DO NOT DO THIS):**
+* Clip 0: "...golden hour warm lighting, orange sunset background..."
+* Clip 2: "...teal neon accents with pink gradient..."
+* Clip 5: "...cool blue minimal background with grey tones..."
 
 ---
 
@@ -1231,6 +2480,8 @@ Every image or video prompt MUST:
 * ❌ No explanations
 * ❌ No assumptions beyond input text
 * ❌ No output outside JSON
+* ❌ **No golden/orange/warm tones in any prompt**
+* ❌ **No mixing different color themes across clips**
 
 ---
 
@@ -1345,10 +2596,15 @@ def parse_duration(duration_str: str) -> tuple:
     return (60, 90)
 
 
-def analyze_text_and_generate_plan(context_text: str, language_code: str = "hi", influencer_mode: bool = False, influencer_gender: Optional[str] = None, user_instruction: Optional[str] = None, desired_duration: Optional[str] = None) -> Dict:
+def analyze_text_and_generate_plan(context_text: str, language_code: str = "hi", influencer_mode: bool = False, influencer_gender: Optional[str] = None, user_instruction: Optional[str] = None, desired_duration: Optional[str] = None, image_group_proportion: float = 0.5, voiceover_emotions: bool = False, reference_image_mode: bool = False, include_research: bool = False, research_type: str = "news") -> Dict:
     """
     Use Grok-4-latest to analyze text and generate video plan (Stage 1)
     This generates image prompts and effect_hints, NOT detailed effects
+    
+    Args:
+        reference_image_mode: If True, instructs Grok to use "reference influencer" terminology in ALL influencer prompts
+        include_research: If True, instructs Grok to populate research_integration with searchable claims
+        research_type: Type of research source (news, blog, report, twitter)
     """
     from xai_sdk import Client
     from xai_sdk.chat import user, system
@@ -1377,21 +2633,41 @@ def analyze_text_and_generate_plan(context_text: str, language_code: str = "hi",
     # Get current date for temporal context
     current_date = datetime.now().strftime("%B %d, %Y")
     
-    system_prompt = get_political_video_system_prompt(language_code, language_name, influencer_mode, influencer_gender, current_date, min_duration, max_duration)
+    # Calculate image group percentage for display
+    image_group_pct = int(image_group_proportion * 100)
+    print(f"  Image Group Proportion: {image_group_pct}% of IMAGE_ONLY clips")
+    
+    # Generate image group user instruction based on whether it's enabled
+    if image_group_proportion > 0:
+        image_group_user_instruction = f"""Use EITHER `prompt` (single image) OR `image_group` (2-3 images) - NOT both
+- **🎞️ IMAGE GROUPS ({image_group_pct}% of IMAGE_ONLY clips)**: 
+  * ~{image_group_pct}% of IMAGE_ONLY clips should use image groups (multiple visuals transitioning rapidly)
+  * For clips WITH image groups: Use `image_group` array with **2 or 3 objects** (YOU decide), each containing a `prompt` field
+  * For clips WITHOUT image groups: Use single `prompt` field as usual
+  * Images in a group MUST be **DIFFERENT but RELATED** - NOT similar variations
+  * Effect is applied ONLY to the first image in the group
+  * SILENT_IMAGE (Clip 0) and AI_VIDEO clips should NOT use image groups"""
+    else:
+        image_group_user_instruction = """Use single `prompt` field only (image groups are DISABLED)"""
+    
+    system_prompt = get_political_video_system_prompt(language_code, language_name, influencer_mode, influencer_gender, current_date, min_duration, max_duration, image_group_proportion, voiceover_emotions, reference_image_mode, include_research, research_type)
     
     # Adjust user prompt based on influencer mode
     if influencer_mode:
-        ai_video_instruction = """- UP TO 3 AI_VIDEO clips - influencer speaking to camera (ideally 3, but failover to IMAGE_ONLY is acceptable if generation fails)
+        ai_video_instruction = """- AI_VIDEO clips should be ~30% of total video duration (NOT a hardcoded 3 clips)
+- Calculate based on duration: 60s video→2 clips, 90s video→3-4 clips, 45s video→1-2 clips
 - ALL AI_VIDEO clips: 8 seconds each, full influencer character description for first clip + specify position in frame
-- Second/Third AI_VIDEO: Use "reference influencer" for consistency
-- VARY influencer positioning across clips (lower 30-50%, side split, corner overlay, etc.)
-- Specify exact position in each prompt (e.g., "influencer in bottom-left corner 30%")
-- CRITICAL: Remove square bracket expressions (like [shocked]) from image/video prompts - they're only for voiceover text
+- Second/Third/etc. AI_VIDEO: Use "reference influencer" for consistency
+- **CONSISTENT POSITIONING**: Choose ONE layout format (split OR overlay) and use the SAME format for ALL AI_VIDEO clips
+  * If using split layout (influencer left/right, context on other side): Use SAME side for ALL clips
+  * If using overlay (corner/lower portion): Use SAME corner position for ALL clips
+  * DO NOT MIX different formats or positions across clips
+- CRITICAL: Use PLAIN TEXT for all prompts - no square bracket expressions
 - **CRITICAL WORD LIMIT BY CLIP DURATION** (applies to ALL voiceovers - ElevenLabs AND influencer speaking):
   * **4-second clips**: 6-8 words (minimum 6, maximum 8 words)
   * **6-second clips**: 10-12 words (minimum 10, maximum 12 words)
   * **8-second clips**: 14-16 words (minimum 14, maximum 16 words - for influencer clips)
-- CRITICAL for 2nd/3rd clips: MUST include "Only take reference influencer from the reference image for new image generation. Ignore text from reference image." at the end of image prompts (ensures only influencer appearance is copied, all text is ignored)"""
+- CRITICAL for 2nd/3rd/etc. clips: MUST include "Only take reference influencer from the reference image for new image generation. Ignore text from reference image." at the end of image prompts (ensures only influencer appearance is copied, all text is ignored)"""
     else:
         ai_video_instruction = "- Maximum 2 AI_VIDEO clips (6 seconds each)"
     
@@ -1445,7 +2721,7 @@ Remember:
     * This prevents Veo3.1 from generating Chinese audio even when the language is specified
 - **For IMAGE_ONLY/SILENT_IMAGE clips**: 
   * **Clip 0 (SILENT_IMAGE)**: Use `prompt` field only - MUST explicitly describe text overlay (e.g., "with bold text overlay stating '[message]'") - DO NOT include "no text overlays" - text overlays are MANDATORY for Clip 0
-  * **Other IMAGE_ONLY clips**: Use `prompt` field only - MUST end with "no text overlays" (text can be embedded in image like signage/banners, but NO text overlays)
+  * **Other IMAGE_ONLY clips**: {image_group_user_instruction}
 {ai_video_instruction}
 - All other clips are IMAGE_ONLY with effects
 - Voiceover must include emotional expressions in [brackets]
@@ -1603,7 +2879,18 @@ Remember:
         print(f"\n{'='*60}")
         print(f"📋 PARSED VIDEO PLAN:")
         print(f"{'='*60}")
-        print(f"  Total Duration: {video_plan.get('video_overview', {}).get('total_duration_seconds', 0)}s")
+        
+        # Log visual style choice
+        visual_style = video_plan.get('visual_style', {})
+        if visual_style:
+            print(f"\n  🎨 VISUAL STYLE:")
+            print(f"    Theme: {visual_style.get('chosen_theme', 'Not specified')}")
+            print(f"    Primary Colors: {', '.join(visual_style.get('primary_colors', []))}")
+            print(f"    Accent Color: {visual_style.get('accent_color', 'Not specified')}")
+            print(f"    Background: {visual_style.get('background_style', 'Not specified')}")
+            print(f"    Lighting: {visual_style.get('lighting_style', 'Not specified')}")
+        
+        print(f"\n  Total Duration: {video_plan.get('video_overview', {}).get('total_duration_seconds', 0)}s")
         print(f"  Total Clips: {video_plan.get('video_overview', {}).get('total_clips', 0)}")
         print(f"  AI Video Clips: {video_plan.get('video_overview', {}).get('ai_video_clips_used', 0)}")
         
@@ -1650,7 +2937,7 @@ def generate_random_effect(clip_num: int, duration: float) -> List[Dict]:
     # Available effects (excluding forbidden ones)
     available_effects = [
         "zoom_in", "zoom_out", "pan", "ken_burns", "shake", "zoom_pulse",
-        "zoom_whip", "heartbeat", "flash", "letterbox", "color_shift",
+        "zoom_whip", "flash", "letterbox", "color_shift",
         "contrast_boost", "focus_rack", "reveal_wipe", "blur_transition",
         "saturation_pulse", "radial_blur", "bounce_zoom", "tilt", "glitch",
         "rgb_split", "film_grain", "light_leak", "color_pop", "split_screen",
@@ -1951,7 +3238,7 @@ Output ONLY valid JSON mapping clip_number -> effects array."""
     for attempt in range(max_retries):
         try:
             if attempt > 0:
-                print(f"  🔄 RETRY {attempt}/{max_retries-1}: Reconnecting to Grok for image analysis (auth context expired)...")
+                print(f"  🔄 RETRY {attempt}/{max_retries-1}: Reconnecting to Grok for image analysis...")
             
             print(f"\n  🔗 Connecting to Grok-4-latest for image analysis...")
             # Create fresh client for each attempt to avoid auth context expiration
@@ -1976,28 +3263,35 @@ Output ONLY valid JSON mapping clip_number -> effects array."""
         except Exception as e:
             last_exception = e
             error_str = str(e)
-            # Check if it's an auth context expiration error (retryable)
-            if ("Auth context expired" in error_str or 
-                "grpc_status:13" in error_str or
-                "StatusCode.INTERNAL" in error_str) and attempt < max_retries - 1:
-                print(f"  ⚠️ Auth context expired (attempt {attempt + 1}/{max_retries}), retrying with fresh connection...")
-                continue
-            # Check if it's a RESOURCE_EXHAUSTED error (message too large) - don't retry, assign random effects
-            elif ("RESOURCE_EXHAUSTED" in error_str or 
+            
+            # Check if it's a RESOURCE_EXHAUSTED error (message too large) - don't retry, assign random effects immediately
+            if ("RESOURCE_EXHAUSTED" in error_str or 
                   "grpc_status:8" in error_str or
                   "Sent message larger than max" in error_str or
                   "StatusCode.RESOURCE_EXHAUSTED" in error_str):
-                print(f"  ⚠️ Message too large for Grok (RESOURCE_EXHAUSTED) - assigning random effects to all clips...")
-                # Break out of retry loop and assign random effects
+                print(f"  ⚠️ Message too large for Grok (RESOURCE_EXHAUSTED) - will assign random effects...")
                 response_text = None
                 break
+            
+            # Check if it's a retryable error (auth context, internal error, etc.)
+            is_retryable = ("Auth context expired" in error_str or 
+                           "grpc_status:13" in error_str or
+                           "StatusCode.INTERNAL" in error_str or
+                           "grpc" in error_str.lower())
+            
+            if is_retryable and attempt < max_retries - 1:
+                print(f"  ⚠️ Grok error (attempt {attempt + 1}/{max_retries}): {error_str[:100]}...")
+                print(f"  🔄 Retrying with fresh connection...")
+                continue
             else:
-                # Not a retryable error or max retries reached - re-raise
-                raise
+                # Max retries reached or non-retryable error - will fall back to random effects
+                print(f"  ⚠️ Grok image analysis failed after {attempt + 1} attempts: {error_str[:150]}...")
+                response_text = None
+                break
     
-    # If we failed due to RESOURCE_EXHAUSTED, assign random effects and continue
-    if last_exception and ("RESOURCE_EXHAUSTED" in str(last_exception) or "Sent message larger than max" in str(last_exception)):
-        print(f"  ⚠️ Grok image analysis failed due to message size limit - assigning random effects to all clips...")
+    # If ANY error occurred and we don't have a response, fall back to random effects
+    if last_exception and not response_text:
+        print(f"  ⚠️ Grok image analysis failed - assigning random effects to all clips...")
         clip_effects = {}
         for clip_info in image_clips:
             clip_num = clip_info['clip_number']
@@ -2005,10 +3299,6 @@ Output ONLY valid JSON mapping clip_number -> effects array."""
             clip_effects[clip_num] = generate_random_effect(clip_num, duration)
             print(f"  ✅ Assigned random effect to clip {clip_num}")
         return clip_effects
-    
-    # If no response_text and not RESOURCE_EXHAUSTED, re-raise the exception
-    if last_exception and not response_text:
-        raise last_exception
     
     try:
         
@@ -2240,19 +3530,21 @@ def generate_image_with_nano_banana(prompt: str, output_path: str, aspect_ratio:
                           Both types need "no text overlays" (text overlays not allowed)
     """
     # Clean prompt: remove square bracket expressions (only for TTS, not visuals)
-    # This will also add "no text overlays" for all images
-    prompt = clean_prompt_for_visual(prompt, is_starting_frame=is_starting_frame)
+    # This will also add "no text overlays" for all images EXCEPT Clip 0
+    prompt = clean_prompt_for_visual(prompt, is_starting_frame=is_starting_frame, clip_num=clip_num)
     
-    # Double-check "no text overlays" is present (for all images)
-    import re
-    no_text_patterns = [
-        r'\bno\s+text\s+overlays?\b',
-        r'\bno\s+text\s+on\s+screen\b',
-        r'\bno\s+text\s+elements?\b',
-    ]
-    has_no_text = any(re.search(pattern, prompt, re.IGNORECASE) for pattern in no_text_patterns)
-    if not has_no_text:
-        prompt = f"{prompt}, no text overlays"
+    # Double-check "no text overlays" is present (for all images EXCEPT Clip 0)
+    # Clip 0 (SILENT_IMAGE) REQUIRES text overlays - do not add "no text overlays" for it
+    if clip_num != 0:
+        import re
+        no_text_patterns = [
+            r'\bno\s+text\s+overlays?\b',
+            r'\bno\s+text\s+on\s+screen\b',
+            r'\bno\s+text\s+elements?\b',
+        ]
+        has_no_text = any(re.search(pattern, prompt, re.IGNORECASE) for pattern in no_text_patterns)
+        if not has_no_text:
+            prompt = f"{prompt}, no text overlays"
     
     print(f"\n  🖼️ Generating image with nano-banana-pro...")
     print(f"     Prompt: {prompt[:100]}...")
@@ -2916,6 +4208,265 @@ def generate_ai_video_clip_seedance(
         return None
 
 
+def generate_ai_video_clip_omnihuman(
+    image_url: str,
+    audio_url: str,
+    output_path: str,
+    resolution: str = "720p",
+    activity_prompt: Optional[str] = None
+) -> Optional[str]:
+    """
+    Generate avatar video using OmniHuman 1.5.
+    Creates lip-synced avatar video from image and audio.
+    
+    Unlike Veo3.1 and Seedance which generate video from prompt,
+    OmniHuman takes an image and audio to create lip-synced video.
+    
+    Args:
+        image_url: S3 presigned URL of the avatar/influencer image
+        audio_url: S3 presigned URL of the voiceover audio
+        output_path: Where to save the generated video
+        resolution: Video resolution ("720p" or "1080p")
+        activity_prompt: Optional activity/movement instructions for the avatar
+        
+    Returns:
+        Path to saved video or None
+    """
+    print(f"\n  🎬 Generating avatar video with OmniHuman 1.5...")
+    print(f"     Image URL: {image_url[:80]}...")
+    print(f"     Audio URL: {audio_url[:80]}...")
+    print(f"     Resolution: {resolution}")
+    if activity_prompt:
+        print(f"     Activity: {activity_prompt[:80]}...")
+    
+    def on_queue_update(update):
+        if isinstance(update, fal_client.InProgress):
+            for log in update.logs:
+                print(f"     📋 {log.get('message', str(log))}")
+    
+    # Build arguments
+    arguments = {
+        "image_url": image_url,
+        "audio_url": audio_url,
+        "resolution": resolution
+    }
+    
+    # Add activity prompt if provided
+    if activity_prompt and activity_prompt.strip():
+        arguments["prompt"] = activity_prompt.strip()
+    
+    try:
+        result = fal_client.subscribe(
+            "fal-ai/bytedance/omnihuman/v1.5",
+            arguments=arguments,
+            with_logs=True,
+            on_queue_update=on_queue_update,
+        )
+        
+        if result and 'video' in result:
+            video_url = result['video'].get('url')
+            if video_url:
+                response = requests.get(video_url)
+                with open(output_path, 'wb') as f:
+                    f.write(response.content)
+                print(f"  ✅ OmniHuman avatar video saved: {output_path}")
+                return output_path
+        
+        print(f"  ❌ No video in OmniHuman result")
+        return None
+        
+    except Exception as e:
+        print(f"  ❌ OmniHuman video generation failed: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return None
+
+
+# ============================================
+# B_ROLL VIDEO GENERATION (Veo3.1 without audio)
+# ============================================
+
+def generate_b_roll_video(
+    image_url: str,
+    video_prompt: str,
+    output_path: str,
+    duration: int = 4
+) -> Optional[str]:
+    """
+    Generate a B_ROLL video clip using Veo3.1 image-to-video WITHOUT audio.
+    
+    B_ROLL videos are background/supplementary footage that plays while
+    voiceover is added separately during stitching.
+    
+    Args:
+        image_url: S3 presigned URL of the starting image
+        video_prompt: Prompt describing motion, dynamics, camera work
+        output_path: Where to save the generated video
+        duration: Video duration (always 4 seconds for B_ROLL)
+        
+    Returns:
+        Path to saved video or None
+    """
+    print(f"\n  🎬 Generating B_ROLL video with Veo3.1 (no audio)...")
+    print(f"     Video Prompt: {video_prompt[:100]}...")
+    print(f"     Starting Image: {image_url[:80]}...")
+    print(f"     Duration: {duration}s")
+    
+    # Clean prompt: remove square bracket expressions
+    video_prompt = clean_prompt_for_visual(video_prompt)
+    
+    # Add no text overlays instruction if not present
+    if "no text overlays" not in video_prompt.lower():
+        video_prompt = f"{video_prompt} no text overlays"
+    
+    def on_queue_update(update):
+        if isinstance(update, fal_client.InProgress):
+            for log in update.logs:
+                print(f"     📋 {log.get('message', str(log))}")
+    
+    try:
+        # Generate video with Veo3.1 - NO audio
+        result = fal_client.subscribe(
+            "fal-ai/veo3.1/fast/image-to-video",
+            arguments={
+                "prompt": video_prompt,
+                "image_url": image_url,
+                "aspect_ratio": "9:16",
+                "duration": f"{duration}s",
+                "generate_audio": False  # B_ROLL has no audio - voiceover added separately
+            },
+            with_logs=True,
+            on_queue_update=on_queue_update,
+        )
+        
+        if result and 'video' in result:
+            video_url = result['video'].get('url')
+            if video_url:
+                response = requests.get(video_url)
+                with open(output_path, 'wb') as f:
+                    f.write(response.content)
+                print(f"  ✅ B_ROLL video saved: {output_path}")
+                return output_path
+        
+        print(f"  ❌ No video in B_ROLL result")
+        return None
+        
+    except Exception as e:
+        print(f"  ❌ B_ROLL video generation failed: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return None
+
+
+def create_video_from_b_roll_group(
+    video_paths: List[str],
+    output_path: str,
+    duration: float,
+    temp_dir: str = None
+) -> Optional[str]:
+    """
+    Create a single video from multiple B_ROLL videos (video group) with equal spacing.
+    
+    Args:
+        video_paths: List of B_ROLL video file paths (2-3 videos, already ranked/ordered by Grok)
+        output_path: Output video file path
+        duration: Total duration for the final clip in seconds (cut to match voiceover)
+        temp_dir: Temporary directory for intermediate files
+        
+    Returns:
+        Path to output video or None if failed
+    """
+    print(f"\n  🎬 Assembling B_ROLL video group ({len(video_paths)} videos)...")
+    print(f"     Total Duration: {duration}s")
+    print(f"     Duration per video: {duration/len(video_paths):.2f}s")
+    
+    if not video_paths:
+        print(f"  ❌ No videos provided for video group")
+        return None
+    
+    if len(video_paths) == 1:
+        # Single video - just trim to duration
+        print(f"     Single video in group, trimming to {duration}s")
+        try:
+            clip = VideoFileClip(video_paths[0])
+            if clip.duration > duration:
+                clip = clip.subclip(0, duration)
+            clip.write_videofile(
+                output_path,
+                codec='libx264',
+                audio=False,
+                fps=FPS,
+                preset='medium',
+                verbose=False,
+                logger=None
+            )
+            clip.close()
+            print(f"  ✅ Single B_ROLL video trimmed: {output_path}")
+            return output_path
+        except Exception as e:
+            print(f"  ❌ Failed to trim single video: {e}")
+            return None
+    
+    try:
+        # Calculate duration for each video segment
+        duration_per_video = duration / len(video_paths)
+        
+        segment_clips = []
+        
+        for i, video_path in enumerate(video_paths):
+            if not os.path.exists(video_path):
+                print(f"     ⚠️ Video {i+1} not found: {video_path}")
+                continue
+            
+            try:
+                clip = VideoFileClip(video_path)
+                # Trim each video to its allocated duration
+                if clip.duration > duration_per_video:
+                    clip = clip.subclip(0, duration_per_video)
+                segment_clips.append(clip)
+                print(f"     Video {i+1}: {clip.duration:.2f}s (target: {duration_per_video:.2f}s)")
+            except Exception as e:
+                print(f"     ⚠️ Failed to load video {i+1}: {e}")
+        
+        if not segment_clips:
+            print(f"  ❌ No valid video segments for group")
+            return None
+        
+        # Concatenate all segments
+        print(f"  🔗 Concatenating {len(segment_clips)} video segments...")
+        
+        final_clip = concatenate_videoclips(segment_clips, method="compose")
+        
+        # Trim to exact target duration if needed
+        if final_clip.duration > duration:
+            final_clip = final_clip.subclip(0, duration)
+        
+        # Write final output
+        final_clip.write_videofile(
+            output_path,
+            codec='libx264',
+            audio=False,  # No audio in B_ROLL - added later during stitching
+            fps=FPS,
+            preset='medium',
+            verbose=False,
+            logger=None
+        )
+        
+        # Close clips
+        final_clip.close()
+        for clip in segment_clips:
+            clip.close()
+        
+        print(f"  ✅ B_ROLL video group assembled: {output_path}")
+        return output_path
+        
+    except Exception as e:
+        print(f"  ❌ B_ROLL video group assembly failed: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return None
+
+
 # ============================================
 # INFLUENCER VOICE PROCESSING PIPELINE
 # ============================================
@@ -3138,23 +4689,204 @@ def is_text_english(text: str) -> bool:
     return ascii_ratio > 0.8
 
 
-def generate_voiceover_with_timestamps(text: str, output_path: str, language_code: str = "hi", voice_id: Optional[str] = None, max_retries: int = 2) -> Tuple[Optional[str], List[Dict]]:
+def generate_voiceover_direct_elevenlabs(text: str, output_path: str, language_code: str = "hi", voice_id: Optional[str] = None, speed: float = 1.0, audio_model: str = "v3") -> Tuple[Optional[str], float]:
     """
-    Generate voiceover using ElevenLabs v3 TTS with word timestamps and retry logic.
+    Generate voiceover using direct ElevenLabs API (supports custom voices).
+    
+    This bypasses FAL and calls ElevenLabs API directly, allowing use of custom voices
+    that are only available to authenticated accounts.
+    
+    Args:
+        text: Text to convert to speech
+        output_path: Where to save the audio file
+        language_code: Language code (default: "hi")
+        voice_id: ElevenLabs voice ID (can be a custom voice ID)
+        speed: Voice speed multiplier (default: 1.0, range: 0.5-2.0) - Note: may not be supported in all models
+        audio_model: ElevenLabs model to use - "v3", "v2", or "turbo"
+    
+    Returns: (output_path, duration_seconds) or (None, 0) on failure
+    """
+    try:
+        from elevenlabs.client import ElevenLabs
+    except ImportError:
+        print("  ❌ ElevenLabs SDK not installed. Run: pip install elevenlabs")
+        return None, 0
+    
+    if not elevenlabs_api_key:
+        print("  ❌ ELEVENLABS_API_KEY not set in python-ai-backend/.env")
+        return None, 0
+    
+    if voice_id is None:
+        voice_id = ELEVENLABS_VOICE_ID_MALE
+    
+    language_name = SUPPORTED_LANGUAGES.get(language_code, "Hindi")
+    
+    # Map audio model to ElevenLabs model ID
+    model_map = {
+        "v3": "eleven_multilingual_v2",  # v3 maps to multilingual_v2 in direct API
+        "v2": "eleven_multilingual_v2",
+        "turbo": "eleven_turbo_v2_5"
+    }
+    model_id = model_map.get(audio_model, "eleven_multilingual_v2")
+    model_display_name = {"v3": "Multilingual v2", "v2": "Multilingual v2", "turbo": "Turbo v2.5"}.get(audio_model, "Multilingual v2")
+    
+    # Determine if we should use emotional format
+    use_emotional_format = audio_model in ["v2", "turbo"]
+    
+    # Convert text to emotional format for v2/turbo models
+    processed_text = text
+    if use_emotional_format:
+        processed_text = convert_voiceover_to_emotional_format(text)
+    
+    print(f"\n  🎙️ Generating voiceover DIRECTLY via ElevenLabs API ({language_name}, {model_display_name})...")
+    print(f"     Text: {processed_text[:100]}...")
+    print(f"     Voice ID: {voice_id[:20]}...")
+    print(f"     Model: {model_id}")
+    
+    try:
+        client = ElevenLabs(api_key=elevenlabs_api_key)
+        
+        # Build voice settings with speed parameter
+        # ElevenLabs supports speed in voice_settings for some models
+        from elevenlabs import VoiceSettings
+        voice_settings = VoiceSettings(
+            stability=0.4,  # Lower stability for more expressive output
+            similarity_boost=0.75,
+            style=0.0,
+            use_speaker_boost=True,
+            speed=speed  # Pass CLI speed parameter
+        )
+        
+        # Log speed if not default
+        if speed != 1.0:
+            print(f"     Speed: {speed}x")
+        
+        # Generate audio - returns a generator of bytes
+        audio_generator = client.text_to_speech.convert(
+            text=processed_text,
+            voice_id=voice_id,
+            model_id=model_id,
+            output_format="mp3_44100_128",
+            voice_settings=voice_settings,
+        )
+        
+        # Write audio bytes to file
+        with open(output_path, 'wb') as f:
+            for chunk in audio_generator:
+                f.write(chunk)
+        
+        # Get actual audio duration
+        try:
+            audio_clip = AudioFileClip(output_path)
+            duration = audio_clip.duration
+            audio_clip.close()
+        except:
+            duration = 0
+        
+        print(f"  ✅ Voiceover saved (direct API): {output_path} (duration: {duration:.2f}s)")
+        return output_path, duration
+        
+    except Exception as e:
+        print(f"  ❌ Direct ElevenLabs API call failed: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return None, 0
+
+
+def generate_voiceover_direct_elevenlabs_with_timestamps(text: str, output_path: str, language_code: str = "hi", voice_id: Optional[str] = None, speed: float = 1.0, audio_model: str = "v3") -> Tuple[Optional[str], List[Dict]]:
+    """
+    Generate voiceover using direct ElevenLabs API with word timestamps.
+    
+    This bypasses FAL and calls ElevenLabs API directly, allowing use of custom voices.
+    Since direct API doesn't return timestamps, we use Whisper as fallback.
+    
+    Args:
+        text: Text to convert to speech
+        output_path: Where to save the audio file
+        language_code: Language code (default: "hi")
+        voice_id: ElevenLabs voice ID (can be a custom voice ID)
+        speed: Voice speed multiplier (default: 1.0, range: 0.5-2.0)
+        audio_model: ElevenLabs model to use - "v3", "v2", or "turbo"
+    
+    Returns: (audio_path, word_timestamps) or (None, [])
+    """
+    # First generate the audio using direct API
+    audio_path, duration = generate_voiceover_direct_elevenlabs(
+        text=text,
+        output_path=output_path,
+        language_code=language_code,
+        voice_id=voice_id,
+        speed=speed,
+        audio_model=audio_model
+    )
+    
+    if not audio_path:
+        return None, []
+    
+    # Use Whisper to get word timestamps
+    word_timestamps = []
+    print(f"  🎯 Getting word timestamps via Whisper...")
+    try:
+        whisper_transcript, whisper_timestamps = get_word_timestamps_whisper(audio_path)
+        if whisper_timestamps:
+            word_timestamps = whisper_timestamps
+            print(f"  ✅ Got {len(word_timestamps)} word timestamps from Whisper")
+    except Exception as e:
+        print(f"  ⚠️ Whisper timestamp extraction failed: {e}")
+    
+    return audio_path, word_timestamps
+
+
+def generate_voiceover_with_timestamps(text: str, output_path: str, language_code: str = "hi", voice_id: Optional[str] = None, speed: float = 1.0, max_retries: int = 2, audio_model: str = "v3", elevenlabs_direct: bool = False) -> Tuple[Optional[str], List[Dict]]:
+    """
+    Generate voiceover using ElevenLabs TTS with word timestamps and retry logic.
     
     Args:
         text: Text to convert to speech
         output_path: Where to save the audio file
         language_code: Language code (default: "hi")
         voice_id: ElevenLabs voice ID (default: uses ELEVENLABS_VOICE_ID_MALE)
+        speed: Voice speed multiplier (default: 1.0, range: 0.5-2.0)
         max_retries: Maximum number of retry attempts (default: 2)
+        audio_model: ElevenLabs model to use - "v3" (eleven-v3), "v2" (multilingual-v2), or "turbo" (turbo-v2.5)
+        elevenlabs_direct: If True, call ElevenLabs API directly (allows custom voices)
     
     Returns: (audio_path, word_timestamps) or (None, [])
     """
+    # If elevenlabs_direct flag is set, use direct API call
+    if elevenlabs_direct:
+        return generate_voiceover_direct_elevenlabs_with_timestamps(
+            text=text,
+            output_path=output_path,
+            language_code=language_code,
+            voice_id=voice_id,
+            speed=speed,
+            audio_model=audio_model
+        )
+    
     if voice_id is None:
         voice_id = ELEVENLABS_VOICE_ID_MALE
     
     language_name = SUPPORTED_LANGUAGES.get(language_code, "Hindi")
+    
+    # Determine API endpoint and settings based on audio model
+    use_emotional_format = audio_model in ["v2", "turbo"]
+    stability = 0.4  # Lower stability for more expressive output (all models)
+    
+    if audio_model == "v2":
+        api_endpoint = "fal-ai/elevenlabs/tts/multilingual-v2"
+        model_display_name = "Multilingual v2"
+    elif audio_model == "turbo":
+        api_endpoint = "fal-ai/elevenlabs/tts/turbo-v2.5"
+        model_display_name = "Turbo v2.5"
+    else:  # Default to v3
+        api_endpoint = "fal-ai/elevenlabs/tts/eleven-v3"
+        model_display_name = "v3"
+    
+    # Convert text to emotional format for v2/turbo models
+    processed_text = text
+    if use_emotional_format:
+        processed_text = convert_voiceover_to_emotional_format(text)
     
     def on_queue_update(update):
         if isinstance(update, fal_client.InProgress):
@@ -3167,23 +4899,30 @@ def generate_voiceover_with_timestamps(text: str, output_path: str, language_cod
             print(f"\n  🔄 Retry attempt {attempt}/{max_retries} for voiceover generation with timestamps...")
             time.sleep(2)  # Wait 2 seconds between retries
         else:
-            print(f"\n  🎙️ Generating voiceover with timestamps ({language_name})...")
+            print(f"\n  🎙️ Generating voiceover with timestamps ({language_name}, {model_display_name})...")
+            if use_emotional_format:
+                print(f"     Using emotional format with stability={stability}")
         
-        print(f"     Text: {text[:100]}...")
+        print(f"     Text: {processed_text[:100]}...")
         print(f"     Voice ID: {voice_id[:20]}...")
+        if speed != 1.0:
+            print(f"     Speed: {speed}x")
         
         try:
-            result = fal_client.subscribe(
-                "fal-ai/elevenlabs/tts/eleven-v3",
-                arguments={
-                    "text": text,
+            # All models support the same arguments
+            arguments = {
+                    "text": processed_text,
                     "voice": voice_id,
-                    "stability": 0.5,
+                    "stability": stability,
                     "similarity_boost": 0.75,
-                    "speed": 1,
+                "speed": speed,
                     "language_code": language_code,
                     "timestamps": True  # Request timestamps
-                },
+            }
+            
+            result = fal_client.subscribe(
+                api_endpoint,
+                arguments=arguments,
                 with_logs=True,
                 on_queue_update=on_queue_update,
             )
@@ -3574,6 +5313,10 @@ def replace_audio_in_video(video_path: str, new_audio_path: str, output_path: st
             silence_duration = video.duration - new_audio.duration
             print(f"     Padding {silence_duration:.2f}s silence at end")
         
+        # Apply fade-in/fade-out to prevent clicks/pops at clip boundaries
+        fade_duration = min(0.03, new_audio.duration * 0.05)  # 30ms or 5% of duration
+        new_audio = new_audio.audio_fadein(fade_duration).audio_fadeout(fade_duration)
+        
         # Set new audio
         final_video = video.set_audio(new_audio)
         
@@ -3604,7 +5347,10 @@ def process_influencer_clip_voice(
     output_path: str,
     temp_dir: str,
     language_code: str = "hi",
-    voice_id: Optional[str] = None
+    voice_id: Optional[str] = None,
+    speed: float = 1.0,
+    audio_model: str = "v3",
+    elevenlabs_direct: bool = False
 ) -> Optional[str]:
     """
     Complete pipeline to process influencer clip:
@@ -3622,6 +5368,9 @@ def process_influencer_clip_voice(
         temp_dir: Temp directory for intermediate files
         language_code: Language for voiceover
         voice_id: ElevenLabs voice ID (default: uses ELEVENLABS_VOICE_ID_MALE)
+        speed: Voice speed multiplier (default: 1.0)
+        audio_model: ElevenLabs model to use - "v3" (eleven-v3), "v2" (multilingual-v2), or "turbo" (turbo-v2.5)
+        elevenlabs_direct: If True, call ElevenLabs API directly (allows custom voices)
     
     Returns:
         Path to processed video or None
@@ -3673,7 +5422,10 @@ def process_influencer_clip_voice(
         voiceover_text, 
         elevenlabs_audio_path, 
         language_code,
-        voice_id=voice_id
+        voice_id=voice_id,
+        speed=speed,
+        audio_model=audio_model,
+        elevenlabs_direct=elevenlabs_direct
     )
     
     if not elevenlabs_audio:
@@ -3766,6 +5518,288 @@ def create_video_from_image_with_effects(
         return None
 
 
+def create_video_from_image_group(
+    image_paths: List[str],
+    output_path: str,
+    duration: float,
+    first_image_effects: List[Dict] = None,
+    temp_dir: str = None
+) -> str:
+    """Create video from multiple images (image group) with rapid transitions.
+    
+    Args:
+        image_paths: List of image file paths (2-3 images)
+        output_path: Output video file path
+        duration: Total duration for the clip in seconds
+        first_image_effects: Effects to apply only to the first image (optional)
+        temp_dir: Temporary directory for intermediate files
+        
+    Returns:
+        Path to output video or None if failed
+    """
+    print(f"\n  🎬 Creating video from image group ({len(image_paths)} images)...")
+    print(f"     Total Duration: {duration}s")
+    print(f"     Duration per image: {duration/len(image_paths):.2f}s")
+    
+    if not image_paths:
+        print(f"  ❌ No images provided for image group")
+        return None
+    
+    if len(image_paths) == 1:
+        # Single image - use regular function
+        print(f"     Single image in group, using standard effect processing")
+        effects = first_image_effects if first_image_effects else []
+        return create_video_from_image_with_effects(image_paths[0], output_path, duration, effects)
+    
+    try:
+        # Calculate duration for each image segment
+        duration_per_image = duration / len(image_paths)
+        
+        # Create temp directory if not provided
+        if not temp_dir:
+            temp_dir = os.path.dirname(output_path) or "."
+        
+        segment_clips = []
+        
+        for i, img_path in enumerate(image_paths):
+            segment_output = os.path.join(temp_dir, f"image_group_segment_{i}.mp4")
+            
+            if i == 0 and first_image_effects:
+                # First image gets effects
+                print(f"     Image {i+1}: Applying {len(first_image_effects)} effects ({duration_per_image:.2f}s)")
+                segment_result = create_video_from_image_with_effects(
+                    img_path, segment_output, duration_per_image, first_image_effects
+                )
+            else:
+                # Other images are displayed as-is (static, no effects)
+                print(f"     Image {i+1}: Static display ({duration_per_image:.2f}s)")
+                # Create a simple static video from image
+                engine = EffectEngine(
+                    image_path=img_path,
+                    output_size=OUTPUT_SIZE,
+                    duration=duration_per_image,
+                    fps=FPS
+                )
+                # No effects = static image
+                engine.set_effects_plan([])
+                engine.generate_video(segment_output)
+                segment_result = segment_output
+            
+            if segment_result and os.path.exists(segment_result):
+                segment_clips.append(segment_result)
+            else:
+                print(f"  ⚠️ Failed to create segment {i+1}, using image as fallback")
+                # Fallback: create static video
+                try:
+                    engine = EffectEngine(
+                        image_path=img_path,
+                        output_size=OUTPUT_SIZE,
+                        duration=duration_per_image,
+                        fps=FPS
+                    )
+                    engine.set_effects_plan([])
+                    engine.generate_video(segment_output)
+                    if os.path.exists(segment_output):
+                        segment_clips.append(segment_output)
+                except Exception as fallback_err:
+                    print(f"  ❌ Fallback also failed: {fallback_err}")
+        
+        if not segment_clips:
+            print(f"  ❌ No segments created for image group")
+            return None
+        
+        # Concatenate all segments
+        print(f"  🔗 Concatenating {len(segment_clips)} image segments...")
+        
+        video_clips = [VideoFileClip(seg) for seg in segment_clips]
+        final_clip = concatenate_videoclips(video_clips, method="compose")
+        
+        # Write final output
+        final_clip.write_videofile(
+            output_path,
+            codec='libx264',
+            audio=False,  # No audio in image clips - added later
+            fps=FPS,
+            preset='medium',
+            verbose=False,
+            logger=None
+        )
+        
+        # Close clips
+        final_clip.close()
+        for vc in video_clips:
+            vc.close()
+        
+        # Clean up segment files
+        for seg in segment_clips:
+            try:
+                if os.path.exists(seg):
+                    os.remove(seg)
+            except:
+                pass
+        
+        print(f"  ✅ Image group video created: {output_path}")
+        return output_path
+        
+    except Exception as e:
+        print(f"  ❌ Image group video creation failed: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return None
+
+
+def generate_research_clip(
+    claim_text: str,
+    voiceover_text: str,
+    output_path: str,
+    temp_dir: str,
+    research_type: str = "news",
+    highlight_color: str = "black",
+    language_code: str = "en",
+    voice_id: Optional[str] = None,
+    speed: float = 1.0,
+    audio_model: str = "v3",
+    elevenlabs_direct: bool = False
+) -> Tuple[Optional[str], Optional[str], float]:
+    """Generate a research clip by searching for articles, capturing screenshots, and creating a highlight video.
+    
+    Args:
+        claim_text: Searchable phrase to find in articles (from Grok's research_integration)
+        voiceover_text: Short voiceover to accompany the research clip (from Grok)
+        output_path: Path for the output video
+        temp_dir: Temporary directory for intermediate files
+        research_type: Type of source to search (news, blog, report, twitter)
+        highlight_color: Color for highlighting text in screenshots
+        language_code: Language for voiceover generation
+        voice_id: ElevenLabs voice ID
+        speed: Voiceover speed
+        audio_model: ElevenLabs model (v3, v2, turbo)
+        elevenlabs_direct: Whether to use direct ElevenLabs API
+        
+    Returns:
+        Tuple of (video_path, voiceover_path, duration) or (None, None, 0) on failure
+    """
+    print(f"\n{'='*60}")
+    print(f"📰 GENERATING RESEARCH CLIP")
+    print(f"{'='*60}")
+    print(f"  Search Query: {claim_text[:60]}{'...' if len(claim_text) > 60 else ''}")
+    print(f"  Source Type: {research_type}")
+    print(f"  Highlight Color: {highlight_color}")
+    print(f"  Voiceover: {voiceover_text}")
+    
+    research_temp_dir = os.path.join(temp_dir, f"research_{uuid.uuid4().hex[:8]}")
+    os.makedirs(research_temp_dir, exist_ok=True)
+    
+    try:
+        # Step 1: Search for articles
+        print(f"\n  📤 Step 1: Searching for articles...")
+        search_results = search_articles(claim_text, num_results=5, search_type=research_type)
+        
+        if not search_results:
+            print(f"  ❌ No search results found for: {claim_text}")
+            return None, None, 0
+        
+        # Step 2: Try to capture folds from articles (with automatic retry on CAPTCHA)
+        print(f"\n  📸 Step 2: Capturing article screenshots...")
+        fold_images = None
+        article_url = None
+        
+        for article in search_results:
+            current_url = article.get("url", "")
+            current_title = article.get("title", "")[:50]
+            
+            print(f"\n  📰 Trying: {current_title}...")
+            print(f"     URL: {current_url[:60]}{'...' if len(current_url) > 60 else ''}")
+            
+            captured, is_blocked, block_reason = capture_multiple_folds(
+                url=current_url,
+                output_dir=research_temp_dir,
+                num_folds=2,  # Just 2 folds for research clips
+                scroll_offset=100,
+                mobile=True  # Mobile viewport for 9:16
+            )
+            
+            if not is_blocked and captured:
+                fold_images = captured
+                article_url = current_url
+                print(f"  ✅ Successfully captured from: {current_url[:50]}...")
+                break
+            elif is_blocked:
+                print(f"  ⏭️ Blocked: {block_reason}")
+                continue
+        
+        if not fold_images:
+            print(f"  ❌ Could not capture any article screenshots")
+            return None, None, 0
+        
+        # Step 3: Ask Grok to suggest text to highlight based on the claim context
+        # NOTE: Direct claim_text search almost never works because claims are paraphrased
+        # Go straight to Grok suggestion which intelligently finds related text in the article
+        print(f"\n  🎯 Step 3: Asking Grok to suggest text to highlight...")
+        
+        suggested_text, suggested_fold = suggest_highlight_text(fold_images, search_query=claim_text)
+        
+        if not suggested_text:
+            print(f"  ❌ Grok could not find relevant text to highlight")
+            return None, None, 0
+        
+        print(f"  ✅ Grok suggests: '{suggested_text[:50]}...'")
+        
+        # Step 4: Create highlight video with Grok-suggested text
+        print(f"\n  🎬 Step 4: Creating highlight video...")
+        research_video_path = os.path.join(temp_dir, f"research_clip_{uuid.uuid4().hex[:8]}.mp4")
+        
+        result = create_highlight_video(
+            fold_images=fold_images,
+            search_text=suggested_text,
+            output_video_path=research_video_path,
+            duration=2.0,  # Research clips are 2 seconds
+            aspect_ratio="9:16",
+            highlight_color=highlight_color,
+            highlight_alpha=0.4,  # User specified 0.4
+            fps=FPS,
+            mobile=True,
+            highlight_style="sweep",  # Default sweep style
+            known_fold_index=suggested_fold  # Use the fold Grok identified
+                )
+        
+        if not result or not os.path.exists(research_video_path):
+            print(f"  ❌ Failed to create research clip video")
+            return None, None, 0
+        
+        # Step 5: Generate voiceover for this research clip
+        print(f"\n  🎙️ Step 5: Generating voiceover...")
+        voiceover_path = os.path.join(temp_dir, f"research_vo_{uuid.uuid4().hex[:8]}.mp3")
+        
+        vo_result, vo_duration = generate_voiceover(
+            voiceover_text,
+            voiceover_path,
+            language_code,
+            voice_id,
+            speed,
+            audio_model=audio_model,
+            elevenlabs_direct=elevenlabs_direct
+        )
+        
+        if not vo_result:
+            print(f"  ⚠️ Voiceover generation failed, using video without audio")
+            vo_duration = 4.0  # Default duration
+            voiceover_path = None
+        
+        print(f"\n  ✅ Research clip generated successfully!")
+        print(f"     Video: {research_video_path}")
+        print(f"     Voiceover: {voiceover_path if voiceover_path else 'None'}")
+        print(f"     Duration: {vo_duration:.2f}s")
+        
+        return research_video_path, voiceover_path, vo_duration
+        
+    except Exception as e:
+        print(f"  ❌ Research clip generation failed: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return None, None, 0
+
+
 def get_default_effects(duration: int, clip_num: int = 0) -> List[Dict]:
     """Get default effects if none specified. For Clip 0, keep it static (no effect) to preserve text visibility."""
     import random
@@ -3806,21 +5840,144 @@ def get_default_effects(duration: int, clip_num: int = 0) -> List[Dict]:
 # VOICEOVER GENERATION (ElevenLabs v3)
 # ============================================
 
-def generate_voiceover(text: str, output_path: str, language_code: str = "hi", voice_id: Optional[str] = None, max_retries: int = 2) -> Tuple[Optional[str], float]:
+def convert_voiceover_to_emotional_format(text: str) -> str:
     """
-    Generate voiceover using ElevenLabs v3 TTS with retry logic
+    Convert voiceover text to emotional format using GPT-4o.
+    This adds emotion tags for more natural-sounding text-to-speech with v2/turbo models.
+    
+    Args:
+        text: Original voiceover text
+        
+    Returns:
+        Modified text with emotion tags, or original text if conversion fails
+    """
+    try:
+        from openai import OpenAI
+        
+        client = OpenAI()
+        
+        prompt = f"""You are tasked with adding human emotion tags to a given text to enhance its expressiveness for text-to-speech applications. Your goal is to create a more natural and emotive reading experience while maintaining an AI-like quality. Follow these instructions carefully:
+
+1. You will be provided with the original text in the following format:
+<original_text>
+{text}
+</original_text>
+
+2. Analyze the text and identify appropriate points where emotional expressions can be added. Consider the context, tone, and content of the text to determine suitable emotions.
+
+3. Insert emotion tags at relevant points in the text. These tags should reflect the emotional state or tone that would be appropriate for a human-like voice with an AI touch.
+
+4. Use the following format for emotion tags:
+<emotion type="emotion_name" intensity="low/medium/high">
+
+5. Common emotion types you can use include, but are not limited to:
+- happy
+- sad
+- excited
+- concerned
+- curious
+- surprised
+- confused
+- determined
+
+6. Adjust the intensity of the emotion as appropriate: low, medium, or high.
+
+7. Here are some examples of how to use emotion tags:
+<emotion type="excited" intensity="medium">Great news!</emotion> The project was a success.
+I'm <emotion type="concerned" intensity="low">not sure</emotion> if this is the right approach.
+
+8. Insert the emotion tags throughout the text where appropriate, ensuring a natural flow and avoiding overuse.
+
+9. Provide your modified text with emotion tags inserted in the following format:
+<modified_text>
+[Insert your modified text here]
+</modified_text>
+
+10. Ensure that you maintain the integrity of the original text, only adding emotion tags without changing the actual content.
+
+Remember, the goal is to enhance the text for a more human-like voice while retaining an AI quality. Use your judgment to strike a balance between expressiveness and maintaining a slightly artificial feel."""
+
+        print(f"  🎭 Converting voiceover to emotional format using GPT-4o...")
+        
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=2000
+        )
+        
+        result = response.choices[0].message.content
+        
+        # Extract content between <modified_text> tags
+        import re
+        match = re.search(r'<modified_text>\s*(.*?)\s*</modified_text>', result, re.DOTALL)
+        
+        if match:
+            modified_text = match.group(1).strip()
+            print(f"  ✅ Emotional format conversion complete")
+            print(f"     Original: {text[:80]}...")
+            print(f"     Modified: {modified_text[:80]}...")
+            return modified_text
+        else:
+            print(f"  ⚠️ Could not extract modified text from GPT-4o response, using original")
+            return text
+            
+    except Exception as e:
+        print(f"  ⚠️ Emotional format conversion failed: {e}")
+        print(f"     Using original text")
+        return text
+
+
+def generate_voiceover(text: str, output_path: str, language_code: str = "hi", voice_id: Optional[str] = None, speed: float = 1.0, max_retries: int = 2, audio_model: str = "v3", elevenlabs_direct: bool = False) -> Tuple[Optional[str], float]:
+    """
+    Generate voiceover using ElevenLabs TTS with retry logic
     Args:
         text: Text to convert to speech
         output_path: Where to save the audio file
         language_code: Language code (default: "hi")
         voice_id: ElevenLabs voice ID (default: uses ELEVENLABS_VOICE_ID_MALE)
+        speed: Voice speed multiplier (default: 1.0, range: 0.5-2.0)
         max_retries: Maximum number of retry attempts (default: 2)
+        audio_model: ElevenLabs model to use - "v3" (eleven-v3), "v2" (multilingual-v2), or "turbo" (turbo-v2.5)
+        elevenlabs_direct: If True, call ElevenLabs API directly (allows custom voices)
     Returns: (output_path, duration_seconds) or (None, 0) on failure
     """
+    # If elevenlabs_direct flag is set, use direct API call
+    if elevenlabs_direct:
+        return generate_voiceover_direct_elevenlabs(
+            text=text,
+            output_path=output_path,
+            language_code=language_code,
+            voice_id=voice_id,
+            speed=speed,
+            audio_model=audio_model
+        )
+    
     if voice_id is None:
         voice_id = ELEVENLABS_VOICE_ID_MALE
     
     language_name = SUPPORTED_LANGUAGES.get(language_code, "Hindi")
+    
+    # Determine API endpoint and settings based on audio model
+    use_emotional_format = audio_model in ["v2", "turbo"]
+    stability = 0.4  # Lower stability for more expressive output (all models)
+    
+    if audio_model == "v2":
+        api_endpoint = "fal-ai/elevenlabs/tts/multilingual-v2"
+        model_display_name = "Multilingual v2"
+    elif audio_model == "turbo":
+        api_endpoint = "fal-ai/elevenlabs/tts/turbo-v2.5"
+        model_display_name = "Turbo v2.5"
+    else:  # Default to v3
+        api_endpoint = "fal-ai/elevenlabs/tts/eleven-v3"
+        model_display_name = "v3"
+    
+    # Convert text to emotional format for v2/turbo models
+    processed_text = text
+    if use_emotional_format:
+        processed_text = convert_voiceover_to_emotional_format(text)
     
     def on_queue_update(update):
         if isinstance(update, fal_client.InProgress):
@@ -3833,23 +5990,30 @@ def generate_voiceover(text: str, output_path: str, language_code: str = "hi", v
             print(f"\n  🔄 Retry attempt {attempt}/{max_retries} for voiceover generation...")
             time.sleep(2)  # Wait 2 seconds between retries
         else:
-            print(f"\n  🎙️ Generating voiceover with ElevenLabs v3 ({language_name})...")
+            print(f"\n  🎙️ Generating voiceover with ElevenLabs {model_display_name} ({language_name})...")
+            if use_emotional_format:
+                print(f"     Using emotional format with stability={stability}")
         
-        print(f"     Text: {text[:100]}...")
+        print(f"     Text: {processed_text[:100]}...")
         print(f"     Voice ID: {voice_id[:20]}...")
+        if speed != 1.0:
+            print(f"     Speed: {speed}x")
         
         try:
-            result = fal_client.subscribe(
-                "fal-ai/elevenlabs/tts/eleven-v3",
-                arguments={
-                    "text": text,
+            # All models support the same arguments
+            arguments = {
+                    "text": processed_text,
                     "voice": voice_id,
-                    "stability": 0.5,
+                    "stability": stability,
                     "similarity_boost": 0.75,
-                    "speed": 1,
+                    "speed": speed,
                     "language_code": language_code,
                     "timestamps": False
-                },
+            }
+            
+            result = fal_client.subscribe(
+                api_endpoint,
+                arguments=arguments,
                 with_logs=True,
                 on_queue_update=on_queue_update,
             )
@@ -3900,14 +6064,31 @@ def generate_voiceover_per_clip(
     clip_voiceovers: List[Dict],  # List of {clip_number, voiceover_text}
     temp_dir: str,
     language_code: str = "hi",
-    voice_id: Optional[str] = None
+    voice_id: Optional[str] = None,
+    speed: float = 1.0,
+    audio_model: str = "v3",
+    elevenlabs_direct: bool = False
 ) -> Dict[int, Dict]:
     """
     Generate individual voiceover for each clip
+    
+    Args:
+        clip_voiceovers: List of dicts with clip_number and voiceover_text
+        temp_dir: Temporary directory for output files
+        language_code: Language code for TTS
+        voice_id: ElevenLabs voice ID
+        speed: Voice speed multiplier (default: 1.0)
+        audio_model: ElevenLabs model to use - "v3" (eleven-v3), "v2" (multilingual-v2), or "turbo" (turbo-v2.5)
+        elevenlabs_direct: If True, call ElevenLabs API directly (allows custom voices)
+        
     Returns: Dict mapping clip_number -> {path, duration}
     """
     language_name = SUPPORTED_LANGUAGES.get(language_code, "Hindi")
-    print(f"\n  Generating voiceover for {len(clip_voiceovers)} clips in {language_name}...")
+    model_display = "Multilingual v2" if audio_model == "v2" else "v3"
+    api_mode = "DIRECT API" if elevenlabs_direct else "via FAL"
+    print(f"\n  Generating voiceover for {len(clip_voiceovers)} clips in {language_name} (ElevenLabs {model_display} {api_mode})...")
+    if speed != 1.0:
+        print(f"  Speed: {speed}x")
     
     voiceover_data = {}
     
@@ -3919,7 +6100,7 @@ def generate_voiceover_per_clip(
             continue
         
         output_path = os.path.join(temp_dir, f"voiceover_clip_{clip_num}.mp3")
-        path, duration = generate_voiceover(text, output_path, language_code, voice_id)
+        path, duration = generate_voiceover(text, output_path, language_code, voice_id, speed, audio_model=audio_model, elevenlabs_direct=elevenlabs_direct)
         
         if path:
             voiceover_data[clip_num] = {
@@ -4077,6 +6258,7 @@ def normalize_audio_clip(audio_clip, target_rms_db=-20.0):
 
 def stitch_video_clips_with_music_groups(
     clip_paths: List[str],
+    clip_numbers: List[int],  # Clip numbers corresponding to each path
     clip_durations: Dict[int, float],
     voiceover_files: Dict[int, Dict],  # clip_number -> {path, duration}
     music_files: Dict[str, Dict],
@@ -4088,6 +6270,7 @@ def stitch_video_clips_with_music_groups(
     print(f"🎬 STITCHING VIDEO WITH PER-CLIP VOICEOVERS")
     print(f"{'='*60}")
     print(f"  Clips: {len(clip_paths)}")
+    print(f"  Clip numbers: {clip_numbers}")
     print(f"  Voiceovers: {len(voiceover_files)} clips have voiceover")
     print(f"  Music Groups: {len(music_files)}")
     
@@ -4098,36 +6281,39 @@ def stitch_video_clips_with_music_groups(
         current_time = 0
         
         for i, clip_path in enumerate(clip_paths):
+            # Get the actual clip number for this position
+            clip_num = clip_numbers[i] if i < len(clip_numbers) else i
+            
             if clip_path and os.path.exists(clip_path):
                 clip = VideoFileClip(clip_path)
                 video_clips.append(clip)
                 clip_start_times[i] = current_time
                 
-                # For IMAGE_ONLY clips with separate voiceover, use voiceover duration as authoritative
-                # The clip should already be extended to match voiceover during creation
-                if i in voiceover_files and not voiceover_files[i].get('embedded', False):
-                    # IMAGE_ONLY clip - use voiceover duration (clip should match)
-                    vo_duration = voiceover_files[i].get('duration', clip.duration)
+                # Determine if this is a research clip (clip_num >= 1000)
+                is_research_clip = clip_num >= 1000
+                
+                # For clips with separate voiceover, use voiceover duration as authoritative
+                if clip_num in voiceover_files and not voiceover_files[clip_num].get('embedded', False):
+                    # Clip with separate voiceover - use voiceover duration
+                    vo_duration = voiceover_files[clip_num].get('duration', clip.duration)
                     # Use the longer of clip duration or voiceover duration
                     final_duration = max(clip.duration, vo_duration)
-                    clip_durations[i] = final_duration
+                    clip_durations[clip_num] = final_duration
                     current_time += final_duration
                     if final_duration > clip.duration:
                         print(f"  Loaded clip {i}: {clip.duration}s → extended to {final_duration}s (voiceover: {vo_duration:.2f}s) (starts at {clip_start_times[i]}s)")
                     else:
-                        print(f"  Loaded clip {i}: {clip.duration}s (voiceover: {vo_duration:.2f}s) (starts at {clip_start_times[i]}s)")
-                elif i in voiceover_files and voiceover_files[i].get('embedded', False):
+                        clip_label = f"(research after {clip_num - 1000})" if is_research_clip else ""
+                        print(f"  Loaded clip {i} {clip_label}: {clip.duration}s (voiceover: {vo_duration:.2f}s) (starts at {clip_start_times[i]}s)")
+                elif clip_num in voiceover_files and voiceover_files[clip_num].get('embedded', False):
                     # INFLUENCER clip with embedded audio - use actual video duration
-                    # For accepted clips (>8s, English), actual_clip_durations was updated to actual video duration
-                    # Use the actual video duration from the clip file itself (most authoritative)
                     actual_video_duration = clip.duration
-                    # Update clip_durations to match actual video duration (ensures consistency)
-                    clip_durations[i] = actual_video_duration
+                    clip_durations[clip_num] = actual_video_duration
                     current_time += actual_video_duration
                     print(f"  Loaded clip {i} (influencer): {actual_video_duration:.2f}s (actual video duration, starts at {clip_start_times[i]}s)")
                 else:
-                    # AI_VIDEO or other clip - use clip_durations dict or actual duration
-                    clip_duration = clip_durations.get(i, clip.duration)
+                    # Clip without voiceover or with different handling
+                    clip_duration = clip_durations.get(clip_num, clip.duration)
                     current_time += clip_duration
                     print(f"  Loaded clip {i}: {clip_duration:.2f}s (starts at {clip_start_times[i]}s)")
         
@@ -4137,9 +6323,10 @@ def stitch_video_clips_with_music_groups(
         
         # Calculate clip start times for logging
         print(f"\n  Clip timing:")
-        for clip_num, start_time in clip_start_times.items():
+        for i, start_time in clip_start_times.items():
+            clip_num = clip_numbers[i] if i < len(clip_numbers) else i
             music_group = clip_music_mapping.get(clip_num, "None")
-            print(f"    Clip {clip_num}: starts at {start_time}s, music: {music_group}")
+            print(f"    Clip {i} (#{clip_num}): starts at {start_time}s, music: {music_group}")
         
         # Build audio layers
         audio_clips = []
@@ -4147,44 +6334,64 @@ def stitch_video_clips_with_music_groups(
         # Extract audio from influencer clips (embedded voiceover) BEFORE concatenation
         # This preserves the audio timing correctly
         print(f"\n  Extracting audio from influencer clips:")
+        AUDIO_BUFFER = 0.04  # 40ms buffer to prevent boundary artifacts
+        
+        # Build a mapping from clip_number to list index
+        clip_num_to_index = {clip_numbers[i]: i for i in range(len(clip_numbers))}
+        
         for clip_num, vo_info in voiceover_files.items():
+            # CRITICAL: Clip 0 is SILENT_IMAGE - NEVER extract audio from it
+            if clip_num == 0:
+                print(f"    Clip {clip_num}: ⚠️ SILENT_IMAGE - skipping embedded audio (should never have audio)")
+                continue
+            
             if vo_info.get('embedded', False):
-                # Extract audio from the video clip itself
-                if clip_num < len(video_clips):
-                    clip = video_clips[clip_num]
-                    if clip.audio is not None:
-                        start_time = clip_start_times.get(clip_num, 0)
-                        # Use actual_clip_durations (which may be > 8s for accepted English clips)
-                        # This ensures audio matches video duration when clip was accepted
-                        clip_duration = clip_durations.get(clip_num, clip.audio.duration)
-                        actual_video_duration = clip.duration
-                        
-                        # CRITICAL: For influencer clips that were accepted (English + CLI language English),
-                        # use the actual video duration, not the planned duration
-                        # Only trim if audio is longer than video (shouldn't happen, but safety check)
-                        if clip.audio.duration > actual_video_duration:
-                            # Audio is longer than video - trim to video duration
-                            clip_audio = clip.audio.subclip(0, actual_video_duration)
-                            print(f"    ⚠️ Trimmed embedded audio from {clip.audio.duration:.2f}s to {actual_video_duration:.2f}s (audio longer than video)")
-                        elif clip.audio.duration < actual_video_duration:
-                            # Audio is shorter than video - this shouldn't happen, but use audio duration
-                            clip_audio = clip.audio
-                            print(f"    ⚠️ Audio ({clip.audio.duration:.2f}s) shorter than video ({actual_video_duration:.2f}s) - using audio duration")
-                        else:
-                            # Audio matches video duration - use as is (this is the correct case for accepted clips)
-                            clip_audio = clip.audio
-                        
-                        # Set start time
-                        clip_audio = clip_audio.set_start(start_time)
-                        
-                        # Normalize voiceover volume for consistency
-                        print(f"    Clip {clip_num}: Normalizing embedded voiceover volume...")
-                        clip_audio = normalize_audio_clip(clip_audio, target_rms_db=-20.0)
-                        
-                        audio_clips.append(clip_audio)
-                        print(f"    Clip {clip_num}: extracted embedded voiceover ({clip_audio.duration:.2f}s, starts at {start_time}s, ends at {start_time + clip_audio.duration:.2f}s)")
+                # Find the list index for this clip number
+                if clip_num not in clip_num_to_index:
+                    print(f"    Clip {clip_num}: ⚠️ Not found in clip list, skipping audio extraction")
+                    continue
+                    
+                list_idx = clip_num_to_index[clip_num]
+                if list_idx >= len(video_clips):
+                    print(f"    Clip {clip_num}: ⚠️ Index {list_idx} out of range for video_clips, skipping")
+                    continue
+                    
+                clip = video_clips[list_idx]
+                if clip.audio is not None:
+                    start_time = clip_start_times.get(list_idx, 0)
+                    actual_video_duration = clip.duration
+                    
+                    # CRITICAL: Trim embedded audio to ensure clean boundaries
+                    # Use 40ms buffer to prevent sample alignment issues at clip boundaries
+                    # PLUS add 150ms gap at END of voiceover for breathing room before next voiceover
+                    VOICEOVER_END_GAP = 0.15  # 150ms gap between voiceovers for natural pacing
+                    target_duration = min(clip.audio.duration, actual_video_duration) - AUDIO_BUFFER - VOICEOVER_END_GAP
+                    target_duration = max(target_duration, 0.1)  # Minimum 100ms
+                    
+                    if clip.audio.duration > target_duration:
+                        clip_audio = clip.audio.subclip(0, target_duration)
                     else:
-                        print(f"    Clip {clip_num}: ⚠️ No audio found in influencer clip video")
+                        clip_audio = clip.audio
+                    
+                    actual_audio_duration = clip_audio.duration
+                    
+                    # Normalize voiceover volume for consistency
+                    print(f"    Clip {clip_num}: Normalizing embedded voiceover volume...")
+                    clip_audio = normalize_audio_clip(clip_audio, target_rms_db=-20.0)
+                    
+                    # Apply fade in/out to prevent clicks/pops at clip boundaries
+                    fade_duration = min(0.05, clip_audio.duration * 0.05)  # 50ms or 5% of duration
+                    clip_audio = clip_audio.audio_fadein(fade_duration).audio_fadeout(fade_duration)
+                    
+                    # CRITICAL: Use actual audio duration for end time (not video duration)
+                    # The 150ms gap at end creates natural pause before next clip's voiceover
+                    clip_end_time = start_time + actual_audio_duration
+                    clip_audio = clip_audio.set_start(start_time).set_end(clip_end_time)
+                    
+                    audio_clips.append(clip_audio)
+                    print(f"    Clip {clip_num}: extracted embedded voiceover ({actual_audio_duration:.2f}s, starts at {start_time}s, ends at {clip_end_time:.2f}s)")
+                else:
+                    print(f"    Clip {clip_num}: ⚠️ No audio found in influencer clip video")
         
         # Remove audio from video clips before concatenation (we'll add it back in the composite)
         # This prevents audio duplication
@@ -4192,6 +6399,9 @@ def stitch_video_clips_with_music_groups(
         # CRITICAL: Ensure clips match their planned durations (especially for accepted influencer clips >8s)
         video_clips_no_audio = []
         for i, clip in enumerate(video_clips):
+            # Get the actual clip number for this position
+            clip_num = clip_numbers[i] if i < len(clip_numbers) else i
+            
             # Resize clip to target resolution to prevent black borders
             clip_size = clip.size
             if clip_size != OUTPUT_SIZE:
@@ -4199,16 +6409,16 @@ def stitch_video_clips_with_music_groups(
                 clip = clip.resize(OUTPUT_SIZE)
             
             # CRITICAL: For influencer clips that were accepted (>8s, English),
-            # clip_durations[i] should already be set to the actual video duration
+            # clip_durations should already be set to the actual video duration
             # Use the actual video duration from the clip file itself (most authoritative)
             actual_clip_duration = clip.duration
-            planned_duration = clip_durations.get(i, actual_clip_duration)
+            planned_duration = clip_durations.get(clip_num, actual_clip_duration)
             
             # For influencer clips with embedded audio, always use actual video duration
             # This ensures video and audio stay in sync for accepted clips (>8s, English)
-            if i in voiceover_files and voiceover_files[i].get('embedded', False):
+            if clip_num in voiceover_files and voiceover_files[clip_num].get('embedded', False):
                 # Use actual video duration (don't trim)
-                clip_durations[i] = actual_clip_duration
+                clip_durations[clip_num] = actual_clip_duration
                 # Clip should already be the correct duration, no trimming needed
             elif actual_clip_duration != planned_duration:
                 # For other clips, if duration doesn't match, update clip_durations
@@ -4218,22 +6428,26 @@ def stitch_video_clips_with_music_groups(
                     print(f"  ⚠️ Trimmed clip {i} from {actual_clip_duration:.2f}s to {planned_duration:.2f}s")
                 else:
                     # Clip is shorter than planned - use actual duration
-                    clip_durations[i] = actual_clip_duration
+                    clip_durations[clip_num] = actual_clip_duration
                     print(f"  ⚠️ Clip {i} duration ({actual_clip_duration:.2f}s) shorter than planned ({planned_duration:.2f}s) - using actual duration")
             
-            if i in voiceover_files and voiceover_files[i].get('embedded', False):
-                # Remove audio from influencer clips (we've already extracted it)
-                video_clips_no_audio.append(clip.set_audio(None))
-            else:
-                video_clips_no_audio.append(clip)
+            # CRITICAL: Remove audio from ALL video clips before concatenation
+            # We manage all audio separately (voiceover files + embedded audio extraction + music)
+            # Leaving any audio on clips can cause noise/pops at stitching boundaries
+            video_clips_no_audio.append(clip.set_audio(None))
         
-        # Concatenate video clips (without audio from influencer clips)
+        # Concatenate video clips (all audio stripped - we add it back via CompositeAudioClip)
         final_video = concatenate_videoclips(video_clips_no_audio, method="compose")
         print(f"  Combined video duration: {final_video.duration}s")
         
         # Add per-clip voiceovers at their correct start times (non-embedded)
         print(f"\n  Adding separate voiceover files:")
         for clip_num, vo_info in voiceover_files.items():
+            # CRITICAL: Clip 0 is SILENT_IMAGE - NEVER add voiceover for it
+            if clip_num == 0:
+                print(f"    Clip {clip_num}: ⚠️ SILENT_IMAGE - skipping voiceover (should never have voiceover)")
+                continue
+            
             # Skip if voiceover is embedded in video (already extracted above)
             if vo_info.get('embedded', False):
                 continue
@@ -4241,66 +6455,122 @@ def stitch_video_clips_with_music_groups(
             vo_path = vo_info.get('path')
             if vo_path and os.path.exists(vo_path):
                 voiceover = AudioFileClip(vo_path)
-                start_time = clip_start_times.get(clip_num, 0)
+                
+                # Find the list index for this clip number to get the start time
+                list_idx = clip_num_to_index.get(clip_num)
+                if list_idx is None:
+                    print(f"    Clip {clip_num}: ⚠️ Not found in clip list, skipping voiceover")
+                    continue
+                    
+                start_time = clip_start_times.get(list_idx, 0)
                 clip_duration = clip_durations.get(clip_num, voiceover.duration)
                 
-                # CRITICAL: For IMAGE_ONLY clips, NEVER trim voiceover - extend clip to match voiceover instead
-                # The image clip should already be extended to match voiceover duration during creation
-                # If voiceover is longer than clip_duration, use voiceover duration as authoritative
-                if voiceover.duration > clip_duration:
-                    # Voiceover is longer - use voiceover duration (clip should already be extended)
-                    print(f"    ℹ️ Clip {clip_num}: Voiceover ({voiceover.duration:.2f}s) longer than clip_duration ({clip_duration:.2f}s)")
-                    print(f"       Using voiceover duration - image clip should already be extended to match")
-                    clip_duration = voiceover.duration
-                    # Update clip_durations for accurate timing
-                    clip_durations[clip_num] = clip_duration
+                # CRITICAL: Trim voiceover to ensure clean boundaries
+                # Use 40ms buffer to prevent sample alignment issues at clip boundaries
+                # PLUS add 150ms gap at END of voiceover for breathing room before next voiceover
+                VOICEOVER_END_GAP = 0.15  # 150ms gap between voiceovers for natural pacing
+                target_duration = min(voiceover.duration, clip_duration) - AUDIO_BUFFER - VOICEOVER_END_GAP
+                target_duration = max(target_duration, 0.1)  # Minimum 100ms
                 
-                # DO NOT trim voiceover - the clip duration should match voiceover duration
-                voiceover = voiceover.set_start(start_time)
+                if voiceover.duration > target_duration:
+                    voiceover = voiceover.subclip(0, target_duration)
+                
+                actual_vo_duration = voiceover.duration
                 
                 # Normalize voiceover volume for consistency
                 print(f"    Clip {clip_num}: Normalizing voiceover volume...")
                 voiceover = normalize_audio_clip(voiceover, target_rms_db=-20.0)
                 
+                # Apply fade in/out to prevent clicks/pops at clip boundaries
+                fade_duration = min(0.05, voiceover.duration * 0.05)  # 50ms or 5% of duration
+                voiceover = voiceover.audio_fadein(fade_duration).audio_fadeout(fade_duration)
+                
+                # CRITICAL: Use actual voiceover duration for end time
+                # The 150ms gap at end creates natural pause before next clip's voiceover
+                clip_end_time = start_time + actual_vo_duration
+                voiceover = voiceover.set_start(start_time).set_end(clip_end_time)
+                
                 audio_clips.append(voiceover)
-                print(f"    Clip {clip_num} voiceover: {voiceover.duration:.2f}s (starts at {start_time}s, ends at {start_time + voiceover.duration:.2f}s)")
+                print(f"    Clip {clip_num} voiceover: {actual_vo_duration:.2f}s (starts at {start_time}s, ends at {clip_end_time:.2f}s)")
         
-        # Add music for each group at correct time positions
-        for group_name, music_info in music_files.items():
+        # Use ONLY the first music group (Music_A) and loop it throughout entire video
+        # Get the first music group (sorted alphabetically, so Music_A comes first)
+        sorted_music_groups = sorted(music_files.keys())
+        if sorted_music_groups:
+            first_group_name = sorted_music_groups[0]
+            music_info = music_files[first_group_name]
             music_path = music_info.get('path')
-            group_clips = music_info.get('clips', [])
             
-            if music_path and os.path.exists(music_path) and group_clips:
+            if music_path and os.path.exists(music_path):
                 music = AudioFileClip(music_path)
                 
-                # Find the start time for this music group (first clip in group)
-                first_clip = min(group_clips)
-                music_start_time = clip_start_times.get(first_clip, 0)
+                # Calculate total video duration (sum of all clips)
+                total_video_duration = sum(clip_durations.values())
                 
-                # Calculate total duration needed for this group
-                group_duration = sum(clip_durations.get(c, 4) for c in group_clips)
+                # CRITICAL: Music starts from Clip 1 (skip Clip 0 which is SILENT_IMAGE)
+                clip_0_duration = clip_durations.get(0, 4.0)  # Clip 0 duration (default 4s)
+                music_start_time = clip_0_duration
+                music_duration_needed = total_video_duration - music_start_time
                 
-                # Trim or extend music to match group duration
-                if music.duration < group_duration:
-                    # Loop music if shorter
-                    loops_needed = int(group_duration / music.duration) + 1
+                print(f"  🎵 Using ONLY first music group '{first_group_name}' for entire video")
+                print(f"     Original music duration: {music.duration:.1f}s")
+                print(f"     Total video duration: {total_video_duration:.1f}s")
+                print(f"     Music starts at: {music_start_time:.1f}s (after Clip 0)")
+                print(f"     Music duration needed: {music_duration_needed:.1f}s")
+                
+                # Apply fade to original music BEFORE looping to ensure smooth loop transitions
+                music_fade = min(0.05, music.duration * 0.02)  # 50ms or 2% of duration
+                music = music.audio_fadein(music_fade).audio_fadeout(music_fade)
+                
+                # Loop music to cover needed duration
+                if music.duration < music_duration_needed:
+                    loops_needed = int(music_duration_needed / music.duration) + 1
                     music_parts = [music] * loops_needed
                     music = concatenate_audioclips(music_parts)
+                    print(f"     Looped music {loops_needed}x to cover video")
                 
-                music = music.subclip(0, min(music.duration, group_duration))
+                # Trim to exact needed duration
+                music = music.subclip(0, min(music.duration, music_duration_needed))
                 
-                # Set start time and lower volume
+                # Apply final fade to the complete music track
+                final_music_fade = min(0.1, music.duration * 0.01)  # 100ms or 1% for overall track
+                music = music.audio_fadein(final_music_fade).audio_fadeout(final_music_fade)
+                
+                # Start music at Clip 1 (after Clip 0) and set volume very low
                 music = music.set_start(music_start_time)
-                music = music.volumex(0.143)  # Lower volume for background (7:1 ratio with voiceover at 1.0)
+                music = music.volumex(0.07)  # Background music at 7% volume
                 
                 audio_clips.append(music)
-                print(f"  Added music '{group_name}': {music.duration}s (starts at {music_start_time}s)")
+                print(f"  ✅ Added music '{first_group_name}': {music.duration:.1f}s (starts at {music_start_time:.1f}s, skips Clip 0)")
+        else:
+            print(f"  ⚠️ No music groups available")
         
         # Combine all audio
         if audio_clips:
             final_audio = CompositeAudioClip(audio_clips)
+            
+            # CRITICAL: Add buffer at the END of the final video to prevent jitter/noise
+            # Trim final audio slightly and add fade out at the very end
+            END_BUFFER = 0.15  # 150ms buffer at end of video
+            video_duration = final_video.duration
+            
+            if final_audio.duration > video_duration - END_BUFFER:
+                # Trim audio to leave buffer at end
+                final_audio = final_audio.subclip(0, video_duration - END_BUFFER)
+                print(f"  🔇 Added {int(END_BUFFER*1000)}ms end buffer to prevent audio jitter")
+            
+            # Apply final fade out at the very end of the audio
+            final_fade_duration = min(0.1, final_audio.duration * 0.02)  # 100ms or 2% of duration
+            final_audio = final_audio.audio_fadeout(final_fade_duration)
+            
             final_video = final_video.set_audio(final_audio)
             print(f"  Combined {len(audio_clips)} audio tracks")
+        
+        # CRITICAL: Add fade to black at the END of the video to prevent noise/jitter
+        # This is especially important when the last clip is an AI Influencer clip
+        FADE_OUT_DURATION = 0.3  # 300ms fade to black
+        print(f"  🎬 Adding {FADE_OUT_DURATION}s fade to black at end of video")
+        final_video = final_video.fadeout(FADE_OUT_DURATION)
         
         # Write final video
         print(f"\n  Writing final video to: {output_path}")
@@ -4352,6 +6622,9 @@ def stitch_video_clips(
                 if clip_size != OUTPUT_SIZE:
                     print(f"  Resizing clip {i} from {clip_size} to {OUTPUT_SIZE}")
                     clip = clip.resize(OUTPUT_SIZE)
+                # CRITICAL: Strip audio from all clips to prevent noise at stitching points
+                # We manage all audio separately (voiceover + music)
+                clip = clip.set_audio(None)
                 video_clips.append(clip)
                 print(f"  Loaded clip {i}: {clip.duration}s")
         
@@ -4359,7 +6632,7 @@ def stitch_video_clips(
             print("❌ No video clips to stitch")
             return None
         
-        # Concatenate video clips
+        # Concatenate video clips (all audio stripped - we add it back separately)
         final_video = concatenate_videoclips(video_clips, method="compose")
         print(f"  Combined video duration: {final_video.duration}s")
         
@@ -4372,21 +6645,30 @@ def stitch_video_clips(
             # Trim or loop voiceover to match video duration
             if voiceover.duration > final_video.duration:
                 voiceover = voiceover.subclip(0, final_video.duration)
+            # Apply short fade in/out to prevent clicks/pops
+            fade_duration = min(0.03, voiceover.duration * 0.05)
+            voiceover = voiceover.audio_fadein(fade_duration).audio_fadeout(fade_duration)
             audio_clips.append(voiceover)
             print(f"  Added voiceover: {voiceover.duration}s")
         
         # Add background music
         if music_path and os.path.exists(music_path):
             music = AudioFileClip(music_path)
+            # Apply fade to original music BEFORE looping to ensure smooth loop transitions
+            music_fade = min(0.05, music.duration * 0.02)  # 50ms or 2% of duration
+            music = music.audio_fadein(music_fade).audio_fadeout(music_fade)
             # Trim or loop music to match video duration
             if music.duration < final_video.duration:
                 loops_needed = int(final_video.duration / music.duration) + 1
                 music_clips_list = [music] * loops_needed
                 music = concatenate_audioclips(music_clips_list)
             music = music.subclip(0, final_video.duration)
+            # Apply final fade to the complete music track
+            final_music_fade = min(0.1, music.duration * 0.01)  # 100ms or 1% for overall track
+            music = music.audio_fadein(final_music_fade).audio_fadeout(final_music_fade)
             # Lower music volume when voiceover is present
             if voiceover_path:
-                music = music.volumex(0.143)  # Lower volume for background (7:1 ratio with voiceover at 1.0)
+                music = music.volumex(0.07)  # Background music at 7% volume
             audio_clips.append(music)
             print(f"  Added music: {music.duration}s")
         
@@ -4396,7 +6678,25 @@ def stitch_video_clips(
                 final_audio = CompositeAudioClip(audio_clips)
             else:
                 final_audio = audio_clips[0]
+            
+            # CRITICAL: Add buffer at the END of the final video to prevent jitter/noise
+            END_BUFFER = 0.15  # 150ms buffer at end of video
+            video_duration = final_video.duration
+            
+            if final_audio.duration > video_duration - END_BUFFER:
+                final_audio = final_audio.subclip(0, video_duration - END_BUFFER)
+                print(f"  🔇 Added {int(END_BUFFER*1000)}ms end buffer to prevent audio jitter")
+            
+            # Apply final fade out at the very end
+            final_fade_duration = min(0.1, final_audio.duration * 0.02)
+            final_audio = final_audio.audio_fadeout(final_fade_duration)
+            
             final_video = final_video.set_audio(final_audio)
+        
+        # CRITICAL: Add fade to black at the END of the video to prevent noise/jitter
+        FADE_OUT_DURATION = 0.3  # 300ms fade to black
+        print(f"  🎬 Adding {FADE_OUT_DURATION}s fade to black at end of video")
+        final_video = final_video.fadeout(FADE_OUT_DURATION)
         
         # Write final video
         print(f"\n  Writing final video to: {output_path}")
@@ -4735,31 +7035,57 @@ def apply_captions_to_clip(video_path: str, caption_combination: str, language_c
         # Render with captions
         styler.render(quality="high")
         
+        # Extract and serialize transcription data for potential regeneration
+        transcription_result = None
+        if styler.transcription_data and hasattr(styler.transcription_data, 'words'):
+            transcription_result = {
+                'text': getattr(styler.transcription_data, 'text', ''),
+                'language': getattr(styler.transcription_data, 'language', ''),
+                'words': []
+            }
+            for word_data in styler.transcription_data.words:
+                transcription_result['words'].append({
+                    'word': getattr(word_data, 'word', str(word_data)),
+                    'start': getattr(word_data, 'start', 0),
+                    'end': getattr(word_data, 'end', 0)
+                })
+        
         if os.path.exists(output_path):
             print(f"  ✅ Captions applied: {combo['name']}")
-            return output_path
+            return output_path, transcription_result
         else:
             print(f"  ⚠️ Warning: Captioned video not created, using original")
-            return video_path
+            return video_path, transcription_result
             
     except Exception as e:
         print(f"  ⚠️ Warning: Failed to apply captions: {e}")
         import traceback
         print(traceback.format_exc())
-        return video_path
+        return video_path, None
 
 
-def generate_political_video(input_file: str, output_path: str, language_code: str = "hi", influencer_mode: bool = False, influencer_gender: Optional[str] = None, user_instruction: Optional[str] = None, voice_id: Optional[str] = None, captions: Optional[str] = None, transliterate: bool = False, desired_duration: Optional[str] = None, ai_video_model: str = "veo3.1") -> str:
+def generate_political_video(input_file: str, output_path: str, language_code: str = "hi", influencer_mode: bool = False, influencer_gender: Optional[str] = None, user_instruction: Optional[str] = None, voice_id: Optional[str] = None, captions: Optional[str] = None, transliterate: bool = False, desired_duration: Optional[str] = None, ai_video_model: str = "veo3.1", speed: float = 1.0, image_group_proportion: float = 0.5, voiceover_emotions: bool = False, audio_model: str = "v3", reference_image: Optional[str] = None, background_music: Optional[str] = None, elevenlabs_direct: bool = False, include_research: bool = False, research_type: str = "news", highlight_color: str = "black") -> str:
     """Main pipeline to generate political video from input document
     
     Args:
         input_file: Path to input document
         output_path: Path to output video
+        background_music: Optional path to custom background music file. If provided and valid, 
+                         this music will be used instead of ElevenLabs generated music.
+        elevenlabs_direct: If True, call ElevenLabs API directly (allows custom voices)
+        include_research: If True, generate research clips from Grok's research_integration
+        research_type: Type of research source to search for (news, blog, report, twitter)
+        highlight_color: Color for highlighting text in research clip screenshots
         language_code: Language code for voiceover
         influencer_mode: Whether to enable influencer mode
         influencer_gender: Gender of influencer ("male" or "female"), only used if influencer_mode is True
         user_instruction: Optional user instruction to guide prompt generation
-        ai_video_model: AI video model to use for influencer clips ("veo3.1" or "seedance1.5")
+        ai_video_model: AI video model to use for influencer clips ("veo3.1", "seedance1.5", or "omnihuman1.5")
+        speed: Voice speed multiplier for ElevenLabs TTS (default: 1.0)
+        image_group_proportion: Proportion of IMAGE_ONLY clips to use image groups (0.0-1.0, default: 0.5)
+        voiceover_emotions: Whether to include emotional expressions in voiceover text
+        audio_model: ElevenLabs TTS model - "v3" (eleven-v3), "v2" (multilingual-v2), or "turbo" (turbo-v2.5)
+        reference_image: Optional path to reference influencer image for character consistency
     """
     
     language_name = SUPPORTED_LANGUAGES.get(language_code, "Hindi")
@@ -4798,6 +7124,24 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
     # Initialize S3 helper for presigned URLs
     s3_helper = S3Helper(project_name="political_video")
     
+    # Upload reference image to S3 if provided (for character consistency in influencer clips)
+    reference_image_s3_url = None
+    if reference_image and influencer_mode:
+        print(f"\n{'='*60}")
+        print(f"📤 UPLOADING REFERENCE INFLUENCER IMAGE")
+        print(f"{'='*60}")
+        print(f"  Reference image: {reference_image}")
+        
+        if os.path.exists(reference_image):
+            reference_image_s3_url = s3_helper.upload_file(reference_image, "image", "reference_influencer")
+            if reference_image_s3_url:
+                print(f"  ✅ Reference image uploaded to S3")
+                print(f"  → ALL influencer clips will use nano-banana-pro/edit with this reference")
+            else:
+                print(f"  ⚠️ Failed to upload reference image - falling back to generated influencer")
+        else:
+            print(f"  ⚠️ Reference image not found: {reference_image}")
+    
     try:
         # Step 1: Extract text from input file
         print(f"\n{'='*60}")
@@ -4813,7 +7157,9 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
         print(f"🤖 STEP 2: VIDEO PLAN GENERATION")
         print(f"{'='*60}")
         
-        video_plan = analyze_text_and_generate_plan(context_text, language_code, influencer_mode, influencer_gender, user_instruction, desired_duration)
+        # Pass reference_image_mode=True if CLI reference image was uploaded successfully
+        reference_image_mode = reference_image_s3_url is not None
+        video_plan = analyze_text_and_generate_plan(context_text, language_code, influencer_mode, influencer_gender, user_instruction, desired_duration, image_group_proportion, voiceover_emotions, reference_image_mode, include_research, research_type)
         
         # Step 3: Generate per-clip voiceovers FIRST (to determine actual clip durations)
         # For influencer mode, we skip voiceover generation for AI_VIDEO clips 
@@ -4846,7 +7192,7 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
         # Generate voiceovers for non-influencer clips
         voiceover_files = {}  # clip_number -> {path, duration}
         if clip_voiceover_texts:
-            voiceover_files = generate_voiceover_per_clip(clip_voiceover_texts, temp_dir, language_code, voice_id)
+            voiceover_files = generate_voiceover_per_clip(clip_voiceover_texts, temp_dir, language_code, voice_id, speed, audio_model=audio_model, elevenlabs_direct=elevenlabs_direct)
         
         print(f"\n  ✅ Generated voiceovers for {len(voiceover_files)} non-AI clips")
         if influencer_mode:
@@ -4858,20 +7204,37 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
         print(f"{'='*60}")
         
         clip_data = []  # Store clip info for later processing
-        image_clips_for_analysis = []  # IMAGE_ONLY clips for Stage 2 effect analysis
+        image_clips_for_analysis = []  # SILENT_IMAGE clips for Stage 2 effect analysis (B_ROLL uses Veo3.1)
         
         # Track first influencer image for consistency
         first_influencer_image_s3_url = None
         first_influencer_clip_found = False
         
+        # Track generated B_ROLL videos for reuse
+        generated_b_roll_videos = {}  # clip_num -> {video_paths: [], video_s3_urls: []}
+        
         for clip in video_plan.get('clips', []):
             clip_num = clip.get('clip_number', 0)
             clip_type = clip.get('clip_type', 'IMAGE_ONLY')
+            # Convert legacy IMAGE_ONLY to B_ROLL (except for Clip 0 which stays SILENT_IMAGE)
+            if clip_type == "IMAGE_ONLY" and clip_num > 0:
+                clip_type = "B_ROLL"
+                print(f"      📝 Converting IMAGE_ONLY to B_ROLL for clip {clip_num}")
             planned_duration = clip.get('duration_seconds', AI_VIDEO_DEFAULT_DURATION if clip_type == "AI_VIDEO" else 4)
             # For AI_VIDEO clips: use starting_image_prompt for image generation, prompt for video generation
+            # For B_ROLL clips: use image_prompt for image generation, video_prompt for video generation
             # For other clips: use prompt for image generation
             starting_image_prompt = clip.get('starting_image_prompt', '')  # For AI_VIDEO clips only
-            prompt = clip.get('prompt', '')  # Clip prompt (for video) or image prompt (for IMAGE_ONLY)
+            prompt = clip.get('prompt', '')  # Clip prompt (for video) or image prompt (for legacy IMAGE_ONLY)
+            # B_ROLL fields
+            image_prompt = clip.get('image_prompt', '')  # For B_ROLL single video
+            video_prompt = clip.get('video_prompt', '')  # For B_ROLL single video
+            video_group = clip.get('video_group', None)  # Multiple videos for B_ROLL with video groups
+            is_reuse = clip.get('is_reuse', False)  # B_ROLL reuse flag
+            reuse_from_clip = clip.get('reuse_from_clip', None)  # Which clip to reuse B_ROLL from
+            reuse_video_index = clip.get('reuse_video_index', 0)  # Which video in the group to reuse
+            # Legacy IMAGE_ONLY fields (for backwards compatibility)
+            image_group = clip.get('image_group', None)  # Multiple images for dynamic IMAGE_ONLY clips
             voiceover = clip.get('voiceover', '')
             effect_hint = clip.get('effect_hint', 'Create engaging movement')
             is_influencer_clip = clip.get('is_influencer_clip', False) or (influencer_mode and clip_type == "AI_VIDEO")
@@ -4882,63 +7245,210 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
             vo_info = voiceover_files.get(clip_num, {})
             vo_duration = vo_info.get('duration', 0)
             
+            # Check if this is a video group clip (B_ROLL with multiple videos)
+            has_video_group = video_group is not None and len(video_group) > 0 and clip_type == "B_ROLL"
+            # Check if this is a legacy image group clip (IMAGE_ONLY with multiple images)
+            has_image_group = image_group is not None and len(image_group) > 0 and clip_type in ["IMAGE_ONLY", "SILENT_IMAGE"]
+            
             if clip_type == "AI_VIDEO" and influencer_mode:
                 # AI_VIDEO in influencer mode uses fixed duration
                 actual_duration = planned_duration
+            elif (has_video_group or has_image_group) and vo_duration > 0:
+                # VIDEO GROUP / IMAGE GROUP CLIPS: Use voiceover duration (+ small buffer) for spacing
+                # This ensures videos/images transition WITH the voiceover, not extending beyond it
+                actual_duration = vo_duration + 0.3  # Small buffer for natural feel
+                group_type = "Video Group" if has_video_group else "Image Group"
+                print(f"      📦 {group_type}: Using voiceover duration ({vo_duration:.2f}s + 0.3s buffer = {actual_duration:.2f}s) instead of planned ({planned_duration}s)")
             elif vo_duration > 0:
-                # Add 0.5s buffer after voiceover ends
+                # Regular clips: Add 0.5s buffer after voiceover ends
                 actual_duration = max(planned_duration, vo_duration + 0.5)
             else:
                 actual_duration = planned_duration
             
-            print(f"\n  --- Clip {clip_num} ({clip_type}{'*INFLUENCER*' if is_influencer_clip else ''}) ---")
-            print(f"      Planned: {planned_duration}s, Voiceover: {vo_duration:.2f}s, Actual: {actual_duration:.2f}s")
-            
-            # Generate image for all clip types
-            if clip_type == "AI_VIDEO":
-                image_path = os.path.join(temp_dir, f"clip_{clip_num}_start.png")
-            else:
-                image_path = os.path.join(temp_dir, f"clip_{clip_num}.png")
-            
-            # For influencer mode AI_VIDEO clips (except first), use edit model with reference
-            # All clips use 9:16 aspect ratio
-            # CRITICAL: Only starting frame images (AI_VIDEO clips) need "no text overlays"
-            # Regular images (IMAGE_ONLY/SILENT_IMAGE clips) allow text overlays
-            is_starting_frame = (clip_type == "AI_VIDEO")
-            
-            # CRITICAL: For AI_VIDEO clips, use starting_image_prompt for image generation (no voiceover instructions)
-            # For other clips, use prompt for image generation
-            # If starting_image_prompt is missing for AI_VIDEO, fallback to prompt (but warn)
-            if clip_type == "AI_VIDEO":
-                if starting_image_prompt:
-                    image_prompt_to_use = starting_image_prompt
-                else:
-                    print(f"      ⚠️ WARNING: No starting_image_prompt found for AI_VIDEO clip {clip_num}, using prompt field (may contain voiceover instructions)")
-                    image_prompt_to_use = prompt
-            else:
-                image_prompt_to_use = prompt
-            
+            # Build clip type label
+            type_suffix = ""
             if is_influencer_clip:
-                if first_influencer_clip_found and first_influencer_image_s3_url:
-                    print(f"      Using nano-banana-pro/edit with reference influencer (9:16 aspect ratio)")
-                    if clip_type == "AI_VIDEO" and starting_image_prompt:
-                        print(f"      Using starting_image_prompt for image generation (no voiceover instructions)")
-                    image_result = generate_image_with_nano_banana_edit(
-                        image_prompt_to_use, 
-                        image_path, 
-                        [first_influencer_image_s3_url],
-                        aspect_ratio="9:16",
-                        is_starting_frame=is_starting_frame,
-                        clip_num=clip_num
-                    )
+                type_suffix = "*INFLUENCER*"
+            elif has_video_group:
+                type_suffix = "*VIDEO_GROUP*"
+            elif has_image_group:
+                type_suffix = "*IMAGE_GROUP*"
+            elif is_reuse:
+                type_suffix = "*REUSE*"
+            
+            print(f"\n  --- Clip {clip_num} ({clip_type}{type_suffix}) ---")
+            print(f"      Planned: {planned_duration}s, Voiceover: {vo_duration:.2f}s, Actual: {actual_duration:.2f}s")
+            if has_video_group:
+                print(f"      🎬 Video Group: {len(video_group)} videos")
+            elif has_image_group:
+                print(f"      📦 Image Group: {len(image_group)} images")
+            elif is_reuse:
+                print(f"      ♻️ Reusing B_ROLL from Clip {reuse_from_clip}, video index {reuse_video_index}")
+            
+            # Generate image(s) for the clip
+            # For B_ROLL with video_group: generate multiple images for video generation
+            # For B_ROLL single: generate one image for video generation
+            # For legacy image groups: generate multiple images
+            # For regular clips: generate single image
+            
+            image_group_paths = []  # Store all image paths for image groups (legacy)
+            video_group_data = []  # Store {image_path, image_s3_url, video_prompt, rank} for B_ROLL video groups
+            
+            # Handle B_ROLL reuse - skip image generation
+            if clip_type == "B_ROLL" and is_reuse:
+                print(f"      ♻️ B_ROLL reuse: Will use video from Clip {reuse_from_clip}")
+                image_path = None
+                image_result = None
+            # Handle B_ROLL with video group
+            elif has_video_group:
+                print(f"      🎬 Generating {len(video_group)} images for video group B_ROLL...")
+                for vid_idx, vid_item in enumerate(video_group):
+                    vid_image_prompt = vid_item.get('image_prompt', '')
+                    vid_video_prompt = vid_item.get('video_prompt', '')
+                    vid_rank = vid_item.get('rank', vid_idx + 1)
+                    
+                    if not vid_image_prompt:
+                        print(f"      ⚠️ Video {vid_idx+1}: No image_prompt found, skipping")
+                        continue
+                    
+                    img_path = os.path.join(temp_dir, f"clip_{clip_num}_vid_{vid_idx}.png")
+                    print(f"      📷 Video {vid_idx+1}/{len(video_group)}: Generating starting frame...")
+                    
+                    # Generate image (B_ROLL starting frames need "no text overlays")
+                    img_result = generate_image_with_nano_banana(vid_image_prompt, img_path, aspect_ratio="9:16", is_starting_frame=True, clip_num=clip_num)
+                    
+                    if img_result and os.path.exists(img_result):
+                        # Upload to S3 for Veo3.1
+                        img_s3_url = s3_helper.upload_file(img_result, "image", f"clip_{clip_num}_vid_{vid_idx}")
+                        video_group_data.append({
+                            'image_path': img_result,
+                            'image_s3_url': img_s3_url,
+                            'video_prompt': vid_video_prompt,
+                            'rank': vid_rank
+                        })
+                        print(f"      ✅ Video {vid_idx+1}: Starting frame generated")
+                    else:
+                        print(f"      ⚠️ Video {vid_idx+1}: Generation failed")
+                
+                # Sort by rank for proper ordering
+                video_group_data.sort(key=lambda x: x.get('rank', 99))
+                
+                # Use first image as the main image for this clip
+                if video_group_data:
+                    image_path = video_group_data[0]['image_path']
+                    image_result = video_group_data[0]['image_path']
+                    print(f"      ✅ Video group: {len(video_group_data)} starting frames generated")
                 else:
-                    print(f"      Using nano-banana-pro for first influencer clip (9:16 aspect ratio)")
-                    if clip_type == "AI_VIDEO" and starting_image_prompt:
-                        print(f"      Using starting_image_prompt for image generation (no voiceover instructions)")
-                    image_result = generate_image_with_nano_banana(image_prompt_to_use, image_path, aspect_ratio="9:16", is_starting_frame=is_starting_frame, clip_num=clip_num)
+                    print(f"      ⚠️ All video group images failed")
+                    image_path = None
+                    image_result = None
+            # Handle B_ROLL with single video
+            elif clip_type == "B_ROLL" and image_prompt:
+                print(f"      🎬 Generating starting frame for single B_ROLL...")
+                image_path = os.path.join(temp_dir, f"clip_{clip_num}_broll.png")
+                # B_ROLL starting frames need "no text overlays"
+                image_result = generate_image_with_nano_banana(image_prompt, image_path, aspect_ratio="9:16", is_starting_frame=True, clip_num=clip_num)
+                if image_result:
+                    print(f"      ✅ B_ROLL starting frame generated")
+            # Handle legacy image groups
+            elif has_image_group:
+                # IMAGE GROUP: Generate multiple images
+                print(f"      📦 Generating {len(image_group)} images for image group...")
+                for img_idx, img_item in enumerate(image_group):
+                    img_prompt = img_item.get('prompt', '')
+                    if not img_prompt:
+                        print(f"      ⚠️ Image {img_idx+1}: No prompt found, skipping")
+                        continue
+                    
+                    img_path = os.path.join(temp_dir, f"clip_{clip_num}_img_{img_idx}.png")
+                    print(f"      📷 Image {img_idx+1}/{len(image_group)}: Generating...")
+                    
+                    # Generate image (legacy IMAGE_ONLY clips, so is_starting_frame=False)
+                    img_result = generate_image_with_nano_banana(img_prompt, img_path, aspect_ratio="9:16", is_starting_frame=False, clip_num=clip_num)
+                    
+                    if img_result and os.path.exists(img_result):
+                        image_group_paths.append(img_result)
+                        print(f"      ✅ Image {img_idx+1}: Generated successfully")
+                    else:
+                        print(f"      ⚠️ Image {img_idx+1}: Generation failed")
+                
+                # Use first image as the main image for this clip
+                if image_group_paths:
+                    image_path = image_group_paths[0]
+                    image_result = image_group_paths[0]
+                    print(f"      ✅ Image group: {len(image_group_paths)} images generated successfully")
+                else:
+                    # Fallback to single prompt if all image group images failed
+                    print(f"      ⚠️ All image group images failed, falling back to single prompt")
+                    image_path = os.path.join(temp_dir, f"clip_{clip_num}.png")
+                    image_result = generate_image_with_nano_banana(prompt, image_path, aspect_ratio="9:16", is_starting_frame=False, clip_num=clip_num)
+                    image_group_paths = [image_result] if image_result else []
             else:
-                # Image-based clips: use 9:16 aspect ratio (text overlays allowed for IMAGE_ONLY, required for Clip 0)
-                image_result = generate_image_with_nano_banana(image_prompt_to_use, image_path, aspect_ratio="9:16", is_starting_frame=is_starting_frame, clip_num=clip_num)
+                # SINGLE IMAGE: Original logic
+                if clip_type == "AI_VIDEO":
+                    image_path = os.path.join(temp_dir, f"clip_{clip_num}_start.png")
+                else:
+                    image_path = os.path.join(temp_dir, f"clip_{clip_num}.png")
+                
+                # For influencer mode AI_VIDEO clips (except first), use edit model with reference
+                # All clips use 9:16 aspect ratio
+                # CRITICAL: Only starting frame images (AI_VIDEO clips) need "no text overlays"
+                # Regular images (IMAGE_ONLY/SILENT_IMAGE clips) allow text overlays
+                is_starting_frame = (clip_type == "AI_VIDEO")
+                
+                # CRITICAL: For AI_VIDEO clips, use starting_image_prompt for image generation (no voiceover instructions)
+                # For other clips, use prompt for image generation
+                # If starting_image_prompt is missing for AI_VIDEO, fallback to prompt (but warn)
+                if clip_type == "AI_VIDEO":
+                    if starting_image_prompt:
+                        image_prompt_to_use = starting_image_prompt
+                    else:
+                        print(f"      ⚠️ WARNING: No starting_image_prompt found for AI_VIDEO clip {clip_num}, using prompt field (may contain voiceover instructions)")
+                        image_prompt_to_use = prompt
+                else:
+                    image_prompt_to_use = prompt
+                
+                if is_influencer_clip:
+                    # Priority for reference image:
+                    # 1. CLI-provided reference_image_s3_url (if provided, ALL influencer clips use this)
+                    # 2. First generated influencer image (for subsequent clips only)
+                    # 3. Generate fresh image with nano-banana-pro (for first clip if no CLI reference)
+                    
+                    if reference_image_s3_url:
+                        # CLI reference image provided - use nano-banana-pro/edit for ALL influencer clips
+                        print(f"      Using nano-banana-pro/edit with CLI reference influencer (9:16 aspect ratio)")
+                        if clip_type == "AI_VIDEO" and starting_image_prompt:
+                            print(f"      Using starting_image_prompt for image generation (no voiceover instructions)")
+                        image_result = generate_image_with_nano_banana_edit(
+                            image_prompt_to_use, 
+                            image_path, 
+                            [reference_image_s3_url],
+                            aspect_ratio="9:16",
+                            is_starting_frame=is_starting_frame,
+                            clip_num=clip_num
+                        )
+                    elif first_influencer_clip_found and first_influencer_image_s3_url:
+                        # No CLI reference, but have first generated influencer - use as reference for subsequent clips
+                        print(f"      Using nano-banana-pro/edit with generated reference influencer (9:16 aspect ratio)")
+                        if clip_type == "AI_VIDEO" and starting_image_prompt:
+                            print(f"      Using starting_image_prompt for image generation (no voiceover instructions)")
+                        image_result = generate_image_with_nano_banana_edit(
+                            image_prompt_to_use, 
+                            image_path, 
+                            [first_influencer_image_s3_url],
+                            aspect_ratio="9:16",
+                            is_starting_frame=is_starting_frame,
+                            clip_num=clip_num
+                        )
+                    else:
+                        # No CLI reference, first influencer clip - generate fresh with nano-banana-pro
+                        print(f"      Using nano-banana-pro for first influencer clip (9:16 aspect ratio)")
+                        if clip_type == "AI_VIDEO" and starting_image_prompt:
+                            print(f"      Using starting_image_prompt for image generation (no voiceover instructions)")
+                        image_result = generate_image_with_nano_banana(image_prompt_to_use, image_path, aspect_ratio="9:16", is_starting_frame=is_starting_frame, clip_num=clip_num)
+                else:
+                    # Image-based clips: use 9:16 aspect ratio (text overlays allowed for IMAGE_ONLY, required for Clip 0)
+                    image_result = generate_image_with_nano_banana(image_prompt_to_use, image_path, aspect_ratio="9:16", is_starting_frame=is_starting_frame, clip_num=clip_num)
             
             # Upload image to S3 for presigned URL (needed for veo3.1)
             image_s3_url = None
@@ -4958,7 +7468,7 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
                 'clip_type': clip_type,
                 'planned_duration': planned_duration,
                 'actual_duration': actual_duration,
-                'prompt': prompt,  # Clip prompt (for video generation) or image prompt (for IMAGE_ONLY)
+                'prompt': prompt,  # Clip prompt (for video generation) or image prompt (for legacy IMAGE_ONLY)
                 'starting_image_prompt': starting_image_prompt,  # Starting frame image prompt (for AI_VIDEO clips only)
                 'voiceover': voiceover,
                 'effect_hint': effect_hint,
@@ -4967,18 +7477,33 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
                 'is_influencer_clip': is_influencer_clip,
                 # Include failover fields for AI_VIDEO influencer clips
                 'failover_image_prompt': clip.get('failover_image_prompt', ''),
-                'failover_effect_hint': clip.get('failover_effect_hint', '')
+                'failover_effect_hint': clip.get('failover_effect_hint', ''),
+                # Legacy image group support
+                'has_image_group': has_image_group,
+                'image_group_paths': image_group_paths if has_image_group else [],
+                # B_ROLL support
+                'is_b_roll': clip_type == "B_ROLL",
+                'video_prompt': video_prompt,  # For single B_ROLL
+                'has_video_group': has_video_group,
+                'video_group_data': video_group_data if has_video_group else [],  # For B_ROLL with video groups
+                'is_reuse': is_reuse,
+                'reuse_from_clip': reuse_from_clip,
+                'reuse_video_index': reuse_video_index
             }
             clip_data.append(clip_info)
             
-            # Collect IMAGE_ONLY/SILENT_IMAGE clips for Stage 2 analysis
-            if clip_type in ["IMAGE_ONLY", "SILENT_IMAGE"] and image_result:
+            # NOTE: Clip 0 (SILENT_IMAGE) should NOT have effects - it's a static image with text overlay
+            # B_ROLL clips don't need effect analysis - they use Veo3.1 for motion
+            # So we skip effect analysis entirely when only clip 0 is image-based
+            # Only legacy IMAGE_ONLY clips (if any) would need effect analysis
+            if clip_type == "IMAGE_ONLY" and image_result and clip_num > 0:
                 image_clips_for_analysis.append({
                     'clip_number': clip_num,
                     'image_path': image_result,
-                    'duration': actual_duration,  # Use actual duration
+                    'duration': actual_duration,
                     'effect_hint': effect_hint,
-                    'voiceover': voiceover
+                    'voiceover': voiceover,
+                    'is_image_group': has_image_group
                 })
         
         # Step 4.5: Analyze images with Grok for precise effects (Stage 2)
@@ -4991,7 +7516,7 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
             clip_effects = analyze_images_for_effects(image_clips_for_analysis)
             print(f"\n  ✅ Got effects for {len(clip_effects)} clips from image analysis")
         else:
-            print(f"  ⚠️ No IMAGE_ONLY clips to analyze")
+            print(f"  ⚠️ No SILENT_IMAGE clips to analyze (B_ROLL clips use Veo3.1 for motion)")
         
         # Step 5: Create video clips with adjusted durations
         print(f"\n{'='*60}")
@@ -4999,7 +7524,9 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
         print(f"{'='*60}")
         
         clip_paths = []
+        raw_clip_paths = {}  # Store pre-caption video paths for raw asset saving
         actual_clip_durations = {}  # Store actual durations for stitching
+        all_transcription_data = {}  # Collect transcription data for saving
         
         for clip_info in clip_data:
             clip_num = clip_info['clip_number']
@@ -5015,7 +7542,10 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
             
             print(f"\n  --- Creating video for Clip {clip_num} ({clip_type}{'*INFLUENCER*' if is_influencer_clip else ''}, {duration:.2f}s) ---")
             
-            if not image_path:
+            # Check if this is a B_ROLL reuse clip (doesn't need image_path)
+            is_b_roll_reuse = clip_info.get('is_b_roll', False) and clip_info.get('is_reuse', False)
+            
+            if not image_path and not is_b_roll_reuse:
                 print(f"  ⚠️ Skipping clip {clip_num} - no image generated")
                 clip_paths.append(None)
                 continue
@@ -5051,7 +7581,48 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
                 target_duration_for_generation = None if (is_influencer_clip and influencer_mode) else duration
                 
                 # Use selected AI video model
-                if ai_video_model == "seedance1.5":
+                if ai_video_model == "omnihuman1.5":
+                    # OmniHuman 1.5: Generate voiceover first, then lip-sync with image
+                    print(f"  🎬 Using OmniHuman 1.5 for AI video generation (lip-sync)...")
+                    
+                    # Step 1: Generate voiceover for this clip
+                    voiceover_path = os.path.join(temp_dir, f"omnihuman_vo_clip_{clip_num}.mp3")
+                    vo_result, vo_duration = generate_voiceover(
+                        voiceover_text if voiceover_text else "",
+                        voiceover_path,
+                        language_code,
+                        voice_id,
+                        speed,
+                        audio_model=audio_model,
+                        elevenlabs_direct=elevenlabs_direct
+                    )
+                    
+                    if vo_result:
+                        # Step 2: Upload voiceover to S3
+                        vo_s3_url = s3_helper.upload_file(vo_result, "voiceover", f"omnihuman_clip_{clip_num}")
+                        
+                        if vo_s3_url:
+                            # Step 3: Generate video with OmniHuman (lip-sync image + audio)
+                            video_result = generate_ai_video_clip_omnihuman(
+                                image_url=image_s3_url,
+                                audio_url=vo_s3_url,
+                                output_path=video_path,
+                                resolution="720p"
+                            )
+                            
+                            # For OmniHuman, mark voiceover as embedded since it's lip-synced
+                            if video_result:
+                                voiceover_files[clip_num] = {
+                                    'path': vo_result,
+                                    'duration': vo_duration,
+                                    'embedded': True  # Audio is already in the video
+                                }
+                        else:
+                            print(f"  ❌ Failed to upload voiceover to S3 for OmniHuman")
+                    else:
+                        print(f"  ❌ Failed to generate voiceover for OmniHuman clip")
+                        
+                elif ai_video_model == "seedance1.5":
                     print(f"  🎬 Using Seedance v1.5 Pro for AI video generation...")
                     video_result = generate_ai_video_clip_seedance(
                         prompt=prompt,
@@ -5078,7 +7649,8 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
                 
                 # Check if API call failed (video_result is None)
                 if not video_result and is_influencer_clip and influencer_mode:
-                    model_name = "Seedance v1.5 Pro" if ai_video_model == "seedance1.5" else "Veo3.1"
+                    model_names = {"seedance1.5": "Seedance v1.5 Pro", "omnihuman1.5": "OmniHuman 1.5", "veo3.1": "Veo3.1"}
+                    model_name = model_names.get(ai_video_model, "AI Video")
                     print(f"  ❌ AI video generation failed at {model_name} API level for influencer clip {clip_num}")
                     ai_video_failed = True
                 
@@ -5219,7 +7791,10 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
                                     voiceover_text,
                                     os.path.join(temp_dir, f"voiceover_clip_{clip_num}.mp3"),
                                     language_code,
-                                    voice_id
+                                    voice_id,
+                                    speed,
+                                    audio_model=audio_model,
+                                    elevenlabs_direct=elevenlabs_direct
                                 )
                                 if vo_info[0]:
                                     vo_duration = vo_info[1]
@@ -5275,19 +7850,21 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
                 
                 # Only append video_result if we have one (not failed to failover)
                 if video_result and not ai_video_failed:
+                    # IMPORTANT: Save raw (pre-caption) path for raw asset saving
+                    raw_clip_paths[clip_num] = video_result
+                    
                     # Apply captions if requested
                     if captions and video_result:
                         print(f"  📝 Applying captions ({captions}) to clip {clip_num}...")
                         # For AI_VIDEO clips, audio is embedded in video, so no separate audio_path needed
                         language_name = SUPPORTED_LANGUAGES.get(language_code, "Hindi")
-                        captioned_path = apply_captions_to_clip(video_result, captions, language_code, temp_dir, audio_path=None, transliterate=transliterate, language_name=language_name)
+                        caption_result = apply_captions_to_clip(video_result, captions, language_code, temp_dir, audio_path=None, transliterate=transliterate, language_name=language_name)
+                        # Handle tuple return (path, transcription_data)
+                        captioned_path, transcription_info = caption_result if isinstance(caption_result, tuple) else (caption_result, None)
+                        if transcription_info:
+                            all_transcription_data[clip_num] = transcription_info
                         if captioned_path and captioned_path != video_result:
-                            # Replace original with captioned version
-                            if os.path.exists(video_result):
-                                try:
-                                    os.remove(video_result)
-                                except:
-                                    pass
+                            # Keep raw file for asset saving, use captioned for final video
                             video_result = captioned_path
                     clip_paths.append(video_result)
                 elif ai_video_failed:
@@ -5297,39 +7874,218 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
                 else:
                     clip_paths.append(None)
             
-            # Handle IMAGE_ONLY clips (including failover cases)
-            # Check if this is an IMAGE_ONLY clip (original or failover)
-            is_image_only_clip = clip_type in ["IMAGE_ONLY", "SILENT_IMAGE"]
+            # Handle B_ROLL clips (dynamic AI-generated video clips)
+            is_b_roll_clip = clip_info.get('is_b_roll', False) and clip_type == "B_ROLL"
             
-            if is_image_only_clip:
+            if is_b_roll_clip:
+                video_path = os.path.join(temp_dir, f"clip_{clip_num}_broll.mp4")
+                video_result = None
+                
+                # Check if this is a reused B_ROLL
+                if clip_info.get('is_reuse', False):
+                    reuse_from = clip_info.get('reuse_from_clip')
+                    reuse_idx = clip_info.get('reuse_video_index', 0)
+                    
+                    print(f"  ♻️ Reusing B_ROLL from Clip {reuse_from}, video index {reuse_idx}...")
+                    
+                    if reuse_from in generated_b_roll_videos:
+                        reuse_data = generated_b_roll_videos[reuse_from]
+                        reuse_video_paths = reuse_data.get('video_paths', [])
+                        
+                        if reuse_idx < len(reuse_video_paths):
+                            source_video = reuse_video_paths[reuse_idx]
+                            if source_video and os.path.exists(source_video):
+                                # Copy the video for this clip (may need to trim to different duration)
+                                import shutil
+                                shutil.copy(source_video, video_path)
+                                video_result = video_path
+                                print(f"  ✅ B_ROLL reused from Clip {reuse_from}")
+                            else:
+                                print(f"  ⚠️ Source video not found: {source_video}")
+                        else:
+                            print(f"  ⚠️ Video index {reuse_idx} out of range for Clip {reuse_from}")
+                    else:
+                        print(f"  ⚠️ Clip {reuse_from} not found in generated B_ROLL videos")
+                
+                # Check if this is a video group B_ROLL
+                elif clip_info.get('has_video_group', False):
+                    video_group_data = clip_info.get('video_group_data', [])
+                    
+                    print(f"  🎬 Generating B_ROLL video group ({len(video_group_data)} videos)...")
+                    
+                    individual_video_paths = []
+                    
+                    for vid_idx, vid_data in enumerate(video_group_data):
+                        vid_image_s3_url = vid_data.get('image_s3_url')
+                        vid_video_prompt = vid_data.get('video_prompt', '')
+                        
+                        if not vid_image_s3_url:
+                            print(f"      ⚠️ Video {vid_idx+1}: No S3 URL for starting image")
+                            continue
+                        
+                        individual_path = os.path.join(temp_dir, f"clip_{clip_num}_vid_{vid_idx}.mp4")
+                        print(f"      🎬 Video {vid_idx+1}/{len(video_group_data)}: Generating with Veo3.1...")
+                        
+                        vid_result = generate_b_roll_video(
+                            image_url=vid_image_s3_url,
+                            video_prompt=vid_video_prompt,
+                            output_path=individual_path,
+                            duration=4  # Always 4s for B_ROLL
+                        )
+                        
+                        if vid_result and os.path.exists(vid_result):
+                            individual_video_paths.append(vid_result)
+                            print(f"      ✅ Video {vid_idx+1}: Generated successfully")
+                        else:
+                            print(f"      ⚠️ Video {vid_idx+1}: Generation failed")
+                    
+                    # Store for potential reuse
+                    generated_b_roll_videos[clip_num] = {
+                        'video_paths': individual_video_paths,
+                        'is_video_group': True
+                    }
+                    
+                    # Assemble video group with equal spacing (trimmed to voiceover duration)
+                    if individual_video_paths:
+                        vo_duration = voiceover_files.get(clip_num, {}).get('duration', duration)
+                        target_duration = vo_duration if vo_duration > 0 else duration
+                        
+                        video_result = create_video_from_b_roll_group(
+                            video_paths=individual_video_paths,
+                            output_path=video_path,
+                            duration=target_duration,
+                            temp_dir=temp_dir
+                        )
+                        print(f"  ✅ B_ROLL video group assembled: {target_duration:.2f}s")
+                    else:
+                        print(f"  ⚠️ No videos in group to assemble")
+                
+                # Single B_ROLL video
+                else:
+                    image_s3_url = clip_info.get('image_s3_url')
+                    vid_prompt = clip_info.get('video_prompt', '')
+                    
+                    if image_s3_url and vid_prompt:
+                        print(f"  🎬 Generating single B_ROLL with Veo3.1...")
+                        
+                        video_result = generate_b_roll_video(
+                            image_url=image_s3_url,
+                            video_prompt=vid_prompt,
+                            output_path=video_path,
+                            duration=4  # Always 4s for B_ROLL
+                        )
+                        
+                        if video_result:
+                            # Store for potential reuse
+                            generated_b_roll_videos[clip_num] = {
+                                'video_paths': [video_result],
+                                'is_video_group': False
+                            }
+                            print(f"  ✅ B_ROLL video generated")
+                    else:
+                        print(f"  ⚠️ Missing image_s3_url or video_prompt for B_ROLL clip {clip_num}")
+                
+                # Update actual clip duration
+                if video_result and os.path.exists(video_result):
+                    try:
+                        test_clip = VideoFileClip(video_result)
+                        actual_video_duration = test_clip.duration
+                        test_clip.close()
+                        
+                        vo_duration = voiceover_files.get(clip_num, {}).get('duration', 0)
+                        final_duration = max(actual_video_duration, vo_duration) if vo_duration > 0 else actual_video_duration
+                        actual_clip_durations[clip_num] = final_duration
+                        print(f"  ✅ B_ROLL clip duration: {final_duration:.2f}s")
+                    except Exception as e:
+                        print(f"  ⚠️ Failed to get B_ROLL clip duration: {e}")
+                        actual_clip_durations[clip_num] = duration
+                    
+                    raw_clip_paths[clip_num] = video_result
+                
+                # Apply captions if requested
+                if captions and video_result:
+                    print(f"  📝 Applying captions ({captions}) to B_ROLL clip {clip_num}...")
+                    audio_path = None
+                    if clip_num in voiceover_files and not voiceover_files[clip_num].get('embedded', False):
+                        audio_path = voiceover_files[clip_num].get('path')
+                    
+                    language_name = SUPPORTED_LANGUAGES.get(language_code, "Hindi")
+                    caption_result = apply_captions_to_clip(video_result, captions, language_code, temp_dir, audio_path=audio_path, transliterate=transliterate, language_name=language_name)
+                    captioned_path, transcription_info = caption_result if isinstance(caption_result, tuple) else (caption_result, None)
+                    if transcription_info:
+                        all_transcription_data[clip_num] = transcription_info
+                    if captioned_path and captioned_path != video_result:
+                        video_result = captioned_path
+                
+                clip_paths.append(video_result)
+            
+            # Handle SILENT_IMAGE clips (Clip 0 only - static image with text overlay)
+            elif clip_type == "SILENT_IMAGE":
                 video_path = os.path.join(temp_dir, f"clip_{clip_num}.mp4")
                 
-                # Use effects from Stage 2 image analysis, or default if not available
                 # For Clip 0 (SILENT_IMAGE), always use static (no effects) to preserve text visibility
-                if clip_num == 0:
-                    print(f"  📌 Clip 0 (SILENT_IMAGE): Using static image (no effects) to preserve text visibility")
-                    effects = []
-                else:
-                    effects = clip_effects.get(clip_num, [])
-                    if not effects:
-                        print(f"  ⚠️ No effects from image analysis for clip {clip_num}, using defaults")
-                        effects = get_default_effects(duration, clip_num)
-                    else:
-                        print(f"  ✅ Using {len(effects)} effects from image analysis")
-                        # Update effect durations to match actual clip duration
-                        for effect in effects:
-                            if effect.get('duration', 0) > duration:
-                                effect['duration'] = duration
-                            # If effect spans full clip, update to actual duration
-                            if effect.get('start_time', 0) == 0 and effect.get('duration', duration) >= clip_info['planned_duration']:
-                                effect['duration'] = duration
+                print(f"  📌 Clip 0 (SILENT_IMAGE): Using static image (no effects) to preserve text visibility")
+                effects = []
                 
+                # SINGLE IMAGE: Create video from static image
                 video_result = create_video_from_image_with_effects(
                     image_path=image_path,
                     output_path=video_path,
                     duration=duration,
                     effects=effects
                 )
+                
+                if video_result and os.path.exists(video_result):
+                    actual_clip_durations[clip_num] = duration
+                    raw_clip_paths[clip_num] = video_result
+                
+                clip_paths.append(video_result)
+            
+            # Handle legacy IMAGE_ONLY clips (including failover cases)
+            # Check if this is an IMAGE_ONLY clip (original or failover)
+            is_image_only_clip = clip_type == "IMAGE_ONLY"
+            
+            if is_image_only_clip:
+                video_path = os.path.join(temp_dir, f"clip_{clip_num}.mp4")
+                
+                # Check if this is an image group clip
+                clip_has_image_group = clip_info.get('has_image_group', False)
+                image_group_paths = clip_info.get('image_group_paths', [])
+                
+                # Use effects from Stage 2 image analysis, or default if not available
+                effects = clip_effects.get(clip_num, [])
+                if not effects:
+                    print(f"  ⚠️ No effects from image analysis for clip {clip_num}, using defaults")
+                    effects = get_default_effects(duration, clip_num)
+                else:
+                    print(f"  ✅ Using {len(effects)} effects from image analysis")
+                    # Update effect durations to match actual clip duration
+                    for effect in effects:
+                        if effect.get('duration', 0) > duration:
+                            effect['duration'] = duration
+                        # If effect spans full clip, update to actual duration
+                        if effect.get('start_time', 0) == 0 and effect.get('duration', duration) >= clip_info['planned_duration']:
+                            effect['duration'] = duration
+                
+                # IMAGE GROUP: Create video from multiple images with rapid transitions
+                if clip_has_image_group and len(image_group_paths) > 1:
+                    print(f"  📦 Creating video from image group ({len(image_group_paths)} images)...")
+                    # For image groups: effects apply only to FIRST image, others are displayed as-is
+                    video_result = create_video_from_image_group(
+                        image_paths=image_group_paths,
+                        output_path=video_path,
+                        duration=duration,
+                        first_image_effects=effects,  # Effects apply only to first image
+                        temp_dir=temp_dir
+                    )
+                else:
+                    # SINGLE IMAGE: Original logic
+                    video_result = create_video_from_image_with_effects(
+                        image_path=image_path,
+                        output_path=video_path,
+                        duration=duration,
+                        effects=effects
+                    )
                 
                 # CRITICAL: For IMAGE_ONLY clips (including failover), update actual_clip_durations
                 # to match the actual video duration or voiceover duration (whichever is longer)
@@ -5358,6 +8114,10 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
                         # Fallback: use planned duration
                         actual_clip_durations[clip_num] = duration
                 
+                # IMPORTANT: Save raw (pre-caption) path for raw asset saving
+                if video_result:
+                    raw_clip_paths[clip_num] = video_result
+                
                 # Apply captions if requested
                 if captions and video_result:
                     print(f"  📝 Applying captions ({captions}) to clip {clip_num}...")
@@ -5369,20 +8129,29 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
                             print(f"  🔊 Using separate voiceover file for transcription: {os.path.basename(audio_path)}")
                     
                     language_name = SUPPORTED_LANGUAGES.get(language_code, "Hindi")
-                    captioned_path = apply_captions_to_clip(video_result, captions, language_code, temp_dir, audio_path=audio_path, transliterate=transliterate, language_name=language_name)
+                    caption_result = apply_captions_to_clip(video_result, captions, language_code, temp_dir, audio_path=audio_path, transliterate=transliterate, language_name=language_name)
+                    # Handle tuple return (path, transcription_data)
+                    captioned_path, transcription_info = caption_result if isinstance(caption_result, tuple) else (caption_result, None)
+                    if transcription_info:
+                        all_transcription_data[clip_num] = transcription_info
                     if captioned_path and captioned_path != video_result:
-                        # Replace original with captioned version
-                        if os.path.exists(video_result):
-                            try:
-                                os.remove(video_result)
-                            except:
-                                pass
+                        # Keep raw file for asset saving, use captioned for final video
                         video_result = captioned_path
                 
                 clip_paths.append(video_result)
         
-        # Filter out None values
-        valid_clip_paths = [p for p in clip_paths if p]
+        # Filter out None values and build parallel clip numbers list
+        valid_clip_paths = []
+        valid_clip_numbers = []  # Track clip number for each path (for voiceover/duration lookup)
+        
+        # clip_paths is built by iterating through clip_data in order
+        # So clip_paths[i] corresponds to clip_data[i]
+        for i, clip_info in enumerate(clip_data):
+            clip_num = clip_info['clip_number']
+            # clip_paths[i] corresponds to clip_data[i], not clip_paths[clip_num]
+            if i < len(clip_paths) and clip_paths[i]:
+                valid_clip_paths.append(clip_paths[i])
+                valid_clip_numbers.append(clip_num)
         
         if not valid_clip_paths:
             raise ValueError("No clips were generated successfully")
@@ -5394,41 +8163,82 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
         
         music_groups = video_plan.get('music_groups', {})
         music_files = {}  # group_name -> file_path
+        custom_music_used = False  # Track if custom music was successfully loaded
         
-        # Use actual clip durations (adjusted for voiceover) for timing calculation
-        print(f"\n  Using actual clip durations (adjusted for voiceover):")
-        for clip_num, dur in actual_clip_durations.items():
-            print(f"    Clip {clip_num}: {dur:.2f}s")
-        
-        for group_name, group_info in music_groups.items():
-            group_clips = group_info.get('clips', [])
+        # Check if custom background music file was provided
+        if background_music:
+            print(f"\n  📁 Custom background music provided: {background_music}")
             
-            # Calculate duration from actual clip durations (adjusted for voiceover)
-            group_duration = sum(actual_clip_durations.get(c, 4) for c in group_clips)
-            
-            # Ensure max 20 seconds
-            group_duration = min(group_duration, 20)
-            
-            if group_duration > 0:
-                music_prompt = group_info.get('prompt', 
-                    f"{group_info.get('mood', 'tense')} {group_info.get('tempo', 'medium')} background music")
-                
-                print(f"\n  🎵 Music Group: {group_name}")
-                print(f"     Clips: {group_clips}")
-                print(f"     Duration: {group_duration:.1f}s (generating {int(group_duration)}s)")
-                print(f"     Prompt: {music_prompt[:80]}...")
-                
-                music_path = os.path.join(temp_dir, f"music_{group_name}.mp3")
-                result = generate_background_music(music_prompt, int(group_duration), music_path)
-                
-                if result:
-                    music_files[group_name] = {
-                        'path': result,
-                        'clips': group_clips,
-                        'duration': group_duration
+            if os.path.exists(background_music):
+                try:
+                    # Try to load the audio file to verify it's valid
+                    test_audio = AudioFileClip(background_music)
+                    custom_music_duration = test_audio.duration
+                    test_audio.close()
+                    
+                    print(f"     ✅ Music file loaded successfully (duration: {custom_music_duration:.1f}s)")
+                    print(f"     → Skipping ElevenLabs music generation")
+                    
+                    # Use custom music as Music_A (will be looped in stitch function)
+                    # Get all clips for Music_A (or all clips if no groups defined)
+                    all_clips = list(range(len(clips)))
+                    total_video_duration = sum(actual_clip_durations.get(c, 4) for c in all_clips)
+                    
+                    music_files['Music_A'] = {
+                        'path': background_music,
+                        'clips': all_clips,
+                        'duration': custom_music_duration,
+                        'is_custom': True  # Mark as custom music
                     }
+                    custom_music_used = True
+                    print(f"     → Custom music assigned to Music_A (video duration: {total_video_duration:.1f}s)")
+                    
+                except Exception as e:
+                    print(f"     ❌ Failed to load music file: {e}")
+                    print(f"     → Falling back to ElevenLabs music generation")
+            else:
+                print(f"     ❌ Music file not found: {background_music}")
+                print(f"     → Falling back to ElevenLabs music generation")
         
-        print(f"\n  ✅ Generated {len(music_files)} music tracks")
+        # Generate music via ElevenLabs only if custom music was not used
+        if not custom_music_used:
+            # Use actual clip durations (adjusted for voiceover) for timing calculation
+            print(f"\n  Using actual clip durations (adjusted for voiceover):")
+            for clip_num, dur in actual_clip_durations.items():
+                print(f"    Clip {clip_num}: {dur:.2f}s")
+            
+            for group_name, group_info in music_groups.items():
+                group_clips = group_info.get('clips', [])
+                
+                # Calculate duration from actual clip durations (adjusted for voiceover)
+                group_duration = sum(actual_clip_durations.get(c, 4) for c in group_clips)
+                
+                # Ensure max 20 seconds
+                group_duration = min(group_duration, 20)
+                
+                if group_duration > 0:
+                    music_prompt = group_info.get('prompt', 
+                        f"{group_info.get('mood', 'tense')} {group_info.get('tempo', 'medium')} background music")
+                    
+                    print(f"\n  🎵 Music Group: {group_name}")
+                    print(f"     Clips: {group_clips}")
+                    print(f"     Duration: {group_duration:.1f}s (generating {int(group_duration)}s)")
+                    print(f"     Prompt: {music_prompt[:80]}...")
+                    
+                    music_path = os.path.join(temp_dir, f"music_{group_name}.mp3")
+                    result = generate_background_music(music_prompt, int(group_duration), music_path)
+                    
+                    if result:
+                        music_files[group_name] = {
+                            'path': result,
+                            'clips': group_clips,
+                            'duration': group_duration
+                        }
+        
+        if custom_music_used:
+            print(f"\n  ✅ Using custom background music")
+        else:
+            print(f"\n  ✅ Generated {len(music_files)} music tracks")
         
         # Build clip-to-music mapping (needed for asset saving)
         clip_music_mapping = {}  # clip_number -> music_group_name
@@ -5455,9 +8265,11 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
         # Create clip number to clip_data mapping
         clip_data_map = {info['clip_number']: info for info in clip_data}
         
-        # Save raw assets (voiceover files, music files)
+        # Save raw assets (voiceover files, music files, images, video clips, metadata)
         raw_assets_dir = os.path.join(assets_dir, "raw_assets")
         os.makedirs(raw_assets_dir, exist_ok=True)
+        
+        import shutil
         
         # Save voiceover files
         print(f"\n  Saving raw voiceover files...")
@@ -5465,7 +8277,6 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
             if not vo_info.get('embedded', False):
                 vo_path = vo_info.get('path')
                 if vo_path and os.path.exists(vo_path):
-                    import shutil
                     dest_path = os.path.join(raw_assets_dir, f"voiceover_clip_{clip_num}.mp3")
                     shutil.copy2(vo_path, dest_path)
                     print(f"    ✅ Saved: voiceover_clip_{clip_num}.mp3")
@@ -5475,7 +8286,6 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
         for group_name, music_info in music_files.items():
             music_path = music_info.get('path')
             if music_path and os.path.exists(music_path):
-                import shutil
                 dest_path = os.path.join(raw_assets_dir, f"music_{group_name}.mp3")
                 shutil.copy2(music_path, dest_path)
                 print(f"    ✅ Saved: music_{group_name}.mp3")
@@ -5488,6 +8298,223 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
                         'duration': music_info.get('duration', 0)
                     }, f, indent=2)
                 print(f"    ✅ Saved: music_{group_name}_info.json")
+        
+        # Save raw video clips (WITHOUT captions - these are the pre-caption video files)
+        print(f"\n  Saving raw video clips (without captions)...")
+        raw_video_dir = os.path.join(raw_assets_dir, "videos")
+        os.makedirs(raw_video_dir, exist_ok=True)
+        for clip_num, raw_path in raw_clip_paths.items():
+            if raw_path and os.path.exists(raw_path):
+                dest_path = os.path.join(raw_video_dir, f"clip_{clip_num}_raw.mp4")
+                shutil.copy2(raw_path, dest_path)
+                print(f"    ✅ Saved: videos/clip_{clip_num}_raw.mp4 (no captions)")
+        
+        # Note: images are saved later with more specific naming based on clip_data
+        
+        # Save master metadata (all clip information for regeneration)
+        print(f"\n  Saving master metadata...")
+        master_metadata = {
+            'generation_params': {
+                'language_code': language_code,
+                'language_name': SUPPORTED_LANGUAGES.get(language_code, "Unknown"),
+                'influencer_mode': influencer_mode,
+                'influencer_gender': influencer_gender,
+                'ai_video_model': ai_video_model,
+                'audio_model': audio_model,
+                'voice_id': voice_id,
+                'speed': speed,
+                'captions': captions,
+                'transliterate': transliterate,
+                'voiceover_emotions': voiceover_emotions,
+                'image_group_proportion': image_group_proportion,
+                'desired_duration': desired_duration,
+                'user_instruction': user_instruction
+            },
+            'clip_count': len(valid_clip_paths),
+            'total_duration': sum(actual_clip_durations.values()),
+            'clips': [],
+            'voiceover_files': {},
+            'music_files': {},
+            'clip_music_mapping': clip_music_mapping
+        }
+        
+        # Add comprehensive clip data (everything needed for regeneration)
+        for clip_num, clip_info in enumerate(clip_data):
+            clip_metadata = {
+                'clip_number': clip_num,
+                'clip_type': clip_info.get('clip_type', 'IMAGE_ONLY'),
+                'duration': actual_clip_durations.get(clip_num, 4),
+                'planned_duration': clip_info.get('estimated_duration_seconds', 4),
+                'is_influencer_clip': clip_info.get('is_influencer_clip', False),
+                'prompt': clip_info.get('prompt', ''),
+                'starting_image_prompt': clip_info.get('starting_image_prompt', ''),
+                'voiceover_text': clip_info.get('voiceover', ''),
+                'effect_hint': clip_info.get('effect_hint', ''),
+                'hook_type': clip_info.get('hook_type', ''),
+                'music_prompt': clip_info.get('music_prompt', ''),
+                'text_overlay': clip_info.get('text_overlay', ''),
+                # Image group data
+                'has_image_group': 'image_group' in clip_info,
+                'image_group': clip_info.get('image_group', []),
+                # Failover data for AI_VIDEO clips
+                'failover_image_prompt': clip_info.get('failover_image_prompt', ''),
+                'failover_effect_hint': clip_info.get('failover_effect_hint', ''),
+                # Raw file references
+                'raw_video_path': f"videos/clip_{clip_num}_raw.mp4",
+                'raw_image_path': f"images/clip_{clip_num}.png" if clip_info.get('clip_type') != 'AI_VIDEO' else f"images/clip_{clip_num}_start.png"
+            }
+            master_metadata['clips'].append(clip_metadata)
+        
+        # Add voiceover file info with durations
+        for clip_num, vo_info in voiceover_files.items():
+            master_metadata['voiceover_files'][str(clip_num)] = {
+                'embedded': vo_info.get('embedded', False),
+                'duration': vo_info.get('duration', 0),
+                'path': f"voiceover_clip_{clip_num}.mp3" if not vo_info.get('embedded', False) else None
+            }
+        
+        # Add music file info (including whether it's custom or generated)
+        for group_name, music_info in music_files.items():
+            master_metadata['music_files'][group_name] = {
+                'clips': music_info.get('clips', []),
+                'duration': music_info.get('duration', 0),
+                'path': f"music_{group_name}.mp3",
+                'is_custom': music_info.get('is_custom', False),
+                'original_path': music_info.get('path') if music_info.get('is_custom') else None
+            }
+        
+        master_metadata_path = os.path.join(raw_assets_dir, "master_metadata.json")
+        with open(master_metadata_path, 'w') as f:
+            json.dump(master_metadata, f, indent=2)
+        print(f"    ✅ Saved: master_metadata.json")
+        
+        # Save effect analysis results (Grok's effect recommendations and actual applied effects)
+        print(f"\n  Saving effect analysis...")
+        effect_analysis_data = {}
+        for clip_num, clip_info in enumerate(clip_data):
+            # Get effects that were actually applied to this clip
+            applied = clip_effects.get(clip_num, []) if clip_effects else []
+            # Convert effect objects to serializable dicts if needed
+            serializable_effects = []
+            for eff in applied:
+                if isinstance(eff, dict):
+                    serializable_effects.append(eff)
+                else:
+                    serializable_effects.append(str(eff))
+            
+            effect_analysis_data[str(clip_num)] = {
+                'effect_hint': clip_info.get('effect_hint', ''),
+                'applied_effects': serializable_effects
+            }
+        effect_analysis_path = os.path.join(raw_assets_dir, "effect_analysis.json")
+        with open(effect_analysis_path, 'w') as f:
+            json.dump(effect_analysis_data, f, indent=2)
+        print(f"    ✅ Saved: effect_analysis.json")
+        
+        # Save original Grok video plan (for complete regeneration capability)
+        print(f"\n  Saving Grok video plan...")
+        video_plan_data = {
+            'clips': []
+        }
+        for clip_info in clip_data:
+            # Include all original Grok-generated data for each clip
+            video_plan_data['clips'].append({
+                'clip_number': clip_info.get('clip_number', 0),
+                'clip_type': clip_info.get('clip_type', 'IMAGE_ONLY'),
+                'estimated_duration_seconds': clip_info.get('estimated_duration_seconds', 4),
+                'voiceover': clip_info.get('voiceover', ''),
+                'prompt': clip_info.get('prompt', ''),
+                'starting_image_prompt': clip_info.get('starting_image_prompt', ''),
+                'effect_hint': clip_info.get('effect_hint', ''),
+                'hook_type': clip_info.get('hook_type', ''),
+                'music_prompt': clip_info.get('music_prompt', ''),
+                'music_group': clip_info.get('music_group', 'Music_A'),
+                'text_overlay': clip_info.get('text_overlay', ''),
+                'image_group': clip_info.get('image_group', []),
+                'failover_image_prompt': clip_info.get('failover_image_prompt', ''),
+                'failover_effect_hint': clip_info.get('failover_effect_hint', ''),
+                'is_influencer_clip': clip_info.get('is_influencer_clip', False)
+            })
+        video_plan_path = os.path.join(raw_assets_dir, "video_plan.json")
+        with open(video_plan_path, 'w') as f:
+            json.dump(video_plan_data, f, indent=2)
+        print(f"    ✅ Saved: video_plan.json")
+        
+        # Save input context text (for reference and potential re-generation)
+        print(f"\n  Saving input context...")
+        context_path = os.path.join(raw_assets_dir, "input_context.txt")
+        with open(context_path, 'w') as f:
+            f.write(context_text)
+        print(f"    ✅ Saved: input_context.txt ({len(context_text)} chars)")
+        
+        # Save transcription data (word-level timestamps for caption regeneration)
+        print(f"\n  Saving transcription data...")
+        if all_transcription_data:
+            transcription_path = os.path.join(raw_assets_dir, "transcriptions.json")
+            with open(transcription_path, 'w') as f:
+                # Convert int keys to string for JSON serialization
+                serializable_transcriptions = {str(k): v for k, v in all_transcription_data.items()}
+                json.dump(serializable_transcriptions, f, indent=2)
+            print(f"    ✅ Saved: transcriptions.json ({len(all_transcription_data)} clips)")
+        else:
+            print(f"    ℹ️ No transcription data to save (captions may not have been applied)")
+        
+        # Save raw images (original generated images before video processing)
+        print(f"\n  Saving raw images...")
+        images_dir = os.path.join(raw_assets_dir, "images")
+        os.makedirs(images_dir, exist_ok=True)
+        for clip_info in clip_data:
+            clip_num = clip_info['clip_number']
+            clip_type = clip_info.get('clip_type', 'IMAGE_ONLY')
+            
+            # Save main image
+            image_path = clip_info.get('image_path')
+            if image_path and os.path.exists(image_path):
+                if clip_type == "AI_VIDEO":
+                    dest_name = f"clip_{clip_num}_start.png"
+                else:
+                    dest_name = f"clip_{clip_num}.png"
+                dest_path = os.path.join(images_dir, dest_name)
+                import shutil
+                shutil.copy2(image_path, dest_path)
+                print(f"    ✅ Saved: images/{dest_name}")
+            
+            # Save image group images
+            image_group_paths = clip_info.get('image_group_paths', [])
+            for idx, img_path in enumerate(image_group_paths):
+                if img_path and os.path.exists(img_path):
+                    dest_name = f"clip_{clip_num}_group_{idx}.png"
+                    dest_path = os.path.join(images_dir, dest_name)
+                    import shutil
+                    shutil.copy2(img_path, dest_path)
+                    print(f"    ✅ Saved: images/{dest_name}")
+        
+        # Save voiceover files
+        print(f"\n  Saving voiceover files...")
+        voiceovers_dir = os.path.join(raw_assets_dir, "voiceovers")
+        os.makedirs(voiceovers_dir, exist_ok=True)
+        for clip_num, vo_info in voiceover_files.items():
+            if not vo_info.get('embedded', False):
+                vo_path = vo_info.get('path')
+                if vo_path and os.path.exists(vo_path):
+                    dest_name = f"voiceover_clip_{clip_num}.mp3"
+                    dest_path = os.path.join(voiceovers_dir, dest_name)
+                    import shutil
+                    shutil.copy2(vo_path, dest_path)
+                    print(f"    ✅ Saved: voiceovers/{dest_name}")
+        
+        # Save music files
+        print(f"\n  Saving music files...")
+        music_dir = os.path.join(raw_assets_dir, "music")
+        os.makedirs(music_dir, exist_ok=True)
+        for group_name, music_info in music_files.items():
+            music_path = music_info.get('path')
+            if music_path and os.path.exists(music_path):
+                dest_name = f"music_{group_name}.mp3"
+                dest_path = os.path.join(music_dir, dest_name)
+                import shutil
+                shutil.copy2(music_path, dest_path)
+                print(f"    ✅ Saved: music/{dest_name}")
         
         # Save each clip as a complete asset (video + voiceover + music)
         print(f"\n  Saving complete clip assets...")
@@ -5515,6 +8542,14 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
                 if video_clip.duration > clip_duration:
                     video_clip = video_clip.subclip(0, clip_duration)
                 
+                # CRITICAL: Strip any existing audio from video clip FIRST
+                # We'll add all audio back via CompositeAudioClip
+                video_clip = video_clip.set_audio(None)
+                
+                # Use the actual video duration as the authoritative duration for all audio
+                final_clip_duration = video_clip.duration
+                AUDIO_BUFFER = 0.04  # 40ms buffer to prevent boundary artifacts
+                
                 audio_clips = []
                 
                 # Add voiceover (if not embedded)
@@ -5524,66 +8559,116 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
                         voiceover = AudioFileClip(vo_path)
                         # For IMAGE_ONLY clips, don't trim - use full voiceover
                         # Clip should already be extended to match voiceover
-                        if voiceover.duration > clip_duration:
+                        if voiceover.duration > final_clip_duration:
                             # Use voiceover duration as authoritative for IMAGE_ONLY clips
                             if clip_type in ["IMAGE_ONLY", "SILENT_IMAGE"]:
-                                clip_duration = voiceover.duration
-                                if video_clip.duration < clip_duration:
+                                final_clip_duration = voiceover.duration
+                                if video_clip.duration < final_clip_duration:
                                     # Extend video by looping if needed
-                                    loops_needed = int(clip_duration / video_clip.duration) + 1
+                                    loops_needed = int(final_clip_duration / video_clip.duration) + 1
                                     video_parts = [video_clip] * loops_needed
                                     video_clip = concatenate_videoclips(video_parts)
-                                    video_clip = video_clip.subclip(0, clip_duration)
-                            else:
-                                voiceover = voiceover.subclip(0, clip_duration)
+                                    video_clip = video_clip.subclip(0, final_clip_duration)
+                        
+                        # CRITICAL: Trim voiceover with 40ms buffer to prevent boundary artifacts
+                        target_vo_duration = min(voiceover.duration, final_clip_duration) - AUDIO_BUFFER
+                        target_vo_duration = max(target_vo_duration, 0.1)  # Minimum 100ms
+                        if voiceover.duration > target_vo_duration:
+                            voiceover = voiceover.subclip(0, target_vo_duration)
+                        
                         voiceover = voiceover.volumex(1.0)
+                        # Apply fade in/out to prevent clicks/pops at clip boundaries
+                        fade_duration = min(0.05, voiceover.duration * 0.05)
+                        voiceover = voiceover.audio_fadein(fade_duration).audio_fadeout(fade_duration)
                         audio_clips.append(voiceover)
                 
                 # Add embedded audio (for influencer clips)
+                original_video_for_audio = None  # Keep reference to avoid closing before write
                 if clip_num in voiceover_files and voiceover_files[clip_num].get('embedded', False):
-                    if video_clip.audio is not None:
-                        embedded_audio = video_clip.audio
-                        if embedded_audio.duration > clip_duration:
-                            embedded_audio = embedded_audio.subclip(0, clip_duration)
+                    # Re-load the original video to get its audio (since we stripped it above)
+                    original_video_for_audio = VideoFileClip(clip_path)
+                    if original_video_for_audio.audio is not None:
+                        embedded_audio = original_video_for_audio.audio
+                        
+                        # CRITICAL: Trim embedded audio with 40ms buffer to prevent boundary artifacts
+                        target_audio_duration = min(embedded_audio.duration, final_clip_duration) - AUDIO_BUFFER
+                        target_audio_duration = max(target_audio_duration, 0.1)  # Minimum 100ms
+                        if embedded_audio.duration > target_audio_duration:
+                            embedded_audio = embedded_audio.subclip(0, target_audio_duration)
+                        
                         embedded_audio = embedded_audio.volumex(1.0)
+                        # Apply fade in/out to prevent clicks/pops at clip boundaries
+                        fade_duration = min(0.05, embedded_audio.duration * 0.05)
+                        embedded_audio = embedded_audio.audio_fadein(fade_duration).audio_fadeout(fade_duration)
                         audio_clips.append(embedded_audio)
+                    # NOTE: Don't close original_video_for_audio here - audio reader needs it open
                 
-                # Add background music (portion for this clip from music group)
-                music_group = clip_music_mapping.get(clip_num)
-                if music_group and music_group in music_files:
-                    music_info = music_files[music_group]
+                # Add background music (use ONLY first music group, looped)
+                # Get the first music group (sorted alphabetically, so Music_A comes first)
+                sorted_music_groups = sorted(music_files.keys())
+                if sorted_music_groups:
+                    first_group_name = sorted_music_groups[0]
+                    music_info = music_files[first_group_name]
                     music_path = music_info.get('path')
-                    group_clips = music_info.get('clips', [])
                     
-                    if music_path and os.path.exists(music_path) and clip_num in group_clips:
+                    if music_path and os.path.exists(music_path):
                         music = AudioFileClip(music_path)
                         
-                        # Calculate start position in music for this clip
-                        clip_index_in_group = group_clips.index(clip_num)
-                        music_start = sum(actual_clip_durations.get(c, 4) for c in group_clips[:clip_index_in_group])
+                        # Apply fade to original music BEFORE looping
+                        music_fade = min(0.05, music.duration * 0.02)  # 50ms or 2% of duration
+                        music = music.audio_fadein(music_fade).audio_fadeout(music_fade)
+                        
+                        # Calculate start position in music based on cumulative duration of previous clips
+                        # This ensures music continues seamlessly when clips are played in sequence
+                        clips_before = [c for c in actual_clip_durations.keys() if c < clip_num]
+                        music_start = sum(actual_clip_durations.get(c, 4) for c in clips_before)
+                        
+                        # Loop music if needed to reach this position + clip duration
+                        music_end = music_start + final_clip_duration
+                        if music_end > music.duration:
+                            loops_needed = int(music_end / music.duration) + 1
+                            music_parts = [music] * loops_needed
+                            music = concatenate_audioclips(music_parts)
                         
                         # Extract this clip's portion of music
-                        music_end = music_start + clip_duration
-                        if music_start < music.duration:
-                            if music_end > music.duration:
-                                # Need to loop music
-                                loops_needed = int(music_end / music.duration) + 1
-                                music_parts = [music] * loops_needed
-                                music = concatenate_audioclips(music_parts)
-                            music = music.subclip(music_start, min(music_end, music.duration))
-                            music = music.volumex(0.143)  # Lower volume for background (7:1 ratio with voiceover at 1.0)
-                            audio_clips.append(music)
+                        music = music.subclip(music_start % music.duration if music.duration > 0 else 0, 
+                                             min((music_start % music.duration if music.duration > 0 else 0) + final_clip_duration, music.duration))
+                        if music.duration < final_clip_duration:
+                            # If extracted portion is shorter than clip, loop it
+                            loops = int(final_clip_duration / music.duration) + 1
+                            music_parts = [music] * loops
+                            music = concatenate_audioclips(music_parts)
+                        
+                        # CRITICAL: Trim music to EXACT video duration to prevent overflow
+                        music = music.subclip(0, final_clip_duration)
+                        
+                        # Apply fade to this clip's music portion
+                        clip_music_fade = min(0.03, music.duration * 0.05)  # 30ms or 5%
+                        music = music.audio_fadein(clip_music_fade).audio_fadeout(clip_music_fade)
+                        
+                        music = music.volumex(0.07)  # Background music at 7% volume
+                        audio_clips.append(music)
                 
                 # Combine audio
                 if audio_clips:
-                    if len(audio_clips) > 1:
-                        final_audio = CompositeAudioClip(audio_clips)
+                    # CRITICAL: Ensure all audio clips are trimmed to exact video duration
+                    trimmed_audio_clips = []
+                    for ac in audio_clips:
+                        if ac.duration > final_clip_duration:
+                            ac = ac.subclip(0, final_clip_duration)
+                        trimmed_audio_clips.append(ac)
+                    
+                    if len(trimmed_audio_clips) > 1:
+                        final_audio = CompositeAudioClip(trimmed_audio_clips)
                     else:
-                        final_audio = audio_clips[0]
+                        final_audio = trimmed_audio_clips[0]
+                    
+                    # Final safety: trim composite audio to video duration
+                    if final_audio.duration > final_clip_duration:
+                        final_audio = final_audio.subclip(0, final_clip_duration)
+                    
                     video_clip = video_clip.set_audio(final_audio)
-                else:
-                    # No audio, remove existing audio
-                    video_clip = video_clip.set_audio(None)
+                # Video already has audio stripped, no need for else clause
                 
                 # Write asset
                 video_clip.write_videofile(
@@ -5599,16 +8684,21 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
                 for audio in audio_clips:
                     if hasattr(audio, 'close'):
                         audio.close()
+                # Close the original video used for embedded audio extraction
+                if original_video_for_audio is not None:
+                    original_video_for_audio.close()
                 
                 # Save clip metadata
                 metadata_path = os.path.join(clip_folder, f"clip_{clip_num}_metadata.json")
+                # Get music group - we now use only the first music group for all clips
+                clip_music_group = sorted_music_groups[0] if sorted_music_groups else None
                 with open(metadata_path, 'w') as f:
                     json.dump({
                         'clip_number': clip_num,
                         'clip_type': clip_type,
                         'is_influencer_clip': is_influencer_clip,
                         'duration': clip_duration,
-                        'music_group': music_group,
+                        'music_group': clip_music_group,
                         'has_voiceover': clip_num in voiceover_files,
                         'voiceover_embedded': voiceover_files.get(clip_num, {}).get('embedded', False) if clip_num in voiceover_files else False
                     }, f, indent=2)
@@ -5622,8 +8712,144 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
         
         print(f"\n  ✅ Saved {len([c for c in valid_clip_paths if c])} clip assets to {assets_dir}")
         print(f"  📁 Assets structure:")
-        print(f"     - {assets_dir}/raw_assets/ (voiceover files, music files, music group info)")
+        print(f"     - {assets_dir}/raw_assets/")
+        print(f"       - voiceover_clip_*.mp3 (voiceover audio files)")
+        print(f"       - music_*.mp3 (background music files)")
+        print(f"       - videos/clip_*_raw.mp4 (raw video clips)")
+        print(f"       - images/clip_*.png (generated images)")
+        print(f"       - video_plan.json (Grok-generated video plan)")
+        print(f"       - master_metadata.json (all clip info for regeneration)")
         print(f"     - {assets_dir}/clip_*/ (complete clip assets with video + audio)")
+        
+        # Step 6.5: Generate research clips if enabled
+        research_clips_to_insert = []  # List of (insert_after_clip, video_path, voiceover_path, duration)
+        
+        if include_research:
+            print(f"\n{'='*60}")
+            print(f"📰 STEP 6.5: RESEARCH CLIP GENERATION")
+            print(f"{'='*60}")
+            
+            research_items = video_plan.get('research_integration', [])
+            valid_research_items = [r for r in research_items if r.get('claim_used') and r.get('voiceover') and r.get('insert_after_clip') is not None]
+            
+            if valid_research_items:
+                print(f"  Found {len(valid_research_items)} research clips to generate")
+                
+                for i, research_item in enumerate(valid_research_items[:2]):  # Max 2 research clips
+                    claim = research_item.get('claim_used', '')
+                    voiceover = research_item.get('voiceover', '')
+                    insert_after = research_item.get('insert_after_clip', 0)
+                    
+                    print(f"\n  📰 Research Clip {i+1}:")
+                    print(f"     Claim: {claim[:50]}...")
+                    print(f"     Insert after Clip: {insert_after}")
+                    
+                    video_path, vo_path, duration = generate_research_clip(
+                        claim_text=claim,
+                        voiceover_text=voiceover,
+                        output_path=os.path.join(temp_dir, f"research_clip_{i}.mp4"),
+                        temp_dir=temp_dir,
+                        research_type=research_type,
+                        highlight_color=highlight_color,
+                        language_code=language_code,
+                        voice_id=voice_id,
+                        speed=speed,
+                        audio_model=audio_model,
+                        elevenlabs_direct=elevenlabs_direct
+                    )
+                    
+                    if video_path:
+                        research_clips_to_insert.append({
+                            'insert_after_clip': insert_after,
+                            'video_path': video_path,
+                            'voiceover_path': vo_path,
+                            'duration': duration,
+                            'claim': claim,
+                            'voiceover_text': voiceover
+                        })
+                        print(f"     ✅ Research clip {i+1} generated successfully")
+                    else:
+                        print(f"     ⚠️ Failed to generate research clip {i+1}")
+                
+                print(f"\n  ✅ Generated {len(research_clips_to_insert)} research clips")
+                
+                # Save research clips to raw assets
+                research_assets_dir = os.path.join(raw_assets_dir, "research_clips")
+                os.makedirs(research_assets_dir, exist_ok=True)
+                print(f"\n  Saving research clips to raw assets...")
+                
+                for i, research_clip in enumerate(research_clips_to_insert):
+                    insert_after = research_clip['insert_after_clip']
+                    
+                    # Save research video
+                    if research_clip['video_path'] and os.path.exists(research_clip['video_path']):
+                        dest_video = os.path.join(research_assets_dir, f"research_after_clip_{insert_after}.mp4")
+                        shutil.copy2(research_clip['video_path'], dest_video)
+                        print(f"    ✅ Saved: research_clips/research_after_clip_{insert_after}.mp4")
+                    
+                    # Save research voiceover
+                    if research_clip['voiceover_path'] and os.path.exists(research_clip['voiceover_path']):
+                        dest_vo = os.path.join(research_assets_dir, f"research_vo_after_clip_{insert_after}.mp3")
+                        shutil.copy2(research_clip['voiceover_path'], dest_vo)
+                        print(f"    ✅ Saved: research_clips/research_vo_after_clip_{insert_after}.mp3")
+                    
+                    # Save research metadata
+                    metadata = {
+                        'insert_after_clip': insert_after,
+                        'claim': research_clip.get('claim', ''),
+                        'voiceover_text': research_clip.get('voiceover_text', ''),
+                        'duration': research_clip.get('duration', 2.0)
+                    }
+                    metadata_path = os.path.join(research_assets_dir, f"research_after_clip_{insert_after}_info.json")
+                    with open(metadata_path, 'w') as f:
+                        json.dump(metadata, f, indent=2)
+                    print(f"    ✅ Saved: research_clips/research_after_clip_{insert_after}_info.json")
+            else:
+                print(f"  ⚠️ No valid research items found in video plan")
+                print(f"     research_integration array may be empty or missing required fields")
+                print(f"     Required: claim_used, voiceover, insert_after_clip")
+        
+        # Insert research clips into the clip lists (sorted by insert position)
+        if research_clips_to_insert:
+            # Sort by insert_after_clip in reverse order to maintain correct positions
+            research_clips_to_insert.sort(key=lambda x: x['insert_after_clip'], reverse=True)
+            
+            for research_clip in research_clips_to_insert:
+                # Find the position to insert AFTER the specified clip
+                # We need to find where the specified clip is in valid_clip_numbers
+                insert_after_clip_num = research_clip['insert_after_clip']
+                
+                # Find the index of the clip we want to insert after
+                try:
+                    idx_of_target = valid_clip_numbers.index(insert_after_clip_num)
+                    insert_idx = idx_of_target + 1
+                except ValueError:
+                    # Clip not found, insert at the end
+                    print(f"  ⚠️ Clip {insert_after_clip_num} not found in valid clips, skipping research clip")
+                    continue
+                
+                # Create a unique clip number for the research clip
+                research_clip_num = 1000 + insert_after_clip_num
+                
+                # Insert video path and clip number at the correct position
+                valid_clip_paths.insert(insert_idx, research_clip['video_path'])
+                valid_clip_numbers.insert(insert_idx, research_clip_num)
+                
+                # Insert voiceover file info
+                if research_clip['voiceover_path']:
+                    voiceover_files[research_clip_num] = {
+                        'path': research_clip['voiceover_path'],
+                        'duration': research_clip['duration']
+                    }
+                
+                # Update actual durations (research clips use their voiceover duration)
+                actual_clip_durations[research_clip_num] = research_clip['duration']
+                
+                # Assign to first music group
+                first_music_group = list(clip_music_mapping.values())[0] if clip_music_mapping else 'Music_A'
+                clip_music_mapping[research_clip_num] = first_music_group
+                
+                print(f"  📍 Inserted research clip after Clip {insert_after_clip_num} (at index {insert_idx})")
         
         # Step 7: Stitch everything together with segmented music
         print(f"\n{'='*60}")
@@ -5632,6 +8858,7 @@ def generate_political_video(input_file: str, output_path: str, language_code: s
         
         final_video = stitch_video_clips_with_music_groups(
             clip_paths=valid_clip_paths,
+            clip_numbers=valid_clip_numbers,  # Clip numbers corresponding to each path
             clip_durations=actual_clip_durations,  # Use actual durations (adjusted for voiceover)
             voiceover_files=voiceover_files,  # Per-clip voiceover files
             music_files=music_files,
@@ -5793,9 +9020,80 @@ All environment variables are loaded from python-ai-backend/.env:
     
     parser.add_argument(
         "--ai-video-model",
-        choices=["veo3.1", "seedance1.5"],
+        choices=["veo3.1", "seedance1.5", "omnihuman1.5"],
         default="veo3.1",
-        help="AI video model to use for influencer clips. Options: veo3.1 (default), seedance1.5 (ByteDance Seedance v1.5 Pro). Only applies when --influencer is enabled."
+        help="AI video model to use for influencer clips. Options: veo3.1 (default), seedance1.5 (ByteDance Seedance v1.5 Pro), omnihuman1.5 (ByteDance OmniHuman 1.5 - requires pre-generated voiceover). Only applies when --influencer is enabled."
+    )
+    
+    parser.add_argument(
+        "--speed", "-s",
+        type=float,
+        default=1.0,
+        help="Voice speed multiplier for ElevenLabs TTS (default: 1.0, range: 0.5-2.0). E.g., 1.2 for 20%% faster speech. Applies to all clips."
+    )
+    
+    parser.add_argument(
+        "--image-group-proportion",
+        type=float,
+        default=None,
+        help="OPTIONAL: Proportion of IMAGE_ONLY clips that should use image groups (multiple visuals per clip) for dynamic, fast-paced feel. Range: 0.0-1.0. If NOT provided, all image clips will have single visuals (traditional mode). E.g., --image-group-proportion 0.5 means 50%% of image clips will have 2-3 visuals transitioning rapidly."
+    )
+    
+    parser.add_argument(
+        "--voiceover-emotions",
+        action="store_true",
+        default=False,
+        help="OPTIONAL: Enable emotional expressions in voiceover text (square bracket expressions like [shocked], [pause], [excited]). If NOT provided, voiceovers will be plain text without emotional markers. When enabled, ElevenLabs TTS will use these expressions to make voice delivery more natural and human-like."
+    )
+    
+    parser.add_argument(
+        "--audio-model",
+        choices=["v3", "v2", "turbo"],
+        default="v3",
+        help="ElevenLabs TTS model to use for voiceover generation. Options: v3 (eleven-v3, default) - supports language codes and timestamps, v2 (multilingual-v2) - multilingual support, turbo (turbo-v2.5) - fastest generation. E.g., --audio-model turbo for turbo v2.5 model."
+    )
+    
+    parser.add_argument(
+        "--reference-image", "-r",
+        type=str,
+        default=None,
+        help="OPTIONAL: Path to reference influencer image for character consistency in AI influencer clips. When provided, ALL influencer clips will use nano-banana-pro/edit model with this reference image, ensuring the same influencer appears in all AI video clips. The reference image should be a clear, high-quality portrait of the influencer. Grok will use 'reference influencer' terminology in prompts. E.g., --reference-image influencer.png"
+    )
+    
+    parser.add_argument(
+        "--music", "-m",
+        type=str,
+        default=None,
+        help="OPTIONAL: Path to custom background music file (MP3, WAV, etc.). When provided, this music will be used instead of generating music via ElevenLabs. The music will be looped if shorter than video duration and volume will be reduced to not overpower voiceover. If file is not found or cannot be loaded, falls back to ElevenLabs generated music. E.g., --music background.mp3"
+    )
+    
+    parser.add_argument(
+        "--elevenlabs-direct",
+        action="store_true",
+        default=False,
+        help="OPTIONAL: Call ElevenLabs API directly instead of via FAL. This allows using custom voices that are only available to authenticated ElevenLabs accounts. Requires ELEVENLABS_API_KEY to be set in python-ai-backend/.env. When enabled, --voiceid can be any custom voice ID from your ElevenLabs account."
+    )
+    
+    parser.add_argument(
+        "--research",
+        action="store_true",
+        default=False,
+        help="OPTIONAL: Include research clips in the video. When enabled, Grok will suggest 1-2 claims that can be searched for and displayed as mini-clips showing actual news/blog/report screenshots with highlighted quotes. These clips add credibility to your video content."
+    )
+    
+    parser.add_argument(
+        "--research-type",
+        type=str,
+        choices=["news", "blog", "report", "twitter"],
+        default="news",
+        help="OPTIONAL: Type of research sources to search for. Options: news (default), blog, report, twitter. Used with --research flag to determine where to search for supporting evidence."
+    )
+    
+    parser.add_argument(
+        "--highlight-color",
+        type=str,
+        default="black",
+        help="OPTIONAL: Highlight color for research clips. Default: black. Options: black, yellow, orange, pink, neongreen, neonpink, or any hex color like #FF6B6B. This color is used to highlight the key quote in article screenshots."
     )
     
     args = parser.parse_args()
@@ -5831,9 +9129,63 @@ All environment variables are loaded from python-ai-backend/.env:
         sys.exit(1)
     
     print(f"🌐 Language: {SUPPORTED_LANGUAGES[args.language]} ({args.language})")
+    if args.speed != 1.0:
+        print(f"⚡ Voice Speed: {args.speed}x")
+    # Image group proportion (optional - only enabled when explicitly provided)
+    if args.image_group_proportion is not None and args.image_group_proportion > 0:
+        image_group_pct = int(args.image_group_proportion * 100)
+        print(f"📦 Image Groups: ENABLED ({image_group_pct}% of IMAGE_ONLY clips will have 2-3 visuals)")
+    else:
+        print(f"📦 Image Groups: DISABLED (all clips will have single visuals)")
+    
+    # Voiceover emotions (optional - only enabled when explicitly provided)
+    if args.voiceover_emotions:
+        print(f"🎭 Voiceover Emotions: ENABLED (square bracket expressions will be added)")
+    else:
+        print(f"🎭 Voiceover Emotions: DISABLED (plain text voiceovers)")
+    
+    # Audio model for voiceover
+    audio_model_names = {"v3": "Eleven v3", "v2": "Multilingual v2", "turbo": "Turbo v2.5"}
+    audio_model_display = audio_model_names.get(args.audio_model, "Eleven v3")
+    print(f"🎙️ Audio Model: {audio_model_display} ({args.audio_model})")
+    
+    # ElevenLabs direct API mode (for custom voices)
+    if args.elevenlabs_direct:
+        if not elevenlabs_api_key:
+            print(f"❌ Error: --elevenlabs-direct requires ELEVENLABS_API_KEY in python-ai-backend/.env")
+            sys.exit(1)
+        print(f"🔑 ElevenLabs: DIRECT API (custom voices supported)")
+    else:
+        print(f"🔑 ElevenLabs: via FAL")
+    
+    # Research clips integration
+    if args.research:
+        research_type_display = {"news": "News Articles", "blog": "Blog Posts", "report": "Industry Reports", "twitter": "Twitter/X"}.get(args.research_type, "News")
+        print(f"📰 Research Clips: ENABLED (source: {research_type_display})")
+        print(f"   Highlight Color: {args.highlight_color}")
+    else:
+        print(f"📰 Research Clips: Disabled")
+    
     if args.influencer:
-        print(f"👤 Influencer Mode: ENABLED (3 AI clips: 8s + 6s + 6s = 20 seconds total)")
+        print(f"👤 Influencer Mode: ENABLED (~30% AI influencer clips)")
         print(f"   Gender: {args.gender}")
+        print(f"   AI Model: {args.ai_video_model}")
+        if args.reference_image:
+            if not os.path.exists(args.reference_image):
+                print(f"❌ Error: Reference image not found: {args.reference_image}")
+                sys.exit(1)
+            print(f"   Reference Image: {args.reference_image}")
+            print(f"   → ALL influencer clips will use nano-banana-pro/edit with reference")
+    
+    # Background music (optional - uses custom file instead of generating via ElevenLabs)
+    if args.music:
+        if os.path.exists(args.music):
+            print(f"🎵 Background Music: {args.music} (custom file)")
+            print(f"   → Will skip ElevenLabs music generation")
+        else:
+            print(f"⚠️ Background Music: {args.music} NOT FOUND - will fallback to ElevenLabs generation")
+    else:
+        print(f"🎵 Background Music: ElevenLabs generated (Music Group A looped)")
     
     # Set output path
     if args.output:
@@ -5871,7 +9223,17 @@ All environment variables are loaded from python-ai-backend/.env:
         captions=args.captions,  # Pass caption combination if provided
         transliterate=args.transliterate,  # Pass transliteration flag if provided
         desired_duration=args.duration,  # Pass desired duration from CLI
-        ai_video_model=args.ai_video_model  # Pass AI video model selection
+        ai_video_model=args.ai_video_model,  # Pass AI video model selection
+        speed=args.speed,  # Pass voice speed multiplier
+        image_group_proportion=args.image_group_proportion if args.image_group_proportion is not None else 0.0,  # Pass image group proportion (0 = disabled)
+        voiceover_emotions=args.voiceover_emotions,  # Pass voiceover emotions flag
+        audio_model=args.audio_model,  # Pass ElevenLabs audio model (v3 or v2)
+        reference_image=args.reference_image,  # Pass reference influencer image if provided
+        background_music=args.music,  # Pass custom background music file if provided
+        elevenlabs_direct=args.elevenlabs_direct,  # Pass direct ElevenLabs API flag
+        include_research=args.research,  # Pass research clips flag
+        research_type=args.research_type,  # Pass research source type
+        highlight_color=args.highlight_color  # Pass highlight color for research clips
     )
     
     if result:

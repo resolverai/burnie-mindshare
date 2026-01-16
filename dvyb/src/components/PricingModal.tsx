@@ -44,6 +44,8 @@ interface PricingPlan {
   extraImagePostPrice: number;
   extraVideoPostPrice: number;
   isFreeTrialPlan: boolean;
+  isFreemium?: boolean;
+  freemiumTrialDays?: number;
   planFlow?: 'website_analysis' | 'product_photoshot';
 }
 
@@ -63,8 +65,9 @@ interface PricingModalProps {
   quotaType?: 'image' | 'video' | 'both';
   isAuthenticated?: boolean;
   canSkip?: boolean; // If true, user can skip and proceed to generate (only one quota exhausted)
-  reason?: 'quota_exhausted' | 'user_initiated'; // Why the modal was opened
+  reason?: 'quota_exhausted' | 'user_initiated' | 'freemium_required'; // Why the modal was opened
   userFlow?: 'website_analysis' | 'product_photoshot'; // User's acquisition flow - determines which plans to show
+  mustSubscribe?: boolean; // If true, user MUST subscribe (no close/skip option) - for freemium enforcement
 }
 
 // Animated Toggle Switch Component
@@ -229,6 +232,11 @@ const PlanCard = ({
             Save {getAnnualSavings()}% vs monthly
           </p>
         )}
+        {!isFree && plan.isFreemium && (
+          <p className="text-purple-600 text-sm mt-2 font-medium">
+            {plan.freemiumTrialDays || 7}-day free trial, cancel anytime
+          </p>
+        )}
         {isFree && (
           <p className="text-green-600 text-sm mt-2 font-medium">
             7-day trial, no credit card required
@@ -315,6 +323,11 @@ const PlanCard = ({
           <>
             <Gift className="h-5 w-5 mr-2" />
             Start Free Trial
+          </>
+        ) : plan.isFreemium && (changeType === 'get_started' || changeType === 'upgrade') ? (
+          <>
+            <Gift className="h-5 w-5 mr-2" />
+            Start Free {plan.freemiumTrialDays || 7}-Day Trial
           </>
         ) : changeType === 'get_started' ? (
           <>
@@ -510,7 +523,8 @@ export const PricingModal = ({
   isAuthenticated = true,
   canSkip = false,
   reason = 'user_initiated',
-  userFlow = 'website_analysis'
+  userFlow = 'website_analysis',
+  mustSubscribe = false
 }: PricingModalProps) => {
   const router = useRouter();
   const [plans, setPlans] = useState<PricingPlan[]>([]);
@@ -927,6 +941,10 @@ export const PricingModal = ({
   const displayPlans = isAuthenticated 
     ? sortedPlans.filter(plan => {
         if (plan.isFreeTrialPlan) {
+          // When mustSubscribe is true, NEVER show free plan - user must choose a paid opt-out plan
+          if (mustSubscribe) {
+            return false;
+          }
           // Show free plan only if user is actually on it (and doesn't have a Stripe subscription)
           return isUserOnFreePlan;
         }
@@ -954,7 +972,7 @@ export const PricingModal = ({
         }`}
       >
         <div className="min-h-screen bg-background">
-          {/* Close Button */}
+          {/* Close Button - always visible */}
           <button
             onClick={handleClose}
             className="fixed top-4 right-4 md:top-6 md:right-6 z-[102] p-2.5 rounded-full bg-muted hover:bg-muted/80 transition-colors border border-border"
@@ -967,7 +985,14 @@ export const PricingModal = ({
             <div className="max-w-6xl mx-auto">
               {/* Header */}
               <div className="text-center mb-8 md:mb-12">
-                {reason === 'quota_exhausted' && quotaType && isAuthenticated && (
+                {mustSubscribe ? (
+                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-purple-100 mb-4">
+                    <Gift className="h-4 w-4 text-purple-600" />
+                    <span className="text-purple-600 text-sm font-medium">
+                      Start your free trial to continue
+                    </span>
+                  </div>
+                ) : reason === 'quota_exhausted' && quotaType && isAuthenticated && (
                   <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 mb-4">
                     <Sparkles className="h-4 w-4 text-primary" />
                     <span className="text-primary text-sm font-medium">
@@ -981,14 +1006,20 @@ export const PricingModal = ({
                 )}
                 
                 <h1 className="text-3xl md:text-5xl font-bold text-foreground mb-4">
-                  {isAuthenticated ? 'Upgrade Your Plan' : 'Choose Your Plan'}
+                  {mustSubscribe 
+                    ? 'Choose Your Plan' 
+                    : isAuthenticated 
+                    ? 'Upgrade Your Plan' 
+                    : 'Choose Your Plan'}
                 </h1>
                 <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto">
-                  Unlock more AI-powered content generation and take your brand to the next level
+                  {mustSubscribe 
+                    ? 'Start with a free 7-day trial. Your card will only be charged after the trial ends.'
+                    : 'Unlock more AI-powered content generation and take your brand to the next level'}
                 </p>
 
-                {/* Current Plan Info */}
-                {isAuthenticated && currentPlanInfo && (
+                {/* Current Plan Info - hidden when mustSubscribe is true (user is on free trial, not helpful to show) */}
+                {isAuthenticated && currentPlanInfo && !mustSubscribe && (
                   <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-muted border border-border">
                     <span className="text-sm text-muted-foreground">Current plan:</span>
                     <span className="text-sm font-semibold text-foreground">
@@ -1044,7 +1075,17 @@ export const PricingModal = ({
 
               {/* Footer */}
               <div className="mt-10 text-center">
-                {reason === 'quota_exhausted' && quotaType === 'both' && !canSkip ? (
+                {mustSubscribe || reason === 'freemium_required' ? (
+                  // User MUST subscribe (opt-out trial enforcement) - no skip option
+                  <div className="space-y-2">
+                    <p className="text-foreground font-medium">
+                      Subscribe to continue generating content
+                    </p>
+                    <p className="text-muted-foreground text-sm">
+                      Start your free trial today. Cancel anytime before the trial ends to avoid charges.
+                    </p>
+                  </div>
+                ) : reason === 'quota_exhausted' && quotaType === 'both' && !canSkip ? (
                   // Both quotas exhausted - no skip option
                   <p className="text-muted-foreground text-sm">
                     You&apos;ve reached your content limit. Upgrade to continue creating.

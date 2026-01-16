@@ -153,7 +153,56 @@ export class StripeService {
   }
 
   /**
+   * Check if an account has previously subscribed to a specific plan
+   * Used to determine if they should get a free trial (only once per plan)
+   */
+  static async hasAccountPreviouslyHadPlan(accountId: number, planId: number): Promise<boolean> {
+    const accountPlanRepo = AppDataSource.getRepository(DvybAccountPlan);
+    
+    // Check if there's any historical record of this account having this plan
+    const previousPlan = await accountPlanRepo.findOne({
+      where: {
+        accountId,
+        planId,
+      },
+    });
+    
+    return !!previousPlan;
+  }
+
+  /**
+   * Get the Free Trial plan for a specific flow
+   * Used to determine trial limits during freemium period
+   */
+  static async getFreeTrialPlanForFlow(planFlow: 'website_analysis' | 'product_photoshot'): Promise<DvybPricingPlan | null> {
+    const planRepo = AppDataSource.getRepository(DvybPricingPlan);
+    
+    // Find the free trial plan for this flow
+    const freeTrialPlan = await planRepo.findOne({
+      where: {
+        planFlow,
+        isFreeTrialPlan: true,
+        isActive: true,
+      },
+    });
+    
+    // Fallback: find any active free trial plan for this flow
+    if (!freeTrialPlan) {
+      return await planRepo.findOne({
+        where: {
+          planFlow,
+          monthlyPrice: 0,
+          isActive: true,
+        },
+      });
+    }
+    
+    return freeTrialPlan;
+  }
+
+  /**
    * Create a Stripe Checkout Session for subscription
+   * Handles freemium plans with trial periods
    */
   static async createCheckoutSession(params: {
     accountId: number;
@@ -180,6 +229,21 @@ export class StripeService {
     // Get or create customer
     const customerId = await this.getOrCreateCustomer(accountId);
 
+    // Determine if user should get an opt-out free trial
+    // Trial is given ONLY if:
+    // 1. Plan has opt-out trial enabled (isFreemium = true)
+    // 2. User has NEVER had this plan before (first time = trial, subsequent = charge immediately)
+    let trialDays = 0;
+    if (plan.isFreemium && !plan.isFreeTrialPlan) {
+      const hadPlanBefore = await this.hasAccountPreviouslyHadPlan(accountId, planId);
+      if (!hadPlanBefore) {
+        trialDays = plan.freemiumTrialDays || 7;
+        logger.info(`🎁 Account ${accountId} qualifies for ${trialDays}-day opt-out free trial on plan ${planId}`);
+      } else {
+        logger.info(`⚡ Account ${accountId} previously had plan ${planId} - no trial, charging immediately`);
+      }
+    }
+
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
       customer: customerId,
       mode: 'subscription',
@@ -196,13 +260,21 @@ export class StripeService {
           dvybAccountId: accountId.toString(),
           dvybPlanId: planId.toString(),
           frequency,
+          isFreemium: plan.isFreemium ? 'true' : 'false',
+          trialDays: trialDays.toString(),
         },
+        // Add trial period if applicable
+        ...(trialDays > 0 && { trial_period_days: trialDays }),
       },
       metadata: {
         dvybAccountId: accountId.toString(),
         dvybPlanId: planId.toString(),
         frequency,
+        isFreemium: plan.isFreemium ? 'true' : 'false',
+        trialDays: trialDays.toString(),
       },
+      // Always require payment method for freemium plans (card is collected upfront)
+      ...(plan.isFreemium && { payment_method_collection: 'always' }),
     };
 
     // Apply promo code if provided

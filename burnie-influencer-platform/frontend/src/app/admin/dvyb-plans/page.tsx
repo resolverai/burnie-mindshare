@@ -34,6 +34,8 @@ interface PricingPlan {
   extraVideoPostPrice: number;
   isActive: boolean;
   isFreeTrialPlan: boolean;
+  isFreemium: boolean;
+  freemiumTrialDays: number;
   planFlow: 'website_analysis' | 'product_photoshot';
   stripeProductId: string | null;
   stripeMonthlyPriceId: string | null;
@@ -76,6 +78,8 @@ export default function DvybPlansPage() {
     extraImagePostPrice: '',
     extraVideoPostPrice: '',
     isFreeTrialPlan: false,
+    isFreemium: false,
+    freemiumTrialDays: '7',
     planFlow: 'website_analysis' as 'website_analysis' | 'product_photoshot',
     stripeProductId: '',
     stripeMonthlyPriceId: '',
@@ -130,6 +134,8 @@ export default function DvybPlansPage() {
         extraImagePostPrice: plan.extraImagePostPrice.toString(),
         extraVideoPostPrice: plan.extraVideoPostPrice.toString(),
         isFreeTrialPlan: plan.isFreeTrialPlan,
+        isFreemium: plan.isFreemium || false,
+        freemiumTrialDays: (plan.freemiumTrialDays || 7).toString(),
         planFlow: plan.planFlow || 'website_analysis',
         stripeProductId: plan.stripeProductId || '',
         stripeMonthlyPriceId: plan.stripeMonthlyPriceId || '',
@@ -150,6 +156,8 @@ export default function DvybPlansPage() {
         extraImagePostPrice: '',
         extraVideoPostPrice: '',
         isFreeTrialPlan: false,
+        isFreemium: false,
+        freemiumTrialDays: '7',
         planFlow: 'website_analysis',
         stripeProductId: '',
         stripeMonthlyPriceId: '',
@@ -187,6 +195,8 @@ export default function DvybPlansPage() {
           extraImagePostPrice: parseFloat(formData.extraImagePostPrice),
           extraVideoPostPrice: parseFloat(formData.extraVideoPostPrice),
           isFreeTrialPlan: formData.isFreeTrialPlan,
+          isFreemium: formData.isFreemium,
+          freemiumTrialDays: parseInt(formData.freemiumTrialDays) || 7,
           planFlow: formData.planFlow,
           // Stripe fields
           stripeProductId: formData.stripeProductId || null,
@@ -409,12 +419,17 @@ export default function DvybPlansPage() {
                     <tr key={plan.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4">
                         <div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <div className="text-sm font-medium text-gray-900">{plan.planName}</div>
                             {plan.isFreeTrialPlan && (
                               <span className="px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800 rounded-full flex items-center gap-1">
                                 <Gift className="h-3 w-3" />
                                 Free Trial
+                              </span>
+                            )}
+                            {plan.isFreemium && !plan.isFreeTrialPlan && (
+                              <span className="px-2 py-0.5 text-xs font-medium bg-purple-100 text-purple-800 rounded-full">
+                                Opt-Out Trial ({plan.freemiumTrialDays}d)
                               </span>
                             )}
                           </div>
@@ -803,7 +818,7 @@ export default function DvybPlansPage() {
                     <input
                       type="checkbox"
                       checked={formData.isFreeTrialPlan}
-                      onChange={(e) => setFormData({ ...formData, isFreeTrialPlan: e.target.checked })}
+                      onChange={(e) => setFormData({ ...formData, isFreeTrialPlan: e.target.checked, isFreemium: false })}
                       className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500 focus:ring-2"
                     />
                     <span className="ml-2 text-sm font-medium text-gray-900 flex items-center gap-1">
@@ -815,6 +830,43 @@ export default function DvybPlansPage() {
                     If checked, this plan will be automatically assigned to all new accounts upon registration
                   </p>
                 </div>
+
+                {/* Opt-Out Free Trial Flag (only shown if not Free Trial Plan) */}
+                {!formData.isFreeTrialPlan && (
+                  <div className="col-span-2 mt-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                    <label className="flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.isFreemium}
+                        onChange={(e) => setFormData({ ...formData, isFreemium: e.target.checked })}
+                        className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500 focus:ring-2"
+                      />
+                      <span className="ml-2 text-sm font-medium text-gray-900">
+                        Enable Opt-Out Free Trial
+                      </span>
+                    </label>
+                    <p className="text-xs text-gray-500 mt-1 ml-6">
+                      Users provide payment method upfront, get a free trial period, then are charged automatically unless they cancel.
+                      Trial is given only once per plan per user. If a user re-subscribes to the same plan, they are charged immediately (no second trial).
+                    </p>
+                    
+                    {formData.isFreemium && (
+                      <div className="mt-3 ml-6">
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          Trial Period (days)
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="30"
+                          value={formData.freemiumTrialDays}
+                          onChange={(e) => setFormData({ ...formData, freemiumTrialDays: e.target.value })}
+                          className="w-24 px-3 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900 text-sm"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Plan Flow Selection */}
                 <div className="col-span-2 mt-4">

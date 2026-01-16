@@ -172,6 +172,67 @@ const isVideoType = (item: InspirationItem): boolean => {
   return item.mediaType === 'video';
 };
 
+// Helper to analyze custom link and determine how to display it
+const analyzeCustomLink = (url: string): { 
+  type: 'image' | 'video' | 'instagram' | 'youtube' | 'twitter' | 'unknown';
+  embedUrl: string;
+  thumbnailUrl?: string;
+} => {
+  const trimmedUrl = url.trim().toLowerCase();
+  
+  // Check for direct image URLs (S3, CDN, common image extensions)
+  const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
+  const isDirectImage = imageExtensions.some(ext => trimmedUrl.includes(ext)) ||
+    trimmedUrl.includes('/dvyb/inspirations/') || // S3 custom inspirations path
+    (trimmedUrl.includes('s3.amazonaws.com') && !trimmedUrl.includes('.mp4'));
+  
+  if (isDirectImage) {
+    return { type: 'image', embedUrl: url };
+  }
+  
+  // Check for direct video URLs
+  const videoExtensions = ['.mp4', '.webm', '.mov', '.avi', '.mkv'];
+  const isDirectVideo = videoExtensions.some(ext => trimmedUrl.includes(ext));
+  
+  if (isDirectVideo) {
+    return { type: 'video', embedUrl: url };
+  }
+  
+  // Check for Instagram
+  if (trimmedUrl.includes('instagram.com')) {
+    const match = url.match(/\/(p|reel|reels)\/([^\/\?]+)/);
+    if (match) {
+      const postId = match[2];
+      const isReel = url.includes('/reel/') || url.includes('/reels/');
+      const embedUrl = isReel 
+        ? `https://www.instagram.com/reel/${postId}/embed/`
+        : `https://www.instagram.com/p/${postId}/embed/`;
+      return { type: 'instagram', embedUrl };
+    }
+  }
+  
+  // Check for YouTube
+  if (trimmedUrl.includes('youtube.com') || trimmedUrl.includes('youtu.be')) {
+    const videoId = extractYouTubeVideoId(url);
+    if (videoId) {
+      const embedUrl = `https://www.youtube.com/embed/${videoId}?rel=0&modestbranding=1`;
+      const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+      return { type: 'youtube', embedUrl, thumbnailUrl };
+    }
+  }
+  
+  // Check for Twitter/X
+  if (trimmedUrl.includes('twitter.com') || trimmedUrl.includes('x.com')) {
+    const tweetMatch = url.match(/status\/(\d+)/);
+    if (tweetMatch) {
+      const embedUrl = `https://platform.twitter.com/embed/Tweet.html?id=${tweetMatch[1]}`;
+      return { type: 'twitter', embedUrl };
+    }
+  }
+  
+  return { type: 'unknown', embedUrl: url };
+};
+
 export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDialogClosed, parentPage = 'home' }: GenerateContentDialogProps) => {
   const [step, setStep] = useState<Step>("topic");
   const [selectedTopic, setSelectedTopic] = useState<string>("");
@@ -664,6 +725,14 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
   };
 
   const handleGenerate = async () => {
+    // Check if user must subscribe to freemium before generating
+    if (usageData?.mustSubscribeToFreemium) {
+      console.log('🚫 User must subscribe to freemium before generating');
+      setUpgradeQuotaType('both');
+      setShowUpgradePricingModal(true);
+      return;
+    }
+    
     const topic = customTopic || selectedTopic;
     
     // Use user-selected values directly from sliders
@@ -1920,17 +1989,17 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                     </div>
 
                     {/* Single inspiration link input - no add more button */}
-                    <Input
-                      placeholder="Paste URL, X link, Instagram link..."
+                      <Input
+                        placeholder="Paste URL, X link, Instagram link..."
                       value={inspirationLinks[0] || ''}
-                      onChange={(e) => {
+                        onChange={(e) => {
                         setInspirationLinks([e.target.value]);
-                      }}
-                      className="text-sm sm:text-base focus-visible:ring-emerald-500 focus-visible:border-emerald-500"
-                    />
+                        }}
+                        className="text-sm sm:text-base focus-visible:ring-emerald-500 focus-visible:border-emerald-500"
+                      />
                   </>
-                )}
-              </div>
+                      )}
+                    </div>
 
               {/* Instructions - moved below inspiration selection */}
               <div>
@@ -2089,7 +2158,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               </Card>
 
               {/* Content to Generate */}
-              <Card className="p-3 sm:p-4">
+                <Card className="p-3 sm:p-4">
                 <h3 className="font-medium mb-1.5 sm:mb-2 text-sm sm:text-base">Content to Generate</h3>
                 <div className="space-y-2">
                   {contentType === "images" && (
@@ -2099,10 +2168,10 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                         </svg>
                       </div>
-                      <div>
+              <div>
                         <p className="text-sm font-medium">{imagePostCount[0]} {imagePostCount[0] === 1 ? 'Image' : 'Images'}</p>
                         <p className="text-xs text-muted-foreground">{usageData?.remainingImages || 0} remaining in quota</p>
-                      </div>
+                </div>
                     </div>
                   )}
                   {contentType === "videos" && (
@@ -2110,12 +2179,12 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                       <div className="flex items-center gap-2">
                         <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center">
                           <Play className="w-4 h-4 text-purple-600" />
-                        </div>
-                        <div>
+                </div>
+                <div>
                           <p className="text-sm font-medium">{videoPostCount[0]} {videoPostCount[0] === 1 ? 'Video' : 'Videos'}</p>
                           <p className="text-xs text-muted-foreground">{usageData?.remainingVideos || 0} remaining in quota</p>
-                        </div>
-                      </div>
+                  </div>
+                    </div>
                       <div className="mt-2 p-2 bg-muted/30 rounded-lg text-xs space-y-1">
                         <p><span className="font-medium">Style:</span> {getVideoStyleLabel(videoStyle)}</p>
                         <p><span className="font-medium">Length:</span> {getVideoLengthLabel(videoLengthMode)}</p>
@@ -2165,7 +2234,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                             <div className="bg-white/80 rounded-full p-1.5 shadow-lg">
                               <Play className="w-3 h-3 text-emerald-600 fill-emerald-600" />
-                            </div>
+                    </div>
                           </div>
                         )}
                         
@@ -2175,22 +2244,85 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                         </div>
                       </div>
                     ))}
-                    {inspirationLinks.filter(l => l.trim()).map((link, idx) => (
-                      <div
-                        key={`link-${idx}`}
-                        className="relative bg-muted/50 border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden aspect-square flex items-center justify-center"
-                      >
-                        <div className="text-center p-2">
-                          <svg className="w-5 h-5 mx-auto text-muted-foreground mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                          </svg>
-                          <p className="text-[10px] text-muted-foreground">Custom link</p>
+                    {inspirationLinks.filter(l => l.trim()).map((link, idx) => {
+                      const linkInfo = analyzeCustomLink(link);
+                      return (
+                        <div
+                          key={`link-${idx}`}
+                          className="relative bg-muted/50 border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden aspect-square"
+                        >
+                          {linkInfo.type === 'image' ? (
+                            <img
+                              src={linkInfo.embedUrl}
+                              alt={`Custom inspiration ${idx + 1}`}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                // Fallback to link icon if image fails to load
+                                e.currentTarget.style.display = 'none';
+                                e.currentTarget.parentElement?.classList.add('flex', 'items-center', 'justify-center');
+                              }}
+                            />
+                          ) : linkInfo.type === 'video' ? (
+                            <>
+                              <video
+                                src={linkInfo.embedUrl}
+                                className="w-full h-full object-cover"
+                                muted
+                                playsInline
+                              />
+                              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <div className="bg-white/80 rounded-full p-1.5 shadow-lg">
+                                  <Play className="w-3 h-3 text-emerald-600 fill-emerald-600" />
+                                </div>
+                              </div>
+                            </>
+                          ) : linkInfo.type === 'youtube' ? (
+                            <>
+                              <img
+                                src={linkInfo.thumbnailUrl}
+                                alt={`YouTube video ${idx + 1}`}
+                                className="w-full h-full object-cover"
+                              />
+                              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <div className="bg-red-600 rounded-full p-1.5 shadow-lg">
+                                  <Play className="w-3 h-3 text-white fill-white" />
+                                </div>
+                              </div>
+                              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
+                                <p className="text-[10px] text-white truncate">YouTube</p>
+                              </div>
+                            </>
+                          ) : linkInfo.type === 'instagram' || linkInfo.type === 'twitter' ? (
+                            <>
+                              <iframe
+                                src={linkInfo.embedUrl}
+                                className="w-full h-full pointer-events-none scale-[1.02]"
+                                allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                allowFullScreen
+                              />
+                              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
+                                <p className="text-[10px] text-white truncate capitalize">{linkInfo.type}</p>
+                              </div>
+                            </>
+                          ) : (
+                            // Unknown link type - show link icon with URL hint
+                            <div className="flex items-center justify-center h-full">
+                              <div className="text-center p-2">
+                                <svg className="w-5 h-5 mx-auto text-muted-foreground mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                                </svg>
+                                <p className="text-[10px] text-muted-foreground truncate max-w-[80px]">
+                                  {new URL(link).hostname.replace('www.', '')}
+                                </p>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </Card>
-              )}
+                )}
 
               {/* Instructions */}
               {contextText && (
@@ -2215,9 +2347,9 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                           alt={`Uploaded image ${idx + 1}`}
                           className="w-full h-full object-cover"
                         />
-                      </div>
+                </div>
                     ))}
-                  </div>
+              </div>
                 </Card>
               )}
             </div>
@@ -3027,11 +3159,11 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
 
       {/* Note: Multi-Platform Authorization Dialog removed - using redirect-based OAuth */}
 
-      {/* Pricing Modal for upgrade from Review step */}
+      {/* Pricing Modal for upgrade from Review step or freemium enforcement */}
       <PricingModal
         open={showUpgradePricingModal}
         onClose={() => {
-          // User skipped - just close the modal and stay on review step
+          // User closed - just close the modal and stay on review step
           setShowUpgradePricingModal(false);
         }}
         currentPlanInfo={usageData ? {
@@ -3044,9 +3176,10 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
         } : null}
         quotaType={upgradeQuotaType}
         isAuthenticated={true}
-        canSkip={true}
-        reason="quota_exhausted"
+        canSkip={!usageData?.mustSubscribeToFreemium}
+        reason={usageData?.mustSubscribeToFreemium ? 'freemium_required' : 'quota_exhausted'}
         userFlow={usageData?.initialAcquisitionFlow || 'website_analysis'}
+        mustSubscribe={usageData?.mustSubscribeToFreemium || false}
       />
     </>
   );

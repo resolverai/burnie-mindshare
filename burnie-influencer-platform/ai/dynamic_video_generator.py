@@ -6,7 +6,7 @@ Usage:
     python dynamic_video_generator.py --image /path/to/image.png --duration 6 --aspect-ratio 9:16 --instructions "Focus on the product, then highlight the price"
 
 Requirements:
-    pip install moviepy pillow numpy xai-sdk
+    pip install moviepy pillow numpy xai-sdk requests
 """
 
 import os
@@ -14,14 +14,317 @@ import sys
 import json
 import argparse
 import re
+import requests
+import base64
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
+from difflib import SequenceMatcher
 
 from moviepy.editor import ImageClip, CompositeVideoClip, ColorClip
 from moviepy.video.fx import resize, crop
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageEnhance
+
+# Load environment variables from python-ai-backend/.env
+from dotenv import load_dotenv
+env_path = Path(__file__).parent.parent / "python-ai-backend" / ".env"
+load_dotenv(env_path)
+
+# Get Google API key for Vision API
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+
+# ============================================
+# GOOGLE VISION API - OCR TEXT DETECTION
+# ============================================
+
+def find_text_with_google_vision(
+    image_path: str,
+    search_text: str
+) -> Optional[Tuple[float, float, float, float]]:
+    """
+    Use Google Vision API to find text in an image and return its bounding box.
+    
+    Args:
+        image_path: Path to the image file
+        search_text: The text to search for
+        
+    Returns:
+        Tuple of (left_pct, top_pct, right_pct, bottom_pct) or None if not found
+    """
+    if not GOOGLE_API_KEY:
+        print(f"  ⚠️ GOOGLE_API_KEY not set in python-ai-backend/.env")
+        return None
+    
+    print(f"\n{'='*60}")
+    print(f"🔍 GOOGLE VISION API - TEXT DETECTION")
+    print(f"{'='*60}")
+    print(f"  Image: {image_path}")
+    print(f"  Searching for: '{search_text[:60]}{'...' if len(search_text) > 60 else ''}'")
+    
+    try:
+        # Load image and get dimensions
+        img = Image.open(image_path)
+        img_width, img_height = img.size
+        print(f"  Image size: {img_width}x{img_height}")
+        
+        # Encode image to base64
+        with open(image_path, "rb") as f:
+            image_content = base64.b64encode(f.read()).decode('utf-8')
+        
+        # Call Google Vision API
+        print(f"  📤 Calling Google Vision API...")
+        url = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_API_KEY}"
+        
+        payload = {
+            "requests": [{
+                "image": {"content": image_content},
+                "features": [{"type": "TEXT_DETECTION", "maxResults": 50}]
+            }]
+        }
+        
+        response = requests.post(url, json=payload, timeout=30)
+        
+        if response.status_code != 200:
+            print(f"  ❌ API Error: {response.status_code}")
+            print(f"     {response.text[:200]}")
+            return None
+        
+        result = response.json()
+        
+        # Check for errors in response
+        if "error" in result:
+            print(f"  ❌ Vision API Error: {result['error'].get('message', 'Unknown error')}")
+            return None
+        
+        # Get text annotations
+        responses = result.get("responses", [])
+        if not responses or not responses[0].get("textAnnotations"):
+            print(f"  ⚠️ No text detected in image")
+            return None
+        
+        text_annotations = responses[0]["textAnnotations"]
+        print(f"  ✅ Found {len(text_annotations)} text regions")
+        
+        # First annotation is the full text, skip it
+        # Rest are individual words/lines with bounding boxes
+        detected_texts = []
+        for annotation in text_annotations[1:]:  # Skip first (full text)
+            text = annotation.get("description", "")
+            vertices = annotation.get("boundingPoly", {}).get("vertices", [])
+            
+            if vertices and len(vertices) >= 4:
+                # Get bounding box coordinates
+                x_coords = [v.get("x", 0) for v in vertices]
+                y_coords = [v.get("y", 0) for v in vertices]
+                
+                bbox = {
+                    "text": text,
+                    "left": min(x_coords),
+                    "top": min(y_coords),
+                    "right": max(x_coords),
+                    "bottom": max(y_coords)
+                }
+                detected_texts.append(bbox)
+        
+        # Normalize search text for matching
+        search_normalized = search_text.lower().strip()
+        search_words = search_normalized.split()
+        
+        print(f"  🔎 Searching for text match...")
+        
+        # Strategy 1: Find consecutive words that form the search text
+        # Build a map of word positions
+        word_boxes = []
+        for dt in detected_texts:
+            word_boxes.append({
+                "word": dt["text"].lower().strip(),
+                "bbox": dt
+            })
+        
+        # Try to find the sequence of words
+        best_match_boxes = []
+        best_match_score = 0
+        
+        # Max vertical span for matching text (prevents combining scattered matches)
+        max_vertical_span = img_height * 0.25  # Max 25% of image height
+        
+        # Look for starting words
+        for i, wb in enumerate(word_boxes):
+            if wb["word"] in search_words or any(sw.startswith(wb["word"]) or wb["word"].startswith(sw) for sw in search_words):
+                # Try to build a match from this position
+                match_boxes = [wb["bbox"]]
+                combined_text = wb["word"]
+                start_y = wb["bbox"]["top"]
+                
+                for j in range(i + 1, min(i + len(search_words) * 2, len(word_boxes))):
+                    next_wb = word_boxes[j]
+                    
+                    # Check vertical proximity - don't combine words too far apart vertically
+                    current_y = next_wb["bbox"]["top"]
+                    if abs(current_y - start_y) > max_vertical_span:
+                        break  # Word is too far vertically, stop matching
+                    
+                    # Check if this word continues the sequence
+                    combined_text += " " + next_wb["word"]
+                    match_boxes.append(next_wb["bbox"])
+                    
+                    # Calculate similarity
+                    similarity = SequenceMatcher(None, search_normalized, combined_text).ratio()
+                    
+                    if similarity > best_match_score:
+                        best_match_score = similarity
+                        best_match_boxes = list(match_boxes)
+                    
+                    # If we have a very good match, stop
+                    if similarity > 0.85:
+                        break
+        
+        # Strategy 2: If no good sequential match, find lines containing key words
+        if best_match_score < 0.5:
+            # Group words by vertical position (same line)
+            lines = {}
+            for dt in detected_texts:
+                # Round to nearest 20 pixels for line grouping
+                line_y = round(dt["top"] / 20) * 20
+                if line_y not in lines:
+                    lines[line_y] = []
+                lines[line_y].append(dt)
+            
+            # Sort lines by y position
+            sorted_lines = sorted(lines.items())
+            
+            # Find lines containing search words
+            matching_lines = []
+            for line_y, line_words in sorted_lines:
+                line_text = " ".join([w["text"].lower() for w in line_words])
+                # Check if this line contains significant words from search
+                word_matches = sum(1 for sw in search_words if sw in line_text)
+                if word_matches >= min(3, len(search_words) // 2):
+                    matching_lines.append((line_y, line_words, word_matches))
+            
+            if matching_lines:
+                # IMPORTANT: Only combine CONSECUTIVE lines that are close together
+                # This prevents combining scattered matches across the entire image
+                max_line_gap = 80  # Max pixels between lines to be considered part of same block
+                
+                # Find the best cluster of consecutive matching lines
+                best_cluster = []
+                best_cluster_score = 0
+                
+                for start_idx in range(len(matching_lines)):
+                    cluster = [matching_lines[start_idx]]
+                    cluster_y = matching_lines[start_idx][0]
+                    
+                    for next_idx in range(start_idx + 1, len(matching_lines)):
+                        next_y = matching_lines[next_idx][0]
+                        # Only add if close to previous line
+                        if next_y - cluster_y <= max_line_gap:
+                            cluster.append(matching_lines[next_idx])
+                            cluster_y = next_y
+                        else:
+                            break  # Gap too large, stop this cluster
+                    
+                    # Score this cluster by total word matches
+                    cluster_score = sum(m[2] for m in cluster)
+                    if cluster_score > best_cluster_score:
+                        best_cluster_score = cluster_score
+                        best_cluster = cluster
+                
+                if best_cluster:
+                    # Combine only the lines in the best cluster
+                    all_boxes = []
+                    for _, line_words, _ in best_cluster:
+                        all_boxes.extend(line_words)
+                    
+                    if all_boxes:
+                        combined_text = " ".join([w["text"].lower() for w in all_boxes])
+                        similarity = SequenceMatcher(None, search_normalized, combined_text).ratio()
+                        
+                        if similarity > best_match_score:
+                            best_match_score = similarity
+                            best_match_boxes = all_boxes
+        
+        if best_match_boxes and best_match_score > 0.3:
+            # Calculate combined bounding box
+            left = min(b["left"] for b in best_match_boxes)
+            top = min(b["top"] for b in best_match_boxes)
+            right = max(b["right"] for b in best_match_boxes)
+            bottom = max(b["bottom"] for b in best_match_boxes)
+            
+            # Convert to percentages
+            left_pct = (left / img_width) * 100
+            top_pct = (top / img_height) * 100
+            right_pct = (right / img_width) * 100
+            bottom_pct = (bottom / img_height) * 100
+            
+            # Add small padding (2%)
+            padding = 2.0
+            left_pct = max(0, left_pct - padding)
+            top_pct = max(0, top_pct - padding)
+            right_pct = min(100, right_pct + padding)
+            bottom_pct = min(100, bottom_pct + padding)
+            
+            matched_text = " ".join([b["text"] for b in best_match_boxes])
+            print(f"  ✅ Found match (score: {best_match_score:.2f})")
+            print(f"     Matched text: '{matched_text[:60]}{'...' if len(matched_text) > 60 else ''}'")
+            print(f"  📍 Bounding box: ({left_pct:.1f}%, {top_pct:.1f}%) to ({right_pct:.1f}%, {bottom_pct:.1f}%)")
+            print(f"     Pixels: ({left}, {top}) to ({right}, {bottom})")
+            
+            return (left_pct, top_pct, right_pct, bottom_pct)
+        else:
+            print(f"  ⚠️ Could not find matching text (best score: {best_match_score:.2f})")
+            # Print detected texts for debugging
+            if detected_texts:
+                print(f"     Detected words: {[dt['text'] for dt in detected_texts[:20]]}")
+            return None
+            
+    except requests.exceptions.Timeout:
+        print(f"  ❌ Google Vision API timeout")
+        return None
+    except requests.exceptions.RequestException as e:
+        print(f"  ❌ Network error: {e}")
+        return None
+    except Exception as e:
+        print(f"  ❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def find_text_in_multiple_folds_with_vision(
+    fold_image_paths: List[str],
+    search_text: str
+) -> Tuple[Optional[str], Optional[Tuple[float, float, float, float]]]:
+    """
+    Search for text across multiple fold images using Google Vision API.
+    
+    Args:
+        fold_image_paths: List of paths to fold images
+        search_text: Text to search for
+        
+    Returns:
+        Tuple of (image_path, bounding_box) or (None, None) if not found
+    """
+    print(f"\n{'='*60}")
+    print(f"🔍 SEARCHING ACROSS {len(fold_image_paths)} FOLDS")
+    print(f"{'='*60}")
+    print(f"  Target: '{search_text[:60]}{'...' if len(search_text) > 60 else ''}'")
+    
+    for i, img_path in enumerate(fold_image_paths):
+        print(f"\n  📄 Checking fold {i+1}: {Path(img_path).name}")
+        
+        bbox = find_text_with_google_vision(img_path, search_text)
+        
+        if bbox:
+            print(f"\n  ✅ Text found in fold {i+1}!")
+            return (img_path, bbox)
+    
+    print(f"\n  ⚠️ Text not found in any fold")
+    return (None, None)
+
 
 # ============================================
 # EFFECT DEFINITIONS - Bouquet of Effects
@@ -523,6 +826,26 @@ EFFECTS_CATALOG = {
         "start_time": "When effect starts (seconds)",
         "duration": "How long the effect lasts (seconds)"
         }
+    },
+    "highlight_overlay": {
+        "name": "Highlight Overlay",
+        "description": "Adds a colored semi-transparent overlay on a specific region to highlight it. Great for drawing attention to text, prices, or key elements.",
+        "parameters": {
+        "region": "Bounding box of area to highlight - REQUIRED",
+        "region.left_pct": "Left edge of region (0-100, percentage from left)",
+        "region.top_pct": "Top edge of region (0-100, percentage from top)",
+        "region.right_pct": "Right edge of region (0-100, percentage from left)",
+        "region.bottom_pct": "Bottom edge of region (0-100, percentage from top)",
+        "color": "Highlight color: yellow, red, green, blue, orange, pink, cyan, white, or hex code (default: yellow)",
+        "alpha": "Opacity of the highlight (0.0-1.0, default: 0.7)",
+        "feather": "Edge softness in pixels (0-50, default: 0 for sharp edges)",
+        "pulse": "Whether to pulse the highlight opacity (true/false, default: false)",
+        "pulse_speed": "Pulses per second if pulsing (default: 2)",
+        "fade_in": "Whether to fade in the highlight (true/false, default: false)",
+        "fade_in_duration": "Fade in duration in seconds (default: 0.3)",
+        "start_time": "When effect starts (seconds)",
+        "duration": "How long the effect lasts (seconds)"
+        }
     }
 }
 
@@ -602,12 +925,17 @@ def region_to_center_and_size(region: Tuple[float, float, float, float]) -> Tupl
 class EffectEngine:
     """Engine that applies effects to video frames based on Grok's plan"""
     
-    def __init__(self, image_path: str, output_size: Tuple[int, int], duration: float, fps: int = 30):
+    def __init__(self, image_path: str, output_size: Tuple[int, int], duration: float, fps: int = 30,
+                 highlight_color: str = "yellow", highlight_alpha: float = 0.7):
         self.image_path = image_path
         self.output_size = output_size
         self.duration = duration
         self.fps = fps
         self.effects_plan: List[Dict] = []
+        
+        # Default highlight settings (can be overridden per-effect)
+        self.highlight_color = highlight_color
+        self.highlight_alpha = highlight_alpha
         
         # Load and prepare image
         self.original_image = Image.open(image_path)
@@ -1561,16 +1889,34 @@ class EffectEngine:
         return np.clip(result, 0, 255).astype(np.uint8)
     
     def _apply_focus_rack(self, frame: np.ndarray, effect: Dict, t: float) -> np.ndarray:
-        """Apply focus rack / depth of field shift effect"""
+        """Apply focus rack / depth of field shift effect
+        
+        Supports animated blur via blur_start and blur_end parameters:
+        - blur_start: Initial blur amount (default: same as blur_amount for backwards compatibility)
+        - blur_end: Final blur amount (default: same as blur_amount)
+        - If only blur_amount is set, blur stays constant
+        - If blur_start=0 and blur_end=10, blur gradually increases
+        """
         start_time = effect.get("start_time", 0)
         duration = effect.get("duration", self.duration)
         start_region = extract_region(effect, "start_region")
         end_region = extract_region(effect, "end_region")
+        
+        # Support animated blur: blur_start -> blur_end over duration
         blur_amount = effect.get("blur_amount", 10)
+        blur_start = effect.get("blur_start", blur_amount)  # Default to blur_amount for backwards compat
+        blur_end = effect.get("blur_end", blur_amount)
         
         progress = (t - start_time) / duration
         progress = max(0, min(1, progress))
-        progress = ease_in_out(progress)
+        progress_eased = ease_in_out(progress)
+        
+        # Animate blur amount
+        current_blur = blur_start + (blur_end - blur_start) * progress_eased
+        
+        # If blur is essentially 0, return original frame
+        if current_blur < 0.5:
+            return frame
         
         h, w = frame.shape[:2]
         
@@ -1590,11 +1936,11 @@ class EffectEngine:
         end_mask = create_focus_mask(end_region)
         
         # Interpolate masks
-        focus_mask = start_mask * (1 - progress) + end_mask * progress
+        focus_mask = start_mask * (1 - progress_eased) + end_mask * progress_eased
         
-        # Create blurred version
+        # Create blurred version with animated blur amount
         pil_img = Image.fromarray(frame)
-        blurred = np.array(pil_img.filter(ImageFilter.GaussianBlur(radius=blur_amount)))
+        blurred = np.array(pil_img.filter(ImageFilter.GaussianBlur(radius=current_blur)))
         
         # Blend based on focus mask
         result = frame.astype(np.float32)
@@ -1649,14 +1995,231 @@ class EffectEngine:
         
         return result
     
+    def _apply_highlight_overlay(self, frame: np.ndarray, effect: Dict, t: float) -> np.ndarray:
+        """Apply colored highlight overlay on a specific region
+        
+        Supports two modes:
+        - Static: Full region highlighted at once (pulse/fade effects)
+        - Progressive: Highlight sweeps from left to right like a highlighter pen
+        """
+        start_time = effect.get("start_time", 0)
+        duration = effect.get("duration", self.duration)
+        
+        # Extract region bounding box
+        region = extract_region(effect, "region")
+        left_pct, top_pct, right_pct, bottom_pct = region
+        
+        # Check if coordinates came from Vision API (accurate) or Grok (needs adjustment)
+        from_vision_api = effect.get("_from_vision_api", False)
+        original_top_pct = top_pct
+        
+        if not from_vision_api:
+            # Adjust Grok's region estimate: add +10% to top to shift region down
+            # Grok consistently estimates regions too high
+            # Vision API provides accurate coordinates, so skip adjustment
+            top_pct = min(100, top_pct + 10)
+            bottom_pct = min(100, bottom_pct + 10)
+        
+        # ALWAYS use CLI color/alpha - ignore what Grok specified
+        # This ensures user's CLI settings take precedence
+        color_input = self.highlight_color
+        alpha = self.highlight_alpha
+        feather = effect.get("feather", 0)
+        
+        # Progressive highlight modes
+        progressive = effect.get("progressive", False)        # L→R sweep
+        progressive_down = effect.get("progressive_down", False)  # Top→bottom sweep for multi-line
+        
+        # Legacy pulse/fade options (disabled in progressive modes)
+        is_progressive = progressive or progressive_down
+        pulse = effect.get("pulse", False) if not is_progressive else False
+        pulse_speed = effect.get("pulse_speed", 2)
+        fade_in = effect.get("fade_in", False) if not is_progressive else False
+        fade_in_duration = effect.get("fade_in_duration", 0.3)
+        
+        # Parse color
+        color_map = {
+            # Basic colors
+            "black": (0, 0, 0),
+            "white": (255, 255, 255),
+            "red": (255, 0, 0),
+            "green": (0, 255, 0),
+            "blue": (0, 0, 255),
+            "yellow": (255, 255, 0),
+            "cyan": (0, 255, 255),
+            "magenta": (255, 0, 255),
+            
+            # Extended colors
+            "orange": (255, 165, 0),
+            "pink": (255, 192, 203),
+            "purple": (128, 0, 128),
+            "lime": (0, 255, 0),
+            "navy": (0, 0, 128),
+            "teal": (0, 128, 128),
+            "maroon": (128, 0, 0),
+            "olive": (128, 128, 0),
+            "coral": (255, 127, 80),
+            "salmon": (250, 128, 114),
+            "gold": (255, 215, 0),
+            "silver": (192, 192, 192),
+            "gray": (128, 128, 128),
+            "grey": (128, 128, 128),
+            
+            # Highlight-friendly colors
+            "lightyellow": (255, 255, 224),
+            "lightgreen": (144, 238, 144),
+            "lightblue": (173, 216, 230),
+            "lightpink": (255, 182, 193),
+            "lightcyan": (224, 255, 255),
+            "lavender": (230, 230, 250),
+            "peach": (255, 218, 185),
+            "mint": (189, 252, 201),
+            "cream": (255, 253, 208),
+            "beige": (245, 245, 220),
+            
+            # Vibrant colors
+            "hotpink": (255, 105, 180),
+            "deeppink": (255, 20, 147),
+            "tomato": (255, 99, 71),
+            "orangered": (255, 69, 0),
+            "chartreuse": (127, 255, 0),
+            "springgreen": (0, 255, 127),
+            "aqua": (0, 255, 255),
+            "turquoise": (64, 224, 208),
+            "violet": (238, 130, 238),
+            "indigo": (75, 0, 130),
+            "crimson": (220, 20, 60),
+            "scarlet": (255, 36, 0),
+            
+            # Neon colors
+            "neongreen": (57, 255, 20),
+            "neonpink": (255, 16, 240),
+            "neonyellow": (255, 255, 0),
+            "neonorange": (255, 95, 31),
+            "neonblue": (77, 77, 255),
+        }
+        
+        if isinstance(color_input, str):
+            if color_input.lower() in color_map:
+                rgb_color = color_map[color_input.lower()]
+            elif color_input.startswith("#"):
+                # Parse hex color
+                hex_color = color_input.lstrip("#")
+                if len(hex_color) == 6:
+                    rgb_color = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+                else:
+                    rgb_color = (255, 255, 0)  # Default to yellow
+            else:
+                rgb_color = (255, 255, 0)  # Default to yellow
+        elif isinstance(color_input, (list, tuple)) and len(color_input) >= 3:
+            rgb_color = tuple(color_input[:3])
+        else:
+            rgb_color = (255, 255, 0)  # Default to yellow
+        
+        h, w = frame.shape[:2]
+        time_offset = t - start_time
+        progress = time_offset / duration
+        progress = max(0, min(1, progress))
+        
+        # Calculate current alpha with effects
+        current_alpha = alpha
+        
+        # Apply fade in (only in static mode)
+        if fade_in and time_offset < fade_in_duration:
+            fade_progress = time_offset / fade_in_duration
+            current_alpha = alpha * ease_in_out(fade_progress)
+        
+        # Apply pulse (only in static mode)
+        if pulse:
+            pulse_factor = 0.7 + 0.3 * np.sin(time_offset * pulse_speed * 2 * np.pi)
+            current_alpha = current_alpha * pulse_factor
+        
+        # Clamp alpha
+        current_alpha = max(0.0, min(1.0, current_alpha))
+        
+        # Calculate highlight rectangle base coordinates
+        hl_x1 = int(w * left_pct / 100)
+        hl_y1 = int(h * top_pct / 100)
+        hl_x2_full = int(w * right_pct / 100)  # Full width (end position)
+        hl_y2_full = int(h * bottom_pct / 100)  # Full height (end position)
+        
+        # Progressive mode: animate edges based on progress
+        if progressive:
+            # L→R sweep: animate the right edge
+            sweep_progress = ease_in_out(progress)
+            total_width = hl_x2_full - hl_x1
+            current_width = int(total_width * sweep_progress)
+            hl_x2 = hl_x1 + max(1, current_width)
+            hl_y2 = hl_y2_full
+        elif progressive_down:
+            # Top→bottom sweep: animate the bottom edge (better for multi-line text)
+            sweep_progress = ease_in_out(progress)
+            total_height = hl_y2_full - hl_y1
+            current_height = int(total_height * sweep_progress)
+            hl_y2 = hl_y1 + max(1, current_height)
+            hl_x2 = hl_x2_full
+        else:
+            # Static mode: full rectangle
+            hl_x2 = hl_x2_full
+            hl_y2 = hl_y2_full
+        
+        # Clamp to bounds
+        hl_x1 = max(0, min(w, hl_x1))
+        hl_y1 = max(0, min(h, hl_y1))
+        hl_x2 = max(hl_x1 + 1, min(w, hl_x2))
+        hl_y2 = max(hl_y1 + 1, min(h, hl_y2))
+        
+        # Debug logging (only once per effect)
+        if t == start_time:
+            if progressive:
+                mode_str = "sweep L→R"
+            elif progressive_down:
+                mode_str = "sweep-down ↓"
+            else:
+                mode_str = "static"
+            
+            if from_vision_api:
+                print(f"     🎨 Highlight overlay ({mode_str}): region=({left_pct:.1f}%, {top_pct:.1f}%, {right_pct:.1f}%, {bottom_pct:.1f}%) [Google Vision API - exact]")
+            else:
+                print(f"     🎨 Highlight overlay ({mode_str}): region=({left_pct:.1f}%, {top_pct:.1f}%, {right_pct:.1f}%, {bottom_pct:.1f}%) [Grok +10% adjustment]")
+                print(f"        Original from Grok: top_pct={original_top_pct:.1f}%")
+            
+            animated_str = "animated" if (progressive or progressive_down) else str(hl_y2_full)
+            print(f"     📍 Pixel coords: ({hl_x1}, {hl_y1}) to ({hl_x2_full if progressive else hl_x2}, {animated_str}), color={rgb_color}, alpha={alpha}")
+        
+        # Create result
+        result = frame.copy().astype(np.float32)
+        
+        if feather > 0:
+            # Create feathered mask
+            mask = np.zeros((h, w), dtype=np.float32)
+            mask[hl_y1:hl_y2, hl_x1:hl_x2] = 1.0
+            
+            # Apply Gaussian blur for feathering
+            mask_img = Image.fromarray((mask * 255).astype(np.uint8))
+            mask_img = mask_img.filter(ImageFilter.GaussianBlur(radius=feather))
+            mask = np.array(mask_img).astype(np.float32) / 255.0
+            
+            # Apply colored overlay with feathered mask
+            for c in range(3):
+                result[:, :, c] = result[:, :, c] * (1 - mask * current_alpha) + rgb_color[c] * mask * current_alpha
+        else:
+            # Sharp edges - direct overlay on region
+            region_frame = result[hl_y1:hl_y2, hl_x1:hl_x2]
+            for c in range(3):
+                region_frame[:, :, c] = region_frame[:, :, c] * (1 - current_alpha) + rgb_color[c] * current_alpha
+            result[hl_y1:hl_y2, hl_x1:hl_x2] = region_frame
+        
+        return result.astype(np.uint8)
+    
     def process_frame(self, get_frame, t: float) -> np.ndarray:
-        """Process a single frame applying all active effects"""
+        """Process a single frame applying all active effects in order"""
         frame = get_frame(t)
         
         # Get active effects for this time
         active_effects = self._get_active_effects(t)
         
-        # Apply effects in order
+        # Apply effects in order specified by Grok
         for effect in active_effects:
             effect_type = effect.get("effect_type", "")
             
@@ -1723,6 +2286,8 @@ class EffectEngine:
                 frame = self._apply_focus_rack(frame, effect, t)
             elif effect_type == "split_screen":
                 frame = self._apply_split_screen(frame, effect, t)
+            elif effect_type == "highlight_overlay":
+                frame = self._apply_highlight_overlay(frame, effect, t)
         
         return frame
     
@@ -1922,6 +2487,24 @@ EFFECT SELECTION STRATEGY:
 - End with emphasis (zoom_pulse, final zoom)
 - Don't overuse shake - only for dramatic moments
 
+⚠️ CRITICAL RULE FOR highlight_overlay:
+When the user asks to use highlight_overlay effect, follow these rules STRICTLY:
+1. Use ONLY highlight_overlay - do NOT add other effects like film_grain, blur_transition, letterbox, etc.
+2. Do NOT use ANY camera movement effects (ken_burns, zoom_in, zoom_out, pan, zoom_pulse, bounce_zoom, zoom_whip)
+3. Do NOT use blur_transition - the image should be CLEAR from the start
+4. Do NOT use film_grain or other texture effects
+5. The video should START with the image fully visible and clear
+6. You MAY use: fade_in on the highlight itself, pulse on the highlight
+7. Keep it SIMPLE: just highlight_overlay only
+8. Do NOT specify "color" or "alpha" in the effect - the system will use the user's CLI settings
+9. BOUNDING BOX PRECISION: The region MUST tightly fit the text being highlighted:
+   - top_pct should be at the TOP edge of the first line of text (not above it)
+   - bottom_pct should be at the BOTTOM edge of the last line of text (not below it)
+   - left_pct should be at the LEFT edge of the text (not to the left of it)
+   - right_pct should be at the RIGHT edge of the text (not to the right of it)
+   - Add only 1-2% padding maximum, NOT 5-10%
+   - The highlight should CLOSELY wrap the text, not have large margins
+
 4. OUTPUT FORMAT:
    Return ONLY valid JSON array of effects. Each effect object must have:
    - effect_type: One of the effect IDs from the catalog
@@ -2083,6 +2666,319 @@ Remember: Accurate coordinates are CRITICAL. Double-check each percentage before
         return get_fallback_effects_plan(duration)
 
 
+def analyze_multiple_folds_for_highlight(
+    fold_image_paths: List[str],
+    duration: float,
+    aspect_ratio: str,
+    search_text: str,
+    use_vision_api: bool = True,
+    skip_zoom: bool = False,
+    highlight_style: str = "sweep",
+    known_fold_index: int = None
+) -> Tuple[Optional[str], List[Dict]]:
+    """
+    Analyze multiple fold images to find which one contains the target text.
+    
+    Two-step approach:
+    1. Use Grok to identify which fold contains the target text (SKIPPED if known_fold_index provided)
+    2. Use Google Vision API on that specific fold for accurate bounding box
+    
+    Args:
+        fold_image_paths: List of paths to fold images (fold_1.png, fold_2.png, etc.)
+        duration: Video duration in seconds
+        aspect_ratio: Output aspect ratio
+        search_text: The text to search for and highlight
+        use_vision_api: Whether to use Google Vision API for coordinates (default: True)
+        skip_zoom: Whether to skip zoom/pan effects (True for mobile viewport)
+        highlight_style: "sweep" (L→R), "sweep-down" (top→bottom for multi-line), or "static"
+        known_fold_index: If already known which fold has the text (1-based), skip Grok search
+        
+    Returns:
+        Tuple of (image_path, effects_plan) or (None, []) if text not found
+    """
+    from xai_sdk import Client
+    from xai_sdk.chat import user, system, image
+    
+    print(f"\n{'='*60}")
+    print(f"🔍 MULTI-FOLD TEXT SEARCH & HIGHLIGHT")
+    print(f"{'='*60}")
+    print(f"  Searching in {len(fold_image_paths)} fold images")
+    print(f"  Target text: '{search_text[:80]}{'...' if len(search_text) > 80 else ''}'")
+    print(f"  Duration: {duration}s")
+    print(f"  Aspect Ratio: {aspect_ratio}")
+    
+    # Get output dimensions
+    output_size = ASPECT_RATIOS.get(aspect_ratio, (1080, 1920))
+    print(f"  Output Size: {output_size[0]}x{output_size[1]}")
+    
+    # ================================================================
+    # STEP 1: Identify which fold contains the text
+    # ================================================================
+    selected_image_path = None
+    
+    # If we already know which fold has the text (from earlier Grok suggestion), skip this step
+    if known_fold_index is not None:
+        print(f"\n  📋 STEP 1: SKIPPED - Fold #{known_fold_index} already identified by Grok suggestion")
+        
+        # Validate and use the known index
+        if known_fold_index >= 1 and known_fold_index <= len(fold_image_paths):
+            selected_image_path = fold_image_paths[known_fold_index - 1]
+            print(f"  🖼️ Using pre-identified fold: {selected_image_path}")
+            
+            # Load image to get dimensions
+            img = Image.open(selected_image_path)
+            print(f"    Size: {img.size[0]}x{img.size[1]}")
+        else:
+            print(f"  ❌ Invalid known fold index {known_fold_index}")
+            return (None, [])
+    else:
+        # Need to ask Grok which fold has the user-specified text
+        print(f"\n  📋 STEP 1: Using Grok to identify which fold contains the text...")
+        
+        # Prepare all images for Grok
+        image_data_urls = []
+        for i, img_path in enumerate(fold_image_paths):
+            print(f"  Loading fold {i+1}: {img_path}")
+            
+            img = Image.open(img_path)
+            img_width, img_height = img.size
+            print(f"    Size: {img_width}x{img_height}")
+            
+            with open(img_path, "rb") as f:
+                image_data = base64.b64encode(f.read()).decode('utf-8')
+            
+            ext = img_path.lower().split('.')[-1]
+            mime_types = {'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'gif': 'image/gif', 'webp': 'image/webp'}
+            mime_type = mime_types.get(ext, 'image/jpeg')
+            image_data_urls.append(f"data:{mime_type};base64,{image_data}")
+        
+        # Grok prompt - ONLY asks which image contains the text, NOT coordinates
+        system_prompt = f"""You are an expert at finding specific text in images.
+
+You will be shown {len(fold_image_paths)} images (Image 1, Image 2, etc.). These are consecutive "folds" (screen-sized sections) of a webpage article.
+
+Your task is ONLY to identify which image contains the specified text.
+Do NOT provide coordinates - just identify the image number.
+
+OUTPUT FORMAT (JSON only):
+{{
+  "found": true/false,
+  "image_index": 1-based index (1, 2, 3, etc.) or null if not found,
+  "confidence": "high" or "medium" or "low" or "none"
+}}
+
+Return ONLY the JSON object, no explanation."""
+
+        user_prompt = f"""Which of these {len(fold_image_paths)} images contains the following text?
+
+TEXT TO FIND:
+"{search_text}"
+
+Return ONLY the image number in JSON format."""
+
+        try:
+            print(f"\n  🔗 Connecting to Grok-4-latest...")
+            client = Client(api_key=os.getenv('XAI_API_KEY'), timeout=3600)
+            chat = client.chat.create(model="grok-4-latest")
+            
+            chat.append(system(system_prompt))
+            
+            content_items = [user_prompt]
+            for i, img_url in enumerate(image_data_urls):
+                content_items.append(image(image_url=img_url, detail="high"))
+            
+            chat.append(user(*content_items))
+            
+            print(f"  📤 Sending {len(fold_image_paths)} images to Grok...")
+            response = chat.sample()
+            response_text = response.content.strip()
+            
+            print(f"  ✅ Grok analysis complete")
+            print(f"\n{'='*60}")
+            print(f"📄 GROK RESPONSE:")
+            print(f"{'='*60}")
+            print(response_text)
+            print(f"{'='*60}\n")
+            
+            # Parse JSON response
+            json_content = response_text
+            
+            # Handle markdown code blocks
+            if "```json" in json_content:
+                json_start = json_content.find("```json") + 7
+                json_end = json_content.find("```", json_start)
+                json_content = json_content[json_start:json_end].strip()
+            elif "```" in json_content:
+                json_start = json_content.find("```") + 3
+                json_end = json_content.find("```", json_start)
+                json_content = json_content[json_start:json_end].strip()
+            
+            # Find JSON object
+            if not json_content.startswith("{"):
+                start_idx = json_content.find("{")
+                end_idx = json_content.rfind("}") + 1
+                if start_idx != -1 and end_idx > start_idx:
+                    json_content = json_content[start_idx:end_idx]
+            
+            result = json.loads(json_content)
+            
+            if not result.get("found", False):
+                print(f"  ⚠️ Grok: Text not found in any fold image")
+                return (None, [])
+            
+            image_index = result.get("image_index", 1)
+            confidence = result.get("confidence", "unknown")
+            
+            print(f"  ✅ Grok found text in Image {image_index} (confidence: {confidence})")
+            
+            # Validate image index
+            if image_index < 1 or image_index > len(fold_image_paths):
+                print(f"  ❌ Invalid image index {image_index}")
+                return (None, [])
+            
+            selected_image_path = fold_image_paths[image_index - 1]
+            print(f"  🖼️ Selected fold: {selected_image_path}")
+            
+        except json.JSONDecodeError as e:
+            print(f"  ❌ Failed to parse Grok JSON response: {e}")
+            return (None, [])
+        except Exception as e:
+            print(f"  ❌ Grok fold identification failed: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return (None, [])
+    
+    # ================================================================
+    # STEP 2: Use GOOGLE VISION API for accurate bounding box
+    # ================================================================
+    bbox = None
+    
+    if use_vision_api and GOOGLE_API_KEY:
+        print(f"\n  📐 STEP 2: Using Google Vision API for precise bounding box...")
+        
+        bbox = find_text_with_google_vision(
+            image_path=selected_image_path,
+            search_text=search_text
+        )
+        
+        if bbox:
+            print(f"\n  ✅ Google Vision API: Got precise coordinates")
+        else:
+            print(f"\n  ⚠️ Google Vision API couldn't find text, using Grok coordinates as fallback...")
+    else:
+        if not GOOGLE_API_KEY:
+            print(f"\n  ⚠️ GOOGLE_API_KEY not set, skipping Vision API")
+        else:
+            print(f"\n  ⚠️ Vision API disabled, skipping")
+    
+    # ================================================================
+    # STEP 3: Create effects plan
+    # ================================================================
+    if bbox:
+        # Use Vision API coordinates (accurate bounding box for the text)
+        left_pct, top_pct, right_pct, bottom_pct = bbox
+        from_vision_api = True
+        print(f"  📏 Using precise Vision API coordinates:")
+        print(f"     Region: left={left_pct:.1f}%, top={top_pct:.1f}%, right={right_pct:.1f}%, bottom={bottom_pct:.1f}%")
+    else:
+        # Fallback: Use approximate coordinates (center of image)
+        print(f"  ⚠️ Using fallback coordinates (center region)")
+        left_pct, top_pct, right_pct, bottom_pct = 3, 40, 97, 60
+        from_vision_api = False
+    
+    # Calculate zoom target region (center on the highlighted text with some padding)
+    # This creates a subtle zoom into the text area
+    zoom_center_y = (top_pct + bottom_pct) / 2
+    zoom_padding = 15  # Add padding around the text for zoom target
+    zoom_top = max(0, zoom_center_y - zoom_padding)
+    zoom_bottom = min(100, zoom_center_y + zoom_padding)
+    
+    # Calculate blur region (slightly expanded from highlight for better focus effect)
+    blur_region_top = max(0, top_pct - 5)
+    blur_region_bottom = min(100, bottom_pct + 5)
+    
+    # IMPORTANT: Apply effects in correct order:
+    # 1. Background blur (first, so highlight appears on top of blurred bg)
+    # 2. Highlight overlay
+    # 3. Zoom (last, so everything zooms together)
+    effects_plan = [
+        # Background blur - gradually increases over duration
+        # Starts sharp (blur_start=0), ends blurred (blur_end=10)
+        {
+            "effect_type": "focus_rack",
+            "start_region": {
+                "left_pct": 0,
+                "top_pct": blur_region_top,
+                "right_pct": 100,
+                "bottom_pct": blur_region_bottom
+            },
+            "end_region": {
+                "left_pct": 0,
+                "top_pct": blur_region_top,
+                "right_pct": 100,
+                "bottom_pct": blur_region_bottom
+            },
+            "blur_start": 0,   # Start with no blur
+            "blur_end": 10,    # End with moderate blur
+            "start_time": 0,
+            "duration": duration
+        },
+        # Highlight overlay - configurable style
+        {
+            "effect_type": "highlight_overlay",
+            "region": {
+                "left_pct": left_pct,
+                "top_pct": top_pct,
+                "right_pct": right_pct,
+                "bottom_pct": bottom_pct
+            },
+            "feather": 2,
+            # Highlight animation style based on CLI parameter
+            "progressive": highlight_style == "sweep",      # L→R sweep
+            "progressive_down": highlight_style == "sweep-down",  # Top→bottom for multi-line
+            # Static mode: use pulse/fade for full box highlight
+            "pulse": highlight_style == "static",
+            "pulse_speed": 1.5,
+            "fade_in": highlight_style == "static",
+            "fade_in_duration": 0.4,
+            "start_time": 0,
+            "duration": duration,
+            "_from_vision_api": from_vision_api
+        }
+    ]
+    
+    # Add zoom effect only if not in mobile mode (mobile viewport is too small for zoom)
+    if not skip_zoom:
+        effects_plan.append({
+            "effect_type": "zoom_in",
+            "region": {
+                "left_pct": 10,
+                "top_pct": zoom_top,
+                "right_pct": 90,
+                "bottom_pct": zoom_bottom
+            },
+            "zoom_start": 1.0,
+            "zoom_end": 1.08,  # Subtle 8% zoom
+            "start_time": 0,
+            "duration": duration
+        })
+    
+    # Describe highlight style in logs
+    style_desc = {
+        "sweep": "highlight_sweep (L→R)",
+        "sweep-down": "highlight_sweep (↓) for multi-line",
+        "static": "highlight_static (pulse)"
+    }.get(highlight_style, "highlight")
+    
+    print(f"\n  ✅ Effects plan created (Vision API: {from_vision_api})")
+    if skip_zoom:
+        print(f"  🎬 Effects: progressive_blur (0→10) + {style_desc} (no zoom - mobile mode)")
+    else:
+        print(f"  🎬 Effects: progressive_blur (0→10) + {style_desc} + subtle zoom_in")
+    
+    return (selected_image_path, effects_plan)
+
+
 def get_fallback_effects_plan(duration: float) -> List[Dict]:
     """Fallback effects plan if Grok fails - uses new bounding box format"""
     print(f"  ⚠️ Using fallback effects plan")
@@ -2169,6 +3065,8 @@ Examples:
   python dynamic_video_generator.py --image photo.png --duration 6 --aspect-ratio 9:16 --instructions "Focus on the product, then zoom out"
   python dynamic_video_generator.py --image comparison.jpg --duration 4 --aspect-ratio 1:1 --instructions "Highlight the difference between left and right"
   python dynamic_video_generator.py --image chart.png --duration 8 --aspect-ratio 16:9 --instructions "Start from the title, pan across the data points"
+  python dynamic_video_generator.py --image sale.png --duration 5 -hc yellow -ha 0.7 --instructions "Use highlight_overlay effect on the price tag"
+  python dynamic_video_generator.py --image article.png --duration 6 -hc "#FF6B6B" -ha 0.5 --instructions "Highlight the headline with highlight_overlay"
 
 Available Aspect Ratios:
   9:16  - TikTok, Reels, Shorts (1080x1920)
@@ -2177,6 +3075,14 @@ Available Aspect Ratios:
   4:5   - Instagram portrait (1080x1350)
   4:3   - Traditional (1440x1080)
   WxH   - Custom dimensions (e.g., 1280x720)
+
+Highlight Colors:
+  Basic:    black, white, red, green, blue, yellow, cyan, magenta
+  Extended: orange, pink, purple, lime, navy, teal, coral, gold, gray
+  Light:    lightyellow, lightgreen, lightblue, lightpink, lavender, mint, cream
+  Vibrant:  hotpink, tomato, chartreuse, turquoise, violet, indigo, crimson
+  Neon:     neongreen, neonpink, neonyellow, neonorange, neonblue
+  Hex:      #FF6B6B, #00FF00, #123456, etc.
         """
     )
     
@@ -2212,6 +3118,17 @@ Available Aspect Ratios:
         help="Frames per second (default: 30)"
     )
     parser.add_argument(
+        "--highlight-color", "-hc",
+        default="yellow",
+        help="Default highlight overlay color: yellow, red, green, blue, orange, pink, cyan, white, or hex code (default: yellow)"
+    )
+    parser.add_argument(
+        "--highlight-alpha", "-ha",
+        type=float,
+        default=0.7,
+        help="Default highlight overlay opacity 0.0-1.0 (default: 0.7)"
+    )
+    parser.add_argument(
         "--no-ai",
         action="store_true",
         help="Skip Grok analysis and use fallback effects"
@@ -2240,6 +3157,11 @@ Available Aspect Ratios:
         print(f"⚠️ Duration should be between 2-30 seconds, got {args.duration}")
         args.duration = max(2, min(30, args.duration))
     
+    # Validate highlight alpha
+    if args.highlight_alpha < 0.0 or args.highlight_alpha > 1.0:
+        print(f"⚠️ Highlight alpha should be between 0.0-1.0, got {args.highlight_alpha}")
+        args.highlight_alpha = max(0.0, min(1.0, args.highlight_alpha))
+    
     print(f"\n{'='*60}")
     print(f"🎬 DYNAMIC VIDEO GENERATOR")
     print(f"{'='*60}")
@@ -2248,6 +3170,8 @@ Available Aspect Ratios:
     print(f"  Duration: {args.duration}s")
     print(f"  Aspect Ratio: {args.aspect_ratio} ({output_size[0]}x{output_size[1]})")
     print(f"  FPS: {args.fps}")
+    print(f"  Highlight Color: {args.highlight_color}")
+    print(f"  Highlight Alpha: {args.highlight_alpha}")
     print(f"  Instructions: {args.instructions or '(auto)'}")
     
     # Get effects plan
@@ -2266,7 +3190,9 @@ Available Aspect Ratios:
         image_path=args.image,
         output_size=output_size,
         duration=args.duration,
-        fps=args.fps
+        fps=args.fps,
+        highlight_color=args.highlight_color,
+        highlight_alpha=args.highlight_alpha
     )
     engine.set_effects_plan(effects_plan)
     engine.generate_video(output_path)

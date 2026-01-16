@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     # Twitter API Keys
     twitter_bearer_token: Optional[str] = Field(default=None, env="TWITTER_BEARER_TOKEN")
     
+    # Instagram Session Cookie (for downloading protected content)
+    instagram_session_id: Optional[str] = Field(default=None, env="INSTAGRAM_SESSION_ID")
+    
     # Default LLM Provider Configuration (pluggable)
     default_llm_provider: str = Field(default="openai", env="DEFAULT_LLM_PROVIDER")
     fallback_llm_provider: str = Field(default="anthropic", env="FALLBACK_LLM_PROVIDER")

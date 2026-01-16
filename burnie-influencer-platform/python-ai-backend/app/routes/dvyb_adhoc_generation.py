@@ -36,6 +36,239 @@ import io
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+def get_instagram_headers(with_session: bool = True) -> dict:
+    """
+    Get enhanced headers for Instagram requests.
+    Includes session cookie if configured and requested.
+    
+    Args:
+        with_session: Whether to include session cookie (if available)
+        
+    Returns:
+        Headers dict for requests
+    """
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Referer': 'https://www.instagram.com/',
+        'Origin': 'https://www.instagram.com',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'same-origin',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
+        'Connection': 'keep-alive',
+    }
+    
+    # Add session cookie if available
+    if with_session and settings.instagram_session_id:
+        headers['Cookie'] = f'sessionid={settings.instagram_session_id}'
+        print(f"  🔐 Using Instagram session cookie for authentication")
+    
+    return headers
+
+
+def download_with_instagram_auth(img_url: str, output_path: str, max_retries: int = 3) -> bool:
+    """
+    Download image from Instagram with authentication fallback.
+    
+    Strategy:
+    1. First try without session (some public content works)
+    2. If 403, retry with session cookie
+    3. If still fails, return False
+    
+    Args:
+        img_url: URL to download
+        output_path: Path to save the image
+        max_retries: Number of retry attempts
+        
+    Returns:
+        True if download successful, False otherwise
+    """
+    import requests
+    
+    for attempt in range(max_retries):
+        try:
+            # First attempt: try with session if available
+            use_session = attempt > 0 or settings.instagram_session_id
+            headers = get_instagram_headers(with_session=use_session)
+            
+            response = requests.get(img_url, headers=headers, timeout=30, stream=True)
+            
+            if response.status_code == 403:
+                if attempt == 0 and settings.instagram_session_id:
+                    print(f"  ⚠️ Got 403 Forbidden, retrying with session cookie...")
+                    continue
+                else:
+                    print(f"  ❌ 403 Forbidden - Instagram blocked access (session cookie may be expired)")
+                    return False
+            
+            response.raise_for_status()
+            
+            # Verify content type
+            content_type = response.headers.get('content-type', '').lower()
+            if 'image' not in content_type and 'octet-stream' not in content_type:
+                print(f"  ⚠️ Unexpected content-type: {content_type}")
+            
+            # Save the image
+            with open(output_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            
+            file_size = os.path.getsize(output_path)
+            print(f"  ✅ Downloaded successfully: {file_size} bytes")
+            return True
+            
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 403:
+                if attempt < max_retries - 1 and settings.instagram_session_id:
+                    print(f"  ⚠️ HTTP 403, retrying with session...")
+                    continue
+                print(f"  ❌ HTTP 403 Forbidden - access denied")
+            else:
+                print(f"  ❌ HTTP error: {e}")
+            return False
+        except Exception as e:
+            print(f"  ❌ Download error (attempt {attempt + 1}): {type(e).__name__}: {e}")
+            if attempt < max_retries - 1:
+                continue
+            return False
+    
+    return False
+
+
+def get_instagram_headers(with_session: bool = True) -> dict:
+    """Get enhanced headers for Instagram requests with optional session cookie."""
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://www.instagram.com/',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+    }
+    if with_session and settings.instagram_session_id:
+        headers['Cookie'] = f'sessionid={settings.instagram_session_id}'
+    return headers
+
+
+def download_with_instagram_auth(img_url: str, output_path: str) -> bool:
+    """
+    Download image from Instagram with 3-step retry approach:
+    1. Basic headers (old approach)
+    2. Enhanced headers (no session)
+    3. Enhanced headers + session cookie
+    """
+    import requests
+    
+    # Define retry steps
+    retry_steps = [
+        ("basic", False),      # Step 1: Basic headers
+        ("enhanced", False),   # Step 2: Enhanced headers, no session
+    ]
+    if settings.instagram_session_id:
+        retry_steps.append(("enhanced", True))  # Step 3: Enhanced headers + session
+    
+    for step_name, use_session in retry_steps:
+        try:
+            if step_name == "basic":
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+                print(f"  📥 Step 1: Trying basic headers...")
+            else:
+                headers = get_instagram_headers(with_session=use_session)
+                if use_session:
+                    print(f"  🔐 Step 3: Retrying with enhanced headers + session cookie...")
+                else:
+                    print(f"  🔧 Step 2: Retrying with enhanced headers...")
+            
+            response = requests.get(img_url, headers=headers, timeout=30, stream=True)
+            
+            if response.status_code == 403:
+                print(f"  ⚠️ Got 403 Forbidden")
+                continue  # Try next step
+            
+            response.raise_for_status()
+            
+            with open(output_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            
+            print(f"  ✅ Downloaded: {os.path.getsize(output_path)} bytes")
+            return True
+            
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 403:
+                print(f"  ⚠️ HTTP 403 Forbidden")
+                continue  # Try next step
+            print(f"  ❌ HTTP error: {e}")
+            continue
+        except Exception as e:
+            print(f"  ⚠️ Download error: {type(e).__name__}: {e}")
+            continue
+    
+    print(f"  ❌ All download attempts failed")
+    return False
+
+
+def refresh_presigned_url_if_needed(url: str) -> str:
+    """
+    Check if URL is a presigned S3 URL and refresh it with a new presigned URL.
+    This prevents 'Request has expired' errors when using URLs for FAL.
+    
+    Args:
+        url: The URL to check/refresh
+        
+    Returns:
+        Fresh presigned URL if it was an S3 URL, otherwise the original URL
+    """
+    try:
+        from urllib.parse import urlparse, parse_qs
+        
+        parsed = urlparse(url)
+        
+        # Check if it's an S3 URL (contains s3.amazonaws.com or is from our bucket)
+        if 's3.amazonaws.com' not in parsed.netloc and 'burnie-' not in parsed.netloc:
+            # Not an S3 URL, return as-is
+            return url
+        
+        # Check if it has presigned URL parameters
+        query_params = parse_qs(parsed.query)
+        if not query_params.get('Signature') and not query_params.get('X-Amz-Signature'):
+            # Not a presigned URL (might be a public URL), return as-is
+            return url
+        
+        # Extract S3 key from the URL path
+        # URL format: https://bucket-name.s3.amazonaws.com/key/path/file.jpg?...
+        # or https://s3.amazonaws.com/bucket-name/key/path/file.jpg?...
+        s3_key = parsed.path.lstrip('/')
+        
+        # If bucket name is in the path (older S3 URL format), remove it
+        if s3_key.startswith('burnie-'):
+            parts = s3_key.split('/', 1)
+            if len(parts) > 1:
+                s3_key = parts[1]
+        
+        if not s3_key:
+            print(f"  ⚠️ Could not extract S3 key from URL: {url[:80]}...")
+            return url
+        
+        # Generate fresh presigned URL
+        fresh_url = web2_s3_helper.generate_presigned_url(s3_key)
+        if fresh_url:
+            print(f"  🔄 Refreshed presigned URL for: {s3_key[:60]}...")
+            return fresh_url
+        else:
+            print(f"  ⚠️ Failed to refresh presigned URL, using original")
+            return url
+            
+    except Exception as e:
+        print(f"  ⚠️ Error refreshing presigned URL: {e}")
+        return url
+
 # Configure fal_client
 fal_api_key = settings.fal_api_key
 if fal_api_key:
@@ -417,6 +650,10 @@ def is_video_platform_url(url: str) -> bool:
 def download_inspiration_video(url: str, output_dir: str = "/tmp/dvyb-inspirations") -> tuple:
     """
     Download video from YouTube/Instagram/Twitter using yt-dlp.
+    Uses 3-step retry approach for Instagram:
+    1. Basic (no cookies)
+    2. With enhanced headers via extractor args
+    3. With session cookie
     Returns (video_path, is_video) - is_video is False if it's an image.
     """
     os.makedirs(output_dir, exist_ok=True)
@@ -425,34 +662,76 @@ def download_inspiration_video(url: str, output_dir: str = "/tmp/dvyb-inspiratio
     print(f"  📥 Downloading inspiration video...")
     print(f"     URL: {url[:80]}...")
     
-    ydl_opts = {
-        'format': 'best[ext=mp4]/best',
-        'outtmpl': output_filename,
-        'quiet': True,
-        'no_warnings': True,
-    }
+    # Check if Instagram
+    is_instagram = 'instagram.com' in url.lower()
     
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
+    # Define retry steps for Instagram
+    if is_instagram:
+        retry_steps = [
+            ("basic", None),        # Step 1: Basic, no cookies
+            ("enhanced", None),     # Step 2: Enhanced extractor args
+        ]
+        if settings.instagram_session_id:
+            retry_steps.append(("session", settings.instagram_session_id))  # Step 3: With session
+    else:
+        retry_steps = [("basic", None)]  # Non-Instagram: single attempt
+    
+    for step_name, session_id in retry_steps:
+        try:
+            ydl_opts = {
+                'format': 'best[ext=mp4]/best',
+                'outtmpl': output_filename,
+                'quiet': True,
+                'no_warnings': True,
+            }
             
-            # Check if it's actually a video (has duration)
-            duration = info.get('duration', 0)
-            if duration == 0:
-                print(f"  ⚠️ No video found at URL (might be an image post)")
-                return (None, False)
+            if step_name == "basic":
+                print(f"  📥 Step 1: Trying basic download...")
+            elif step_name == "enhanced":
+                print(f"  🔧 Step 2: Retrying with enhanced extractor args...")
+                ydl_opts['extractor_args'] = {
+                    'instagram': {
+                        'headers': [
+                            'User-Agent:Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                            'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        ]
+                    }
+                }
+            elif step_name == "session" and session_id:
+                print(f"  🔐 Step 3: Retrying with session cookie...")
+                # Create a cookies file for yt-dlp
+                cookies_file = os.path.join(output_dir, 'instagram_cookies.txt')
+                with open(cookies_file, 'w') as f:
+                    f.write("# Netscape HTTP Cookie File\n")
+                    f.write(f".instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\t{session_id}\n")
+                ydl_opts['cookiefile'] = cookies_file
             
-            print(f"  ✅ Downloaded: {duration:.1f}s video")
-            return (output_filename, True)
-    except yt_dlp.utils.DownloadError as e:
-        print(f"  ❌ Video download failed (yt-dlp error): {e}")
-        print(f"     This may be due to: private content, geo-restrictions, or unsupported URL format")
-        return (None, False)
-    except Exception as e:
-        print(f"  ❌ Video download failed (unexpected error): {type(e).__name__}: {e}")
-        import traceback
-        print(f"     {traceback.format_exc()}")
-        return (None, False)
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                
+                # Check if it's actually a video (has duration)
+                duration = info.get('duration', 0)
+                if duration == 0:
+                    print(f"  ⚠️ No video found at URL (might be an image post)")
+                    return (None, False)
+                
+                print(f"  ✅ Downloaded: {duration:.1f}s video")
+                return (output_filename, True)
+                
+        except yt_dlp.utils.DownloadError as e:
+            error_str = str(e).lower()
+            if '403' in error_str or 'forbidden' in error_str or 'private' in error_str:
+                print(f"  ⚠️ Access denied (403/private), trying next step...")
+                continue
+            print(f"  ❌ Video download failed (yt-dlp error): {e}")
+            continue
+        except Exception as e:
+            print(f"  ⚠️ Video download error: {type(e).__name__}: {e}")
+            continue
+    
+    print(f"  ❌ All video download attempts failed")
+    print(f"     This may be due to: private content, geo-restrictions, or expired session")
+    return (None, False)
 
 
 def download_inspiration_image(url: str, output_dir: str = "/tmp/dvyb-inspirations") -> tuple:
@@ -535,81 +814,127 @@ def download_inspiration_image(url: str, output_dir: str = "/tmp/dvyb-inspiratio
         skip_social_strategies = False
     
     # STRATEGY 1: Try yt-dlp first (only for social media platforms)
+    # Uses 3-step retry for Instagram: basic → enhanced → session cookie
     if not skip_social_strategies:
         print(f"  🔧 Strategy 1: Trying yt-dlp...")
         output_template = f"{output_dir}/inspiration_%(autonumber)s.%(ext)s"
         
-        ydl_opts = {
-            'format': 'best',
-            'outtmpl': output_template,
-            'quiet': False,  # Enable output for debugging
-            'no_warnings': False,
-            'writethumbnail': False,
-            'skip_download': False,
-            'playlist_items': '1',  # Only download first item from carousels
-            'noplaylist': False,  # Allow playlist/carousel processing
-        }
+        # Define retry steps for Instagram
+        if is_instagram:
+            ydl_retry_steps = [
+                ("basic", None),
+                ("enhanced", None),
+            ]
+            if settings.instagram_session_id:
+                ydl_retry_steps.append(("session", settings.instagram_session_id))
+        else:
+            ydl_retry_steps = [("basic", None)]
         
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                print(f"  🔍 Extracting info from URL...")
-                info = ydl.extract_info(url, download=True)
+        ydl_success = False
+        for step_name, session_id in ydl_retry_steps:
+            if ydl_success:
+                break
                 
-                print(f"  🔍 Info type: {'playlist/carousel' if 'entries' in info else 'single media'}")
-                if 'entries' in info:
-                    print(f"  🔍 Number of entries: {len(info.get('entries', []))}")
+            ydl_opts = {
+                'format': 'best',
+                'outtmpl': output_template,
+                'quiet': False,  # Enable output for debugging
+                'no_warnings': False,
+                'writethumbnail': False,
+                'skip_download': False,
+                'playlist_items': '1',  # Only download first item from carousels
+                'noplaylist': False,  # Allow playlist/carousel processing
+            }
+            
+            if step_name == "basic":
+                print(f"  📥 yt-dlp Step 1: Basic download...")
+            elif step_name == "enhanced":
+                print(f"  🔧 yt-dlp Step 2: Enhanced extractor args...")
+                ydl_opts['extractor_args'] = {
+                    'instagram': {
+                        'headers': [
+                            'User-Agent:Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                        ]
+                    }
+                }
+            elif step_name == "session" and session_id:
+                print(f"  🔐 yt-dlp Step 3: With session cookie...")
+                cookies_file = os.path.join(output_dir, 'instagram_cookies.txt')
+                with open(cookies_file, 'w') as f:
+                    f.write("# Netscape HTTP Cookie File\n")
+                    f.write(f".instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\t{session_id}\n")
+                ydl_opts['cookiefile'] = cookies_file
+            
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    print(f"  🔍 Extracting info from URL...")
+                    info = ydl.extract_info(url, download=True)
                 
-                # Collect downloaded files
-                downloaded_files = []
-                
-                # Check if it's a single image
-                if info.get('ext') in ['jpg', 'jpeg', 'png', 'webp', 'gif']:
-                    filename = ydl.prepare_filename(info)
-                    if os.path.exists(filename):
-                        downloaded_files.append(filename)
-                        print(f"  ✅ yt-dlp: Downloaded 1 image")
-                
-                # Check if it's a carousel/multiple images
-                elif 'entries' in info and len(info['entries']) > 0:
-                    # Only process first entry
-                    entry = info['entries'][0]
-                    if entry.get('ext') in ['jpg', 'jpeg', 'png', 'webp', 'gif']:
-                        filename = ydl.prepare_filename(entry)
+                    print(f"  🔍 Info type: {'playlist/carousel' if 'entries' in info else 'single media'}")
+                    if 'entries' in info:
+                        print(f"  🔍 Number of entries: {len(info.get('entries', []))}")
+                    
+                    # Collect downloaded files
+                    downloaded_files = []
+                    
+                    # Check if it's a single image
+                    if info.get('ext') in ['jpg', 'jpeg', 'png', 'webp', 'gif']:
+                        filename = ydl.prepare_filename(info)
                         if os.path.exists(filename):
                             downloaded_files.append(filename)
-                            print(f"  ✅ yt-dlp: Downloaded first image from carousel")
-                
-                # Scan directory for any downloaded files
-                if not downloaded_files:
-                    for file in os.listdir(output_dir):
-                        file_path = os.path.join(output_dir, file)
-                        if file.startswith('inspiration_') and os.path.isfile(file_path):
-                            ext = file.split('.')[-1].lower()
-                            if ext in ['jpg', 'jpeg', 'png', 'webp', 'gif']:
-                                downloaded_files.append(file_path)
-                
-                if downloaded_files:
-                    return ([downloaded_files[0]], True)
-                
-                # If yt-dlp returned 0 entries for Instagram, try instaloader
-                if is_instagram and 'entries' in info and len(info.get('entries', [])) == 0:
-                    print(f"  ⚠️ yt-dlp returned 0 entries for Instagram, trying fallback...")
-                else:
-                    print(f"  ⚠️ yt-dlp: No images found, trying fallback strategies...")
+                            print(f"  ✅ yt-dlp: Downloaded 1 image")
                     
-        except Exception as e:
-            error_str = str(e)
-            print(f"  ⚠️ yt-dlp failed: {type(e).__name__}: {e}")
-            
-            # Try to extract redirect URL from "Unsupported URL" error message
-            # Pattern: "ERROR: Unsupported URL: https://..."
-            if 'Unsupported URL:' in error_str:
-                import re
-                url_match = re.search(r'Unsupported URL: (https?://[^\s]+)', error_str)
-                if url_match:
-                    discovered_redirect_url = url_match.group(1)
-                    print(f"  🔍 Discovered redirect URL: {discovered_redirect_url[:80]}...")
-                    print(f"     Will use this URL for Strategy 3 web scraping")
+                    # Check if it's a carousel/multiple images
+                    elif 'entries' in info and len(info['entries']) > 0:
+                        # Only process first entry
+                        entry = info['entries'][0]
+                        if entry.get('ext') in ['jpg', 'jpeg', 'png', 'webp', 'gif']:
+                            filename = ydl.prepare_filename(entry)
+                            if os.path.exists(filename):
+                                downloaded_files.append(filename)
+                                print(f"  ✅ yt-dlp: Downloaded first image from carousel")
+                    
+                    # Scan directory for any downloaded files
+                    if not downloaded_files:
+                        for file in os.listdir(output_dir):
+                            file_path = os.path.join(output_dir, file)
+                            if file.startswith('inspiration_') and os.path.isfile(file_path):
+                                ext = file.split('.')[-1].lower()
+                                if ext in ['jpg', 'jpeg', 'png', 'webp', 'gif']:
+                                    downloaded_files.append(file_path)
+                    
+                    if downloaded_files:
+                        return ([downloaded_files[0]], True)
+                    
+                    # If yt-dlp returned 0 entries for Instagram, try next step or fallback
+                    if is_instagram and 'entries' in info and len(info.get('entries', [])) == 0:
+                        print(f"  ⚠️ yt-dlp returned 0 entries, trying next step...")
+                        continue
+                    else:
+                        print(f"  ⚠️ yt-dlp: No images found, trying fallback strategies...")
+                        break  # Exit yt-dlp loop, try other strategies
+                        
+            except Exception as e:
+                error_str = str(e)
+                print(f"  ⚠️ yt-dlp step '{step_name}' failed: {type(e).__name__}: {e}")
+                
+                # Check if it's an access denied error
+                if '403' in error_str or 'forbidden' in error_str.lower() or 'private' in error_str.lower():
+                    print(f"  ⚠️ Access denied, trying next step...")
+                    continue
+                
+                # Try to extract redirect URL from "Unsupported URL" error message
+                if 'Unsupported URL:' in error_str:
+                    import re
+                    url_match = re.search(r'Unsupported URL: (https?://[^\s]+)', error_str)
+                    if url_match:
+                        discovered_redirect_url = url_match.group(1)
+                        print(f"  🔍 Discovered redirect URL: {discovered_redirect_url[:80]}...")
+                        print(f"     Will use this URL for Strategy 3 web scraping")
+                        break  # Exit yt-dlp loop
+                
+                # For other errors, try next step
+                continue
     
     # STRATEGY 2: Try instaloader for Instagram (only if Instagram and Strategy 1 failed)
     if not skip_social_strategies and is_instagram:
@@ -658,32 +983,25 @@ def download_inspiration_image(url: str, output_dir: str = "/tmp/dvyb-inspiratio
                         img_url = first_node.display_url
                         print(f"  🔍 Downloading first carousel image from URL...")
                         
-                        # Download the image directly
-                        import requests
-                        response = requests.get(img_url, timeout=30)
-                        response.raise_for_status()
-                        
+                        # Download with Instagram auth (handles 403 errors)
                         img_path = os.path.join(output_dir, f"insta_{shortcode}_0.jpg")
-                        with open(img_path, 'wb') as f:
-                            f.write(response.content)
-                        
-                        downloaded_files.append(img_path)
-                        print(f"  ✅ instaloader: Downloaded first image from carousel")
+                        if download_with_instagram_auth(img_url, img_path):
+                            downloaded_files.append(img_path)
+                            print(f"  ✅ instaloader: Downloaded first image from carousel")
+                        else:
+                            print(f"  ⚠️ instaloader: Failed to download carousel image")
                 else:
                     # Single image post
                     img_url = post.url
                     print(f"  🔍 Single image post, downloading...")
                     
-                    import requests
-                    response = requests.get(img_url, timeout=30)
-                    response.raise_for_status()
-                    
+                    # Download with Instagram auth (handles 403 errors)
                     img_path = os.path.join(output_dir, f"insta_{shortcode}.jpg")
-                    with open(img_path, 'wb') as f:
-                        f.write(response.content)
-                    
-                    downloaded_files.append(img_path)
-                    print(f"  ✅ instaloader: Downloaded 1 image")
+                    if download_with_instagram_auth(img_url, img_path):
+                        downloaded_files.append(img_path)
+                        print(f"  ✅ instaloader: Downloaded 1 image")
+                    else:
+                        print(f"  ⚠️ instaloader: Failed to download image")
                 
                 if downloaded_files:
                     return (downloaded_files, True)
@@ -709,9 +1027,14 @@ def download_inspiration_image(url: str, output_dir: str = "/tmp/dvyb-inspiratio
         else:
             print(f"  🔍 Fetching webpage: {scrape_url[:80]}...")
         
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
+        # Use enhanced headers for Instagram, standard headers for other sites
+        if is_instagram:
+            headers = get_instagram_headers(with_session=True)
+            print(f"  🔐 Using enhanced Instagram headers" + (" with session cookie" if settings.instagram_session_id else ""))
+        else:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
         response = requests.get(scrape_url, headers=headers, timeout=10, allow_redirects=True)
         response.raise_for_status()
         
@@ -4586,7 +4909,8 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
                 styling = insp.get('styling_aesthetics', {})
                 
                 inspiration_sections.append(f"""
-🖼️ INSPIRATION {idx} ANALYSIS (from social media image post):
+🖼️ INSPIRATION {idx} ANALYSIS (for image_{idx}) - EXACT STYLE FUSION REQUIRED:
+⚠️ This inspiration image will be passed to the model. Generate prompt for EXACT replication with product fusion.
 
 📸 VISUAL AESTHETICS:
 - Color Palette: {', '.join(visual_aesthetics.get('color_palette', []))}
@@ -4616,6 +4940,8 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
 - Patterns: {', '.join(styling.get('patterns', []))}
 
 💡 REPLICATION TIPS: {insp.get('replication_tips', 'N/A')}
+
+🎯 PROMPT REQUIREMENT FOR IMAGE {idx}: "Exactly replicate inspiration image {idx} style/layout. Keep all design elements identical. Replace only the products with reference product. Change/adapt text content to align with reference product while keeping identical typography style. Maintain: {visual_aesthetics.get('mood_atmosphere', 'aesthetic')}, {visual_aesthetics.get('lighting_style', 'lighting')}, {styling.get('overall_style', 'styling')}, {composition.get('shot_type', 'composition')}."
 """)
             
             image_inspiration_str = "\n".join(inspiration_sections)
@@ -4636,7 +4962,8 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
             action = image_inspiration.get('action_movement', {})
             
             image_inspiration_str = f"""
-🖼️ IMAGE INSPIRATION ANALYSIS (from social media image post):
+🖼️ IMAGE INSPIRATION ANALYSIS (EXACT STYLE FUSION REQUIRED):
+⚠️ This inspiration image will be passed DIRECTLY to the model. Generate prompt for EXACT replication with product fusion.
 
 📸 VISUAL AESTHETICS:
 - Color Palette: {', '.join(visual_aesthetics.get('color_palette', []))}
@@ -4703,6 +5030,8 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
 ✨ CREATIVE ELEMENTS: {', '.join(image_inspiration.get('creative_elements', []))}
 
 💡 REPLICATION TIPS: {image_inspiration.get('replication_tips', 'N/A')}
+
+🎯 PROMPT REQUIREMENT: Your image prompt MUST instruct the model to "Exactly replicate the inspiration image style/layout. Keep all design elements identical: [specific elements from above]. Replace/fuse only the products with reference product (from inventory). Change/adapt any text content to align with reference product while keeping identical typography style and placement. Maintain identical: {visual_aesthetics.get('color_palette', ['color scheme'])[0] if visual_aesthetics.get('color_palette') else 'color scheme'}, {visual_aesthetics.get('lighting_style', 'lighting')}, {visual_aesthetics.get('mood_atmosphere', 'mood')}, {composition.get('shot_type', 'composition')}, {styling.get('overall_style', 'aesthetic')}."
 """
             print(f"\n🖼️ IMAGE INSPIRATION DETECTED!")
             print(f"   Color Palette: {visual_aesthetics.get('color_palette', [])}...")
@@ -5072,22 +5401,22 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
    🚨 USE "REFERENCE MODEL" KEYWORD (MANDATORY):
    - If inventory analysis shows has_model_image=true:
      * You MUST use the exact term **"reference model"** in ALL image prompts for UGC videos
-     * 🚨 MUST start with SHOT TYPE: "MEDIUM SHOT, waist-up with headroom: Reference model..."
-     * Example: "MEDIUM SHOT, waist-up with generous headroom above: Reference model sitting at table, looking at camera with genuine excitement, full head visible"
-     * Example: "THREE-QUARTER SHOT with complete head in frame: Reference model holding product and speaking naturally to camera, ample space above head"
+     * 🚨 MUST start with SHOT TYPE: "FULL BODY SHOT with headroom: Reference model..."
+     * Example: "FULL BODY SHOT with generous headroom above: Reference model sitting at table, looking at camera with genuine excitement, full head visible"
+     * Example: "FULL BODY SHOT with complete head in frame: Reference model holding product and speaking naturally to camera, ample space above head"
      * DO NOT describe new character details - just use "reference model" to refer to the person from the uploaded image
      * This ensures the same person appears consistently across all frames
    
   - If no model image provided (has_model_image=false - AUTONOMOUS DIVERSE CHARACTER GENERATION):
     * **🎨 IMPORTANT**: Create diverse, authentic influencer characters representing different ethnicities, genders, ages, and styles
     * Consider the brand's target audience and product category when designing the character
-    * 🚨 MUST start EVERY prompt with SHOT TYPE: "MEDIUM SHOT, waist-up with headroom: ..."
+    * 🚨 MUST start EVERY prompt with SHOT TYPE: "FULL BODY SHOT with headroom: ..."
     * Clip 1 image prompt: SHOT TYPE + FULL character description (MUST specify: ethnicity, age range, gender, style, appearance, clothing, body type)
-      → Example 1: "MEDIUM SHOT, waist-up with generous headroom above: South Asian woman, mid-20s, long dark hair, casual modern style, denim jacket over white tee, confident smile, face fully visible, modern apartment background"
-      → Example 2: "THREE-QUARTER SHOT with complete head in frame: African American man, early 30s, athletic build, streetwear outfit, friendly approachable demeanor, full head visible with space above, urban loft setting"
-      → Example 3: "MEDIUM SHOT with ample headroom: East Asian woman, late 20s, minimalist fashion, professional blazer, calm thoughtful expression, face visible, clean modern office"
+      → Example 1: "FULL BODY SHOT with generous headroom above: South Asian woman, mid-20s, long dark hair, casual modern style, denim jacket over white tee, confident smile, face fully visible, modern apartment background"
+      → Example 2: "FULL BODY SHOT with complete head in frame: African American man, early 30s, athletic build, streetwear outfit, friendly approachable demeanor, full head visible with space above, urban loft setting"
+      → Example 3: "FULL BODY SHOT with ample headroom: East Asian woman, late 20s, minimalist fashion, professional blazer, calm thoughtful expression, face visible, clean modern office"
     * Clip 2+ image prompts: SHOT TYPE + **"Reference character from previous frame"** + new context/action or setting
-      → Example: "MEDIUM SHOT, waist-up with headroom: Reference character from previous frame, now in elegant living room, demonstrating product use, full head visible"
+      → Example: "FULL BODY SHOT with headroom: Reference character from previous frame, now in elegant living room, demonstrating product use, full head visible"
     * IMPORTANT: Using "reference character" ensures the same person appears consistently across clips
    
    - Same person MUST appear across all clips in the video for consistency
@@ -6036,26 +6365,62 @@ You MUST intelligently decide HOW to display the product AND create VARIETY acro
 1. **HERO/CLOSEUP SHOTS** (NO humans): Dramatic product-only shots highlighting design, texture, materials
 2. **DETAIL/MACRO SHOTS** (NO humans): Extreme closeups showing craftsmanship, stitching, buttons, logos
 3. **FLAT-LAY/STYLED SHOTS** (NO humans): Product on beautiful surfaces with complementary props
-4. **LIFESTYLE SHOTS** (WITH humans): Models wearing/using the product in context
+4. **STREET STYLE FASHION SHOTS** (WITH humans): Models wearing products in European street style editorial aesthetic
+
+🌍🌍🌍 **MODERN LUXURY STREET STYLE AESTHETIC** (MANDATORY FOR ALL MODEL SHOTS) 🌍🌍🌍
+
+When generating images WITH models wearing/using products, you MUST create STREET STYLE FASHION PHOTOGRAPHY:
+
+**MANDATORY AESTHETIC FOR MODEL SHOTS**:
+- Think: Fashion week street style, Vogue street photography, luxury editorial
+- European city vibes: Paris, Milan, London, Copenhagen, Tokyo
+- Effortlessly stylish, not overly posed or stiff
+- Natural confidence, casual elegance, modern fashion-forward looks
+
+**LOCATION/SETTING REQUIREMENTS** (MANDATORY for model shots):
+→ European urban streets: cobblestone sidewalks, historic architecture, boutique storefronts
+→ Upscale neighborhoods: SoHo, Le Marais Paris, Mayfair London, Via Monte Napoleone Milan
+→ Lifestyle contexts: café terraces, gallery entrances, luxury hotel exteriors, crosswalks
+→ Fashion destinations: showroom entrances, flagship store exteriors, art district streets
+→ **NEVER**: generic studio backgrounds, plain walls, sterile environments for model shots
+
+**MODEL STYLING & POSE REQUIREMENTS**:
+→ FULL BODY SHOT showing complete outfit/look with headroom above
+→ Standing poses, casual poses, slight movement - natural positioning
+→ Natural confidence, relaxed posture - NOT stiff catalog poses
+→ Layered styling: coats over sweaters, jackets open, intentional fashion layering
+→ Modern fashion-forward aesthetics matching luxury streetwear trends
+→ Face visible with natural expressions (confident gaze, subtle smile - not forced)
+
+**LIGHTING FOR STREET STYLE** (for model shots):
+→ Natural daylight, soft overcast European light
+→ Golden hour on city streets with warm tones
+→ Soft shadows from historic buildings
+→ **NO** harsh studio lighting for street style shots
 
 **WEARABLE PRODUCTS** (clothing, sweaters, dresses, jackets, shoes, jewelry, watches, accessories, hats, scarves, bags):
 {f'''
 → **WHEN INSPIRATIONS PROVIDED**: Follow each inspiration's composition (model or product-only) - do NOT force 50-50 split
-→ **WHEN NO INSPIRATIONS**: MIX of model shots AND product-only shots:
-  - 50% WITH models wearing/displaying (face visible, varied moods)
-  - 50% PRODUCT-ONLY: flat-lays, hanging shots, closeups on fabric/details, artistic arrangements
-''' if has_image_inspiration else '''→ MIX of model shots AND product-only shots:
-  - 50% WITH models wearing/displaying (face visible, varied moods)
-  - 50% PRODUCT-ONLY: flat-lays, hanging shots, closeups on fabric/details, artistic arrangements
+→ **WHEN NO INSPIRATIONS**: MIX of street style model shots AND hero product-only shots:
+  - 50% WITH models: European street style fashion photography aesthetic
+  - 50% PRODUCT-ONLY: hero shots, detail closeups, dramatic lighting
+''' if has_image_inspiration else '''→ MIX of street style model shots AND hero product-only shots:
+  - 50% WITH models: European street style fashion photography aesthetic
+  - 50% PRODUCT-ONLY: hero shots, detail closeups, dramatic lighting
 '''}
-→ For model shots: face visible, varied ethnicities, moods, settings
-→ For product-only: dramatic lighting, texture details, premium surfaces
-→ Examples WITH model:
-  - "Reference product (floral sweater) worn by confident 25-year-old Black woman, face visible with warm smile, urban street setting"
-→ Examples PRODUCT-ONLY (equally important!):
-  - "Reference product (floral sweater) laid flat on warm wooden surface, soft natural light, visible texture details, cozy blanket and coffee cup nearby"
-  - "Reference product (watch) extreme closeup on dial and hands, dramatic rim lighting, brushed metal surface, luxury aesthetic"
-  - "Reference product (sneakers) artistic arrangement on concrete steps, urban setting, dramatic shadows, no people"
+→ For model shots: MUST use European street style aesthetic (see above)
+→ For product-only: dramatic lighting, texture details, premium surfaces, macro details
+
+→ Examples WITH model (STREET STYLE - use this format!):
+  - "FULL BODY SHOT with generous headroom: 28-year-old Italian man on cobblestone Paris street, wearing reference product (wool coat) over cream knit sweater, hands in coat pockets, confident relaxed pose, face visible with relaxed expression, historic Parisian apartment buildings softly blurred in background, overcast natural daylight, street style editorial aesthetic, fashion week vibes"
+  - "FULL BODY SHOT with complete head visible: 25-year-old East Asian woman on Milan sidewalk near luxury boutique, wearing reference product (oversized blazer) over white tee tucked into high-waisted wide-leg trousers, burgundy crossbody bag, one hand touching hair naturally, face visible with subtle confident smile, European café terrace visible in background, golden hour light, effortlessly chic street style"
+  - "FULL BODY SHOT with headroom: 30-year-old Black man in London Mayfair street, wearing reference product (denim jacket) layered over hoodie, hands casually at sides, face visible looking slightly off-camera with natural expression, Georgian townhouses softly blurred in background, soft overcast light, modern street style aesthetic"
+
+→ Examples PRODUCT-ONLY (HERO SHOTS - dramatic and focused):
+  - "Reference product (burgundy leather loafers) extreme closeup on cobblestone street, cream ribbed socks visible, dramatic natural shadow casting, editorial shoe detail shot, shallow depth of field"
+  - "Reference product (leather handbag) hero shot, model's arm holding bag at hip level, focus on bag hardware and leather texture, blurred city street background, luxury accessory photography"
+  - "Reference product (watch) extreme closeup on wrist, tattooed arm resting on knee, dramatic rim lighting, brushed metal surface, luxury timepiece aesthetic, shallow depth of field"
+  - "Reference product (gold ring) macro detail on hand, natural pose, soft focus background, jewelry craftsmanship visible, editorial accessory shot"
 
 **CONSUMABLE/DTC PRODUCTS** (skincare, cosmetics, food, beverages, supplements, perfumes, candles):
 {f'''
@@ -6100,10 +6465,22 @@ You MUST intelligently decide HOW to display the product AND create VARIETY acro
 🎯 YOUR EXPERTISE - PROFESSIONAL PRODUCT PHOTOGRAPHY:
 
 **ENVIRONMENT MASTERY** (Vary across outputs):
+
+**FOR MODEL SHOTS** (European Street Style - MANDATORY):
+- **Paris**: Cobblestone streets of Le Marais, café terraces on Saint-Germain, Rue de Rivoli arcades, Montmartre staircases
+- **Milan**: Via Monte Napoleone sidewalks, Brera district galleries, Navigli canal paths, Duomo piazza
+- **London**: Mayfair Georgian townhouses, Shoreditch brick lanes, Notting Hill pastel facades, South Bank promenades
+- **Other European**: Copenhagen Nyhavn, Amsterdam canal bridges, Barcelona Gothic Quarter, Rome Spanish Steps vicinity
+- **General Urban Luxury**: Luxury hotel entrances, flagship boutique storefronts, art gallery exteriors, upscale café terraces
+
+**FOR PRODUCT-ONLY SHOTS** (Hero/Detail - Studio or Styled):
 - **Studio Setups**: Clean infinity cove, marble surfaces, velvet backdrops, textured stone, brushed metal
-- **Lifestyle Contexts**: Sunset terraces with warm golden light, misty forest floors, urban rooftops at dusk, cozy cafes, city streets
-- **Fashion Locations**: Urban streets, rooftop parties, beach boardwalks, boutique interiors, art galleries
-- **Atmospheric Elements**: Dust particles in light beams, water droplets, rising steam, floating petals, wind in hair/fabric
+- **Lifestyle Flat-Lays**: Premium wood surfaces, linen textures, architectural concrete, leather desk pads
+- **Atmospheric Elements**: Dramatic rim lighting, soft shadows, shallow depth of field, macro detail focus
+
+**LIGHTING BY SHOT TYPE**:
+- **Street Style (model shots)**: Natural daylight, overcast European light, golden hour, soft building shadows
+- **Hero Shots (product-only)**: Dramatic studio lighting, rim light, spot lighting, controlled shadows
 
 **LIGHTING TECHNIQUES** (Be specific in prompts):
 - **Rim Lighting**: "dramatic rim light creating glowing edge silhouette"
@@ -6113,7 +6490,7 @@ You MUST intelligently decide HOW to display the product AND create VARIETY acro
 - **Natural Daylight**: "soft overcast natural light, flattering skin tones, no harsh shadows"
 
 **CAMERA ANGLES & MOVEMENTS** (Vary these):
-- **Full Body Fashion**: "full body shot showing complete outfit, model mid-stride, confident posture"
+- **Medium Fashion**: "medium shot waist-up showing outfit details, model posed naturally, confident posture"
 - **3/4 Portrait**: "three-quarter angle capturing model and product, environmental context visible"
 - **Hero Shots**: "low angle looking up at product/model, making them appear powerful and premium"
 - **Macro Details**: "extreme close-up on texture/material, shallow depth of field"
@@ -6124,24 +6501,26 @@ You MUST intelligently decide HOW to display the product AND create VARIETY acro
 ⚠️ **SHOT TYPE MUST BE FIRST WORDS OF EVERY MODEL PROMPT** - This is the MOST important rule!
 
 **MANDATORY PROMPT STRUCTURE for prompts with humans:**
-START every prompt with shot type: "MEDIUM SHOT, waist-up with headroom: ..." or "FULL BODY SHOT: ..."
+START every prompt with shot type: "FULL BODY SHOT with headroom: ..."
 
 **REQUIRED SHOT TYPES** (choose one and put it FIRST):
-- "MEDIUM SHOT, waist-up with generous headroom above: [rest of prompt]"
-- "FULL BODY SHOT from head to toe: [rest of prompt]"  
-- "THREE-QUARTER SHOT with complete head in frame: [rest of prompt]"
+- "FULL BODY SHOT with generous headroom above: [rest of prompt]"
+- "FULL BODY SHOT with complete head in frame: [rest of prompt]"
+- "CLOSE-UP PORTRAIT with head and shoulders: [rest of prompt]" (for face-focused shots)
 
 **FRAMING RULES**:
 - **NEVER crop the top of the head** - always leave 15-20% space above the model's head
 - **Camera MUST step back** - do NOT zoom in close to faces
 - **Head + hair MUST be fully visible** - no hairline cropping, no forehead cut off
 - **Safe zone**: Imagine a box around the model - their ENTIRE head must be well inside the frame
+- **FULL BODY SHOT preferred** - Shows product and complete outfit while ensuring head is never cropped
 
 **EXAMPLE PROMPT STRUCTURE** (notice shot type comes FIRST):
-✅ "MEDIUM SHOT, waist-up with generous headroom above: Reference product (baseball cap) worn by 28-year-old South Asian man, athletic build, face visible with confident smile, neutral beige background..."
-✅ "FULL BODY SHOT from head to toe: Model wearing reference product (sweater), standing in urban setting, complete figure in frame with space above head..."
+✅ "FULL BODY SHOT with generous headroom above: Reference product (baseball cap) worn by 28-year-old South Asian man, athletic build, face visible with confident smile, neutral beige background..."
+✅ "FULL BODY SHOT with complete head visible: Model wearing reference product (sweater), standing in urban setting, complete figure in frame with ample space above head..."
 
 ❌ **WRONG** (shot type buried or missing): "Reference product worn by 25-year-old woman, face visible..." (NO shot type = will crop head!)
+❌ **WRONG** (full body): "FULL BODY SHOT from head to toe..." (Full body shots often crop the head!)
 
 **EXAMPLES of BAD framing to AVOID**:
 - Close-up shots where forehead/hairline is cropped
@@ -6149,24 +6528,27 @@ START every prompt with shot type: "MEDIUM SHOT, waist-up with headroom: ..." or
 - Extreme close-up cutting off any part of head
 - Tight chest-up shots without headroom
 
-**MODEL SPECIFICATIONS** (REQUIRED for wearables - be diverse):
-- 🚨 FIRST: Always start with SHOT TYPE (e.g., "MEDIUM SHOT, waist-up with headroom:")
-- THEN specify: ethnicity, age range, gender, body type, hair, style vibe, expression, pose
-- 🚨 MANDATORY: Always include "face visible" and describe facial expression (smile, confident gaze, etc.)
-- 🚨 NEVER: No cropped heads, no back-of-head shots, no obscured faces, no looking away from camera entirely
-- Vary across outputs: different ethnicities, ages, styles, moods
-- Examples (note SHOT TYPE comes FIRST, then face/expression details):
-  → "MEDIUM SHOT, waist-up with generous headroom above: 25-year-old Black woman, natural curly hair, athletic build, face visible with confident smile looking at camera, urban streetwear styling"
-  → "FULL BODY SHOT from head to toe: 30-year-old East Asian man, minimalist fashion, face visible with relaxed chill expression, slight smile, hands in pockets, complete figure in frame"
-  → "THREE-QUARTER SHOT with complete head visible: 22-year-old Latina woman, long wavy hair, face visible with playful laugh, head tilted, spinning with fabric flowing"
-  → "MEDIUM SHOT with ample headroom: 35-year-old South Asian woman, elegant professional look, face visible with serene confident gaze, subtle smile"
+**MODEL SPECIFICATIONS** (REQUIRED for wearables - STREET STYLE AESTHETIC):
+- 🚨 FIRST: Always start with SHOT TYPE (e.g., "FULL BODY SHOT with headroom:")
+- 🚨 PREFER FULL BODY SHOT - shows complete outfit while ensuring head is never cropped
+- THEN specify: ethnicity, age range, gender, fashion-forward styling, expression, natural pose
+- 🚨 MANDATORY: Always include "face visible" and describe natural expression (confident gaze, subtle smile, relaxed)
+- 🚨 MANDATORY: Always include EUROPEAN STREET LOCATION (Paris street, Milan sidewalk, London Mayfair, etc.)
+- 🚨 NEVER: No cropped heads, no generic studio backgrounds, no stiff catalog poses, NO FULL BODY SHOTS
+- Vary across outputs: different ethnicities, ages, European cities, fashion styles
 
-**FOR WEARABLES - MOOD VARIATIONS** (use different moods, FACE ALWAYS VISIBLE):
-- **Swagger/Confidence**: Bold poses, face visible with direct eye contact at camera, power stance
-- **Chill/Relaxed**: Casual lean, face visible with natural genuine smile, comfortable body language
-- **Elegant/Sophisticated**: Refined posture, face visible with subtle confident expression, upscale setting
-- **Playful/Energetic**: Movement, face visible with joyful laughter, dynamic action but face still clear
-- **Editorial/High Fashion**: Dramatic poses, face visible with intense captivating gaze, artistic composition
+- Examples (STREET STYLE FORMAT - note location and natural poses):
+  → "FULL BODY SHOT with generous headroom: 26-year-old Black woman on Paris cobblestone street, natural curly hair, wearing reference product (wool coat) over cream turtleneck, crossbody bag visible, confident pose, face visible with relaxed natural expression, historic Parisian buildings softly blurred in background, overcast natural light, street style editorial"
+  → "FULL BODY SHOT with complete head visible: 30-year-old East Asian man on Milan Via Monte Napoleone sidewalk, wearing reference product (denim jacket) layered over black hoodie, hands in pockets, face visible with cool relaxed expression looking slightly off-camera, luxury boutique storefronts in background, golden hour light, effortless street style"
+  → "FULL BODY SHOT with complete head visible: 24-year-old Latina woman at London café terrace, wearing reference product (oversized blazer) over white tee, one hand holding coffee cup, face visible with warm subtle smile, Georgian architecture in background, soft morning light, chic European street style"
+  → "FULL BODY SHOT with ample headroom: 32-year-old Middle Eastern man on Copenhagen Nyhavn waterfront, wearing reference product (cashmere sweater) under camel overcoat, casual pose with one hand in pocket, face visible with confident natural expression, colorful historic buildings behind, soft overcast European light"
+
+**FOR WEARABLES - STREET STYLE MOOD VARIATIONS** (FACE ALWAYS VISIBLE, EUROPEAN LOCATION ALWAYS INCLUDED):
+- **Confident Stride**: Walking mid-stride on European street, face visible with natural confidence, full outfit visible
+- **Casual Cool**: Relaxed standing/leaning near café or storefront, face visible with effortless expression, hands in pockets
+- **Editorial Chic**: Fashion-forward pose on iconic European street, face visible with subtle intensity, layered styling
+- **Golden Hour Moment**: Warm evening light on European boulevard, face visible with relaxed smile, complete look shown
+- **Urban Sophistication**: Near luxury boutique or gallery entrance, face visible with refined expression, polished styling
 
 🎨 **INSPIRATION IMAGES FROM INVENTORY** (CRITICAL - USE IF PROVIDED):
 If the inventory analysis contains `inspiration_images` with count > 0, you MUST incorporate their aesthetic:
@@ -6199,16 +6581,71 @@ If `INSPIRATION LINKS ANALYSIS` or `VIDEO INSPIRATION ANALYSIS` or `IMAGE INSPIR
 - Match the mood/atmosphere and product showcase style
 - Use the visual subjects (humans, objects, settings) as reference for your shots
 
-**FOR IMAGE INSPIRATION** (from social media image posts):
-- Study the visual aesthetics: color palette, lighting style, mood
-- Match the composition: shot type, camera angle, framing techniques
-- If humans present: replicate similar poses, visibility, positioning
-- Apply the same styling aesthetics and technical approach
-- Match the setting/environment type
+🚨🚨🚨 **EXACT STYLE FUSION FOR IMAGE INSPIRATION** (CRITICAL - MANDATORY WHEN PROVIDED) 🚨🚨🚨
 
-**EXAMPLE - Applying Image Inspiration to Product Shot**:
-If inspiration shows: "warm golden lighting, shallow depth of field, medium shot, model in relaxed pose, earth tone color palette, cozy cafe setting"
-→ Your product shot prompt: "Reference product (floral sweater) worn by relaxed model in cozy cafe setting, warm golden ambient lighting from window, medium shot with shallow depth of field, earth tone color palette, model in natural relaxed seated pose, face visible with gentle smile, soft bokeh background"
+When IMAGE INSPIRATION is provided, you must generate prompts for **EXACT STYLE REPLICATION with Product Fusion**:
+
+**THE CONCEPT**: The inspiration image will be passed DIRECTLY to the image generation model along with the reference product. Your prompt must instruct the model to:
+1. **EXACTLY REPLICATE** the inspiration image's visual design, layout, and composition
+2. **FUSE/REPLACE** only the products shown in inspiration with the reference product
+3. **PRESERVE EVERYTHING ELSE**: text overlays, backgrounds, lighting, props, styling
+
+**PROMPT STRUCTURE FOR STYLE FUSION**:
+Your image prompts MUST follow this exact format when inspiration is provided:
+
+"Exactly replicate the inspiration image style and layout. Keep all design elements identical: [list specific elements from analysis - text overlays, background, lighting, props, composition]. Replace/fuse the products shown in the inspiration with the reference product (product description from inventory). The reference product must appear naturally in the same positions and arrangements as the original products. Maintain identical: color scheme, lighting style, typography/text overlays if present, background design, overall aesthetic and mood."
+
+**KEY ELEMENTS TO PRESERVE FROM INSPIRATION** (always mention these in your prompts):
+→ Text overlays/typography: "Keep identical text styling and placement"
+→ Background design: "Same background color, patterns, or environment"
+→ Lighting setup: "Match the exact lighting style"
+→ Composition/layout: "Replicate the exact positioning and framing"
+→ Color palette: "Use identical color scheme"
+→ Props and supporting elements: "Keep same supporting props arrangement"
+→ Mood/atmosphere: "Maintain the same visual mood"
+
+**EXAMPLE PROMPTS FOR EXACT STYLE FUSION**:
+
+Example 1 - Fashion accessories ad with text overlay:
+Inspiration shows: Black elegant ad with "3 favorite trends" text, bags and shoes arranged artistically
+Reference product: Luxury perfume bottle
+→ Your prompt: "Exactly replicate the inspiration image style. Black elegant background with same typography styling and placement. Replace the bags and shoes with the reference product (luxury amber perfume bottle with gold cap) arranged in similar artistic positions. Change text content to align with perfume product (e.g., 'Luxury Fragrances', 'Warm Scents', 'New Arrivals') while keeping identical font style and text placement. Maintain identical: dramatic dark background, elegant typography styling, premium luxury aesthetic, sophisticated composition."
+
+Example 2 - Product hero shot with lifestyle background:
+Inspiration shows: Perfume on terracotta tiles with olive branches, golden hour Mediterranean setting
+Reference product: User's perfume
+→ Your prompt: "Exactly replicate the inspiration image style. Same Mediterranean terracotta tile surface, olive branch foliage framing from left side, warm golden hour backlighting creating glow effect. Place reference product (user's perfume bottle) in center position matching the exact composition. Maintain identical: warm amber color tones, soft bokeh background with architecture silhouette, premium luxury fragrance photography aesthetic."
+
+Example 3 - With USER INSTRUCTIONS for specific text:
+User instruction: "Replace 'Our new collection' with 'Summer 2025'"
+Inspiration shows: Fashion ad with text overlays
+→ Your prompt: "...Replace 'Our new collection' text with 'Summer 2025' as user specified. Adapt other text content to align with reference product while keeping identical typography style and placement..."
+
+**WHAT TO CHANGE VS KEEP**:
+✅ CHANGE: Products/items shown → Replace with reference product
+✅ CHANGE: Text content → Align/adapt to match the reference product (e.g., "Gold Accessories" → "Luxury Fragrances" for perfume)
+❌ KEEP: Overall layout and composition
+❌ KEEP: Typography STYLE (font, size, placement) - only change the TEXT CONTENT to align with product
+❌ KEEP: Background design and color scheme
+❌ KEEP: Lighting style and mood
+❌ KEEP: All props and supporting elements not being replaced
+❌ KEEP: Visual quality and aesthetic style
+
+📝 **TEXT ALIGNMENT INSTRUCTION** (ALWAYS INCLUDE IN YOUR PROMPTS):
+Your prompts MUST include: "Change/adapt any text content in the inspiration to align with the reference product while keeping identical typography styling and placement."
+
+If USER INSTRUCTIONS specify particular text changes (e.g., "replace 'New Arrivals' with 'Summer Collection'"), you MUST incorporate those EXACT changes in your prompt. User instructions take priority!
+
+**EXAMPLE WITH DEFAULT TEXT ALIGNMENT**:
+Inspiration: Fashion ad with "3 favorite trends" - "Gold Accessories", "Over Sized Sunglasses", "Our new collection"
+Reference product: Luxury perfume
+→ Prompt includes: "...Change text content to align with perfume product (e.g., 'Luxury Fragrances', 'Warm Scents', 'New Arrivals') while keeping identical typography style and placement..."
+
+**EXAMPLE WITH USER INSTRUCTIONS**:
+User instruction: "Change 'New Arrivals' to 'Limited Edition'"
+→ Prompt includes: "...Change 'New Arrivals' text to 'Limited Edition' as specified. Adapt other text to align with product..."
+
+🚨 **CRITICAL**: When inspiration is provided, your prompts are NOT about creative freedom - they're about EXACT REPLICATION with product substitution and text alignment. The inspiration image IS the design template!
 
 🎯 REALISTIC PRODUCT USAGE (CRITICAL - Use world knowledge):
 
@@ -6242,7 +6679,7 @@ When showing product in use, ALWAYS detail the NATURAL, REALISTIC way the produc
 ⚠️ NEVER show product being used in unnatural/illogical ways - use your world knowledge of how products are actually used in real life.
 
 🚨 CRITICAL RULES:
-1. 🚨🚨🚨 **SHOT TYPE FIRST** (for model shots): ALWAYS start prompts with "MEDIUM SHOT, waist-up with headroom:" or "FULL BODY SHOT:" - This PREVENTS cropped heads!
+1. 🚨🚨🚨 **SHOT TYPE FIRST** (for model shots): ALWAYS start prompts with "FULL BODY SHOT with headroom:" - This shows complete outfit while preventing cropped heads!
 2. 🚨 VARIETY IS MANDATORY: {f"When inspirations ({num_inspirations}) are provided, follow each inspiration's composition (model or product-only) - do NOT force 50/50 split. Each image should match its inspiration's aesthetic. Cover ALL provided inspirations." if has_image_inspiration else "Do NOT put human models in ALL images! Mix product-only shots with model shots (aim for 50/50 split) - ONLY apply when NO inspirations are provided."}
 3. Generate DIVERSE outputs - vary shot types: closeups, flat-lays, lifestyle, studio, macro details
 4. For model shots: FACE MUST ALWAYS BE VISIBLE AND EXPRESSIVE - include phrases like "face visible", "looking at camera", "genuine smile"
@@ -6269,8 +6706,8 @@ Generate DYNAMIC, CONTEXT-SPECIFIC prevention text for EACH image prompt. Each p
 Scene: Perfume spray on wrist (HANDS VISIBLE)
 End prompt with: "...single Midnight Bloom bottle, one spray nozzle, each hand has exactly five fingers with one thumb, left hand gripping bottle, right wrist receiving spray, no extra digits, no fused fingers, natural finger proportions, mist between nozzle and wrist"
 
-Scene: Sweater worn by model on rooftop (FULL BODY VISIBLE)
-End prompt with: "...single Floral Knit Sweater with consistent pattern, anatomically correct human with two arms two legs, natural body proportions, no extra limbs, full head visible with headroom above, symmetrical face, natural rooftop perspective, single coherent skyline"
+Scene: Sweater worn by model on rooftop (FULL BODY SHOT)
+End prompt with: "...single Floral Knit Sweater with consistent pattern, anatomically correct human with two arms, natural body proportions, no extra limbs, full head visible with generous headroom above, symmetrical face, natural rooftop perspective, single coherent skyline"
 
 Scene: Serum dropper application to palm (HANDS + FACE VISIBLE)
 End prompt with: "...single dropper tip, each hand has exactly five fingers with one thumb, right hand holding dropper at natural angle, left palm open receiving drop, no extra fingers, no fused digits, symmetrical natural face with two eyes, natural skin texture, one golden drop falling"
@@ -6317,8 +6754,8 @@ End prompt with: "...single Hydra Serum bottle, one dropper tip, each hand has e
 Scene: Hands spraying perfume on wrist
 End prompt with: "...single perfume bottle, one spray nozzle, each hand has exactly five fingers with one thumb, left hand gripping bottle naturally, right wrist receiving spray, no extra fingers, no floating hands, natural wrist anatomy, mist arc between nozzle and wrist"
 
-Scene: Model wearing sweater, full body
-End prompt with: "...single sweater with consistent pattern, anatomically correct human body with two arms and two legs, natural body proportions, no extra limbs, full head visible with headroom, symmetrical face, natural posture"
+Scene: Model wearing sweater, medium shot waist-up
+End prompt with: "...single sweater with consistent pattern, anatomically correct human body with two arms, natural body proportions, no extra limbs, full head visible with generous headroom, symmetrical face, natural posture"
 
   🚨 This is NOT optional - hand/body distortions are the #1 AI artifact problem. ALWAYS include these phrases naturally at the end when humans appear.
   
@@ -7809,6 +8246,42 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
     if has_model_image and presigned_model_url:
         print(f"👤 Model image will be used for UGC-style character consistency")
     
+    # Get inspiration image URLs from link_analysis (for style fusion)
+    link_analysis = context.get("link_analysis", {})
+    inspiration_image_urls_raw = []
+    
+    # Check for image inspiration(s) with stored URLs
+    image_inspiration = link_analysis.get("image_inspiration", {})
+    image_inspirations_list = link_analysis.get("image_inspirations", [])
+    
+    if image_inspirations_list:
+        # Multiple inspirations - extract URLs from each
+        for insp in image_inspirations_list:
+            insp_urls = insp.get("image_urls", [])
+            if insp_urls:
+                inspiration_image_urls_raw.extend(insp_urls)
+        print(f"\n🎨 INSPIRATION IMAGES DETECTED: {len(inspiration_image_urls_raw)} image(s) from {len(image_inspirations_list)} inspiration(s)")
+    elif image_inspiration:
+        # Single inspiration
+        insp_urls = image_inspiration.get("image_urls", [])
+        if insp_urls:
+            inspiration_image_urls_raw.extend(insp_urls)
+            print(f"\n🎨 INSPIRATION IMAGE DETECTED: {len(inspiration_image_urls_raw)} image(s)")
+    
+    # Refresh presigned URLs to prevent expiration errors when FAL downloads them
+    inspiration_image_urls = []
+    if inspiration_image_urls_raw:
+        print(f"🔄 Refreshing presigned URLs for {len(inspiration_image_urls_raw)} inspiration image(s)...")
+        for url in inspiration_image_urls_raw:
+            refreshed_url = refresh_presigned_url_if_needed(url)
+            inspiration_image_urls.append(refreshed_url)
+        print(f"✅ Refreshed {len(inspiration_image_urls)} inspiration image URL(s)")
+        for i, url in enumerate(inspiration_image_urls, 1):
+            print(f"   {i}. {url[:80]}...")
+    
+    if inspiration_image_urls:
+        print(f"🎯 Inspiration images will be passed to FAL for exact style fusion!")
+    
     # Get presigned URLs for product images (from context, already generated in pipeline)
     product_presigned_urls = {}  # {"image_1": "presigned_url", "image_2": "presigned_url", ...}
     product_images_data = inventory_analysis.get('product_images', {})
@@ -7877,29 +8350,45 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
         print(f"🛍️ Product mapping: {product_mapping if product_mapping else 'None'}")
         
         try:
-            # Build reference images based on priority: Logo → Model → Product
+            # Build reference images based on priority: Inspiration → Product → Logo → Model
+            # Inspiration image is FIRST so the model treats it as the primary style reference
             image_urls = []
             
-            # 1. Logo (always included for image posts)
-            if logo_needed and presigned_logo_url:
-                image_urls.append(presigned_logo_url)
-                print(f"  🏷️ Including logo image (mandatory for image posts)")
+            # 1. INSPIRATION IMAGE (FIRST - for exact style fusion)
+            # When inspiration is provided, it should be the primary style reference
+            if inspiration_image_urls:
+                # Use only the first inspiration image per generated image to avoid confusion
+                # For 1:1 mapping with multiple inspirations, use corresponding index
+                insp_idx = idx - 1  # Convert to 0-based index
+                if insp_idx < len(inspiration_image_urls):
+                    image_urls.append(inspiration_image_urls[insp_idx])
+                    print(f"  🎨 Including inspiration image {insp_idx + 1} for EXACT style fusion")
+                else:
+                    # Fallback to first inspiration if index out of range
+                    image_urls.append(inspiration_image_urls[0])
+                    print(f"  🎨 Including inspiration image 1 (fallback) for style fusion")
             
-            # 2. Model (if UGC and available - GLOBAL for all UGC images)
-            if video_type == "ugc_influencer" and has_model_image and presigned_model_url:
-                image_urls.append(presigned_model_url)
-                print(f"  👤 Including model image for UGC character consistency")
-            
-            # 3. Product (if mapped for this specific image - FRAME-SPECIFIC)
+            # 2. Product (if mapped for this specific image - FRAME-SPECIFIC)
+            # Product comes AFTER inspiration so it's fused INTO the inspiration style
             if product_mapping and product_mapping in product_presigned_urls:
                 image_urls.append(product_presigned_urls[product_mapping])
-                print(f"  🛍️ Including product image: {product_mapping}")
+                print(f"  🛍️ Including product image: {product_mapping} (to fuse into inspiration style)")
                 # Log product details
                 if product_mapping in product_images_data:
                     product_info = product_images_data[product_mapping]
                     print(f"     📦 {product_info.get('category', 'N/A')} - {product_info.get('angle', 'N/A')}")
             elif product_mapping:
                 print(f"  ⚠️ Product mapping '{product_mapping}' not found in available products")
+            
+            # 3. Logo (included if no inspiration - for branding)
+            if logo_needed and presigned_logo_url and not inspiration_image_urls:
+                image_urls.append(presigned_logo_url)
+                print(f"  🏷️ Including logo image (no inspiration provided)")
+            
+            # 4. Model (if UGC and available - GLOBAL for all UGC images)
+            if video_type == "ugc_influencer" and has_model_image and presigned_model_url:
+                image_urls.append(presigned_model_url)
+                print(f"  👤 Including model image for UGC character consistency")
             
             # Ensure at least one image is passed (Nano Banana Edit requirement)
             # Priority: already added images > logo > any available product
@@ -7969,7 +8458,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                     arguments={
                         "prompt": prompt,
                         "image_urls": image_urls,
-                        "image_size": "1024x1024",
+                        "image_size": "1024x1536",  # Portrait orientation to avoid head cropping
                         "background": "auto",
                         "quality": "high",
                         "input_fidelity": "high",
@@ -8214,7 +8703,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                         arguments={
                             "prompt": image_prompt,
                             "image_urls": image_urls,
-                            "image_size": "1024x1024",
+                            "image_size": "1024x1536",  # Portrait orientation to avoid head cropping
                             "background": "auto",
                             "quality": "medium",
                             "input_fidelity": "high",
@@ -8463,12 +8952,42 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
         
         if not influencer_marketing_flag and CLIPS_PER_VIDEO > 1:
             print(f"\n{'='*60}")
-            print(f"🎵 PER-CLIP AUDIO PROCESSING (NEW)")
+            print(f"🎵 UNIFIED AUDIO PROCESSING (Single Music Track)")
             print(f"{'='*60}")
             print(f"   Inspiration music available: {'YES' if inspiration_music_s3_key else 'NO'}")
             
             processed_clips = []
             any_clip_had_custom_audio = False  # Track if any clip had custom audio
+            
+            # NEW: Generate ONE music track for all clips (from first clip's music prompt)
+            # This creates consistency across the entire video instead of jarring per-clip music changes
+            shared_music_path = None
+            shared_music_prompt = None
+            
+            if not inspiration_music_s3_key:
+                # Find the first clip with a music prompt to use as the shared music
+                for idx, clip_url in enumerate(valid_clips):
+                    actual_clip_num = 0
+                    valid_idx = 0
+                    for i, url in enumerate(clip_s3_urls, 1):
+                        if url:
+                            if valid_idx == idx:
+                                actual_clip_num = i
+                                break
+                            valid_idx += 1
+                    
+                    clip_data = video_clip_data.get(actual_clip_num, {})
+                    if clip_data.get('music_prompt'):
+                        shared_music_prompt = clip_data['music_prompt']
+                        print(f"\n🎵 Generating SHARED music track (20 seconds) from clip 1's prompt...")
+                        print(f"   Music prompt: {shared_music_prompt[:80]}...")
+                        # Generate 20-second music to cover entire video (will be looped if needed for longer videos)
+                        shared_music_path = await generate_music_with_elevenlabs(shared_music_prompt, 20)
+                        if shared_music_path:
+                            print(f"   ✅ Shared music track generated (20s)")
+                        else:
+                            print(f"   ⚠️ Failed to generate shared music, will fallback to original audio")
+                        break
             
             for idx, clip_url in enumerate(valid_clips):
                 clip_num = idx + 1
@@ -8599,9 +9118,9 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                     except:
                         pass
                 
-                elif music_prompt:
-                    # PATH A: Custom music from ElevenLabs (fallback when no inspiration music)
-                    print(f"   → PATH A: Custom ElevenLabs music")
+                elif music_prompt or shared_music_path:
+                    # PATH A: Use SHARED music track (or fallback to per-clip if shared generation failed)
+                    print(f"   → PATH A: Shared ElevenLabs music track")
                     any_clip_had_custom_audio = True
                 
                     # Download clip
@@ -8619,9 +9138,10 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                         print(f"      ⚠️ Demucs failed, using original clip")
                         cleaned_clip_path = clip_path
                 
-                    # Generate ElevenLabs music
-                    print(f"      🎵 Generating ElevenLabs music: {music_prompt[:60]}...")
-                    music_path = await generate_music_with_elevenlabs(music_prompt, clip_duration)
+                    # Use shared music track instead of generating per-clip
+                    music_path = shared_music_path
+                    if music_path:
+                        print(f"      🎵 Using shared music track (from clip 1)")
                     
                     if music_path:
                         # Create no-audio clip for mixing
@@ -8660,10 +9180,10 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                             success = await apply_music_to_clip(no_audio_path, music_path, final_clip_path)
                             print(f"      ✅ Music applied (no voiceover)")
                         
-                        # Clean up temp files
+                        # Clean up temp files (but NOT shared music - reused for all clips)
                         try:
                             os.remove(no_audio_path)
-                            os.remove(music_path)
+                            # Don't remove shared_music_path - it's reused for other clips
                         except:
                             pass
                         
@@ -8719,8 +9239,17 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
             # Set flag if any clip had custom audio (skip post-stitching audio)
             per_clip_audio_applied = any_clip_had_custom_audio
             
+            # Clean up shared music track after all clips are processed
+            if shared_music_path:
+                try:
+                    os.remove(shared_music_path)
+                    print(f"   🗑️ Cleaned up shared music track")
+                except:
+                    pass
+            
             print(f"\n{'='*60}")
-            print(f"✅ ALL CLIPS PROCESSED: Per-clip audio applied")
+            print(f"✅ ALL CLIPS PROCESSED: Unified audio applied")
+            print(f"   Shared music track used: {'YES' if shared_music_prompt else 'NO'}")
             print(f"   Custom audio applied to at least one clip: {'YES' if any_clip_had_custom_audio else 'NO'}")
             print(f"{'='*60}\n")
         elif CLIPS_PER_VIDEO == 1:
@@ -9382,48 +9911,17 @@ async def run_adhoc_generation_pipeline(job_id: str, request: DvybAdhocGeneratio
         else:
             print("⏭️ Skipping inventory analysis - no user images provided")
         
-        # Step 3: Auto-select inspirations for product shot flow (if no user-provided inspirations)
-        is_product_shot_flow = context.get("is_product_shot_flow", False)
-        number_of_images = request.number_of_images if hasattr(request, 'number_of_images') and request.number_of_images else 0
-        number_of_videos = request.number_of_videos if hasattr(request, 'number_of_videos') and request.number_of_videos else 0
-        total_posts = number_of_images + number_of_videos
-        
-        # Check if we should auto-select inspirations:
-        # - Product shot flow is active (website analysis flow does NOT auto-select)
-        # - User hasn't provided inspiration links
-        # - We have posts to generate
-        auto_selected_inspirations = []
-        if is_product_shot_flow and not request.inspiration_links and total_posts > 0:
-            suggested_category = inventory_analysis.get('suggested_category') if inventory_analysis else None
-            if suggested_category:
-                print(f"\n🎯 Auto-selecting inspirations for product shot flow...")
-                print(f"   Suggested category: {suggested_category}")
-                print(f"   Target: {total_posts} inspirations with analysis available")
-                
-                auto_selected_inspirations = get_inspirations_by_category(suggested_category, count=total_posts)
-                
-                if auto_selected_inspirations:
-                    print(f"   ✅ Selected {len(auto_selected_inspirations)} inspirations:")
-                    for i, insp in enumerate(auto_selected_inspirations, 1):
-                        print(f"      {i}. {insp.get('title', 'Untitled')} ({insp.get('category')}) - {insp.get('url', '')[:60]}...")
-                else:
-                    print(f"   ⚠️  No inspirations found in category '{suggested_category}' with analysis available")
-            else:
-                print(f"\n⏭️  Skipping auto-selection: No suggested category from inventory analysis")
-        elif not is_product_shot_flow and not request.inspiration_links:
-            print(f"\n⏭️  Skipping auto-selection: Website analysis flow does not auto-select inspirations")
-        
         # Step 3: Analyze inspiration links (25%)
-        # Check both user-provided links, auto-selected inspirations, and selected_link from linksJson (with 10-day decay)
+        # Only use inspirations if explicitly provided in the request - NO auto-selection
+        # Images will be generated based on the photographer persona and street style instructions
         links_to_analyze = []
         if request.inspiration_links:
-            # User-provided inspirations take priority
+            # User-provided inspirations
             links_to_analyze.extend(request.inspiration_links)
             print(f"📎 Using {len(request.inspiration_links)} user-provided inspiration link(s)")
-        elif auto_selected_inspirations:
-            # Use auto-selected inspirations if no user-provided ones
-            links_to_analyze.extend([insp['url'] for insp in auto_selected_inspirations])
-            print(f"📎 Using {len(auto_selected_inspirations)} auto-selected inspiration link(s) from category")
+        else:
+            print(f"⏭️ No inspiration links provided - will generate based on product photography instructions")
+        
         if context.get('selected_link'):
             links_to_analyze.append(context['selected_link'])
         

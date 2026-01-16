@@ -11,6 +11,7 @@ import { DvybAccountPlan } from '../models/DvybAccountPlan';
 import { DvybPricingPlan } from '../models/DvybPricingPlan';
 import { DvybGeneratedContent } from '../models/DvybGeneratedContent';
 import { DvybUpgradeRequest } from '../models/DvybUpgradeRequest';
+import { DvybAccountSubscription } from '../models/DvybAccountSubscription';
 import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddleware';
 import { DvybAuthService } from '../services/DvybAuthService';
 
@@ -385,6 +386,62 @@ router.get('/usage', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Respo
       order: { requestedAt: 'DESC' },
     });
 
+    // Check subscription status for freemium trial info
+    const subscriptionRepo = AppDataSource.getRepository(DvybAccountSubscription);
+    const activeSubscription = await subscriptionRepo.findOne({
+      where: { accountId, status: 'active' },
+      relations: ['plan'],
+    });
+    
+    // Also check for trialing subscription
+    const trialingSubscription = await subscriptionRepo.findOne({
+      where: { accountId, status: 'trialing' },
+      relations: ['plan'],
+    });
+
+    // Determine freemium/trial state
+    let isInFreemiumTrial = false;
+    let freemiumTrialEndsAt: Date | null = null;
+    let hasActiveSubscription = !!activeSubscription;
+    let isSubscribedToFreemium = false;
+    
+    if (trialingSubscription) {
+      isInFreemiumTrial = true;
+      freemiumTrialEndsAt = trialingSubscription.trialEnd;
+      hasActiveSubscription = true; // Trialing counts as having a subscription
+      isSubscribedToFreemium = trialingSubscription.plan?.isFreemium || false;
+      
+      // During freemium trial, use Free Trial plan limits for the corresponding flow
+      const planRepo = AppDataSource.getRepository(DvybPricingPlan);
+      const flowFreeTrialPlan = await planRepo.findOne({
+        where: { 
+          isFreeTrialPlan: true, 
+          isActive: true,
+          planFlow: account.initialAcquisitionFlow || 'website_analysis',
+        },
+      });
+      
+      if (flowFreeTrialPlan) {
+        imageLimit = flowFreeTrialPlan.monthlyImageLimit;
+        videoLimit = flowFreeTrialPlan.monthlyVideoLimit;
+        logger.info(`🎁 Account ${accountId} is in freemium trial - using Free Trial plan limits: ${imageLimit} images, ${videoLimit} videos`);
+      }
+    } else if (activeSubscription && activeSubscription.plan?.isFreemium) {
+      isSubscribedToFreemium = true;
+    }
+
+    // Determine if user must subscribe to opt-out plan to continue
+    // For the opt-out trial model:
+    // - Users get initial content during onboarding (free)
+    // - After that, they MUST subscribe to continue generating
+    // This is true if:
+    // 1. User is on Free Trial plan (isFreeTrialPlan = true)
+    // 2. User has NO active/trialing subscription
+    // 3. User has ALREADY generated some content (means they completed onboarding)
+    const mustSubscribeToFreemium = isFreeTrialPlan && 
+                                     !hasActiveSubscription && 
+                                     (imageUsage > 0 || videoUsage > 0);
+
     return res.json({
       success: true,
       data: {
@@ -404,6 +461,12 @@ router.get('/usage', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Respo
         remainingVideos,
         hasUpgradeRequest: !!existingRequest,
         initialAcquisitionFlow: account.initialAcquisitionFlow,
+        // Freemium-related fields
+        hasActiveSubscription,
+        isInFreemiumTrial,
+        freemiumTrialEndsAt,
+        isSubscribedToFreemium,
+        mustSubscribeToFreemium,
       },
       timestamp: new Date().toISOString(),
     });
