@@ -114,6 +114,7 @@ interface PlanCardProps {
   billingCycle: 'monthly' | 'annual';
   changeType: 'upgrade' | 'downgrade' | 'current' | 'get_started' | 'switch_to_annual' | 'switch_to_monthly';
   onSelect: (plan: PricingPlan, changeType: string) => void;
+  hasActiveSubscription?: boolean; // Whether user already has an active paid subscription
 }
 
 const PlanCard = ({
@@ -122,6 +123,7 @@ const PlanCard = ({
   billingCycle,
   changeType,
   onSelect,
+  hasActiveSubscription = false,
 }: PlanCardProps) => {
   const isCurrent = changeType === 'current';
   const isUsersPlanDifferentCycle = changeType === 'switch_to_annual' || changeType === 'switch_to_monthly';
@@ -232,7 +234,8 @@ const PlanCard = ({
             Save {getAnnualSavings()}% vs monthly
           </p>
         )}
-        {!isFree && plan.isFreemium && (
+        {/* Only show trial messaging if user does NOT have an active paid subscription */}
+        {!isFree && plan.isFreemium && !hasActiveSubscription && (
           <p className="text-purple-600 text-sm mt-2 font-medium">
             {plan.freemiumTrialDays || 7}-day free trial, cancel anytime
           </p>
@@ -324,7 +327,7 @@ const PlanCard = ({
             <Gift className="h-5 w-5 mr-2" />
             Start Free Trial
           </>
-        ) : plan.isFreemium && (changeType === 'get_started' || changeType === 'upgrade') ? (
+        ) : plan.isFreemium && !hasActiveSubscription && (changeType === 'get_started' || changeType === 'upgrade') ? (
           <>
             <Gift className="h-5 w-5 mr-2" />
             Start Free {plan.freemiumTrialDays || 7}-Day Trial
@@ -373,11 +376,13 @@ const ModalPlanCarousel = ({
   billingCycle,
   getPlanChangeType,
   onSelect,
+  hasActiveSubscription = false,
 }: {
   plans: PricingPlan[];
   billingCycle: 'monthly' | 'annual';
   getPlanChangeType: (plan: PricingPlan) => 'upgrade' | 'downgrade' | 'current' | 'get_started' | 'switch_to_annual' | 'switch_to_monthly';
   onSelect: (plan: PricingPlan, changeType: string) => void;
+  hasActiveSubscription?: boolean;
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [visibleCount, setVisibleCount] = useState(3);
@@ -428,6 +433,7 @@ const ModalPlanCarousel = ({
               billingCycle={billingCycle}
               changeType={getPlanChangeType(plan)}
               onSelect={onSelect}
+              hasActiveSubscription={hasActiveSubscription}
             />
           ))}
         </div>
@@ -489,6 +495,7 @@ const ModalPlanCarousel = ({
                 billingCycle={billingCycle}
                 changeType={getPlanChangeType(plan)}
                 onSelect={onSelect}
+                hasActiveSubscription={hasActiveSubscription}
               />
             </div>
           ))}
@@ -929,15 +936,8 @@ export const PricingModal = ({
     return a.monthlyPrice - b.monthlyPrice;
   });
 
-  // For authenticated users, show free plan only if user is on it
+  // For authenticated users, always hide free/trial plans - show only paid plans
   // For non-authenticated users, show all plans including free
-  // Use confirmedPlanName from subscription API (more reliable) with fallback to props
-  const effectivePlanName = confirmedPlanName || currentPlanInfo?.planName;
-  const isUserOnFreePlan = !hasActiveStripeSubscription && (
-    currentPlanInfo?.isFreeTrialPlan || 
-    effectivePlanName?.toLowerCase().includes('free')
-  );
-  
   const displayPlans = isAuthenticated 
     ? sortedPlans.filter(plan => {
         // Check if this is a free/trial plan (multiple detection methods for robustness)
@@ -945,15 +945,11 @@ export const PricingModal = ({
                                    plan.monthlyPrice === 0 || 
                                    plan.planName?.toLowerCase().includes('free trial');
         
+        // ALWAYS hide free/trial plans from the pricing modal for authenticated users
+        // Users should only see paid plans when upgrading
         if (isFreeOrTrialPlan) {
-          // When mustSubscribe is true, NEVER show free plan - user must choose a paid opt-out plan
-          // This applies to BOTH website_analysis AND product_photoshot flows
-          if (mustSubscribe) {
-            console.log('🚫 [PricingModal] Filtering out free plan because mustSubscribe=true:', plan.planName);
-            return false;
-          }
-          // Show free plan only if user is actually on it (and doesn't have a Stripe subscription)
-          return isUserOnFreePlan;
+          console.log('🚫 [PricingModal] Filtering out free plan:', plan.planName);
+          return false;
         }
         return true;
       })
@@ -1066,6 +1062,7 @@ export const PricingModal = ({
                         billingCycle={billingCycle}
                         changeType={getPlanChangeType(plan)}
                         onSelect={handleSelectPlan}
+                        hasActiveSubscription={hasActiveStripeSubscription}
                       />
                     ))}
                   </div>
@@ -1076,6 +1073,7 @@ export const PricingModal = ({
                     billingCycle={billingCycle}
                     getPlanChangeType={getPlanChangeType}
                     onSelect={handleSelectPlan}
+                    hasActiveSubscription={hasActiveStripeSubscription}
                   />
                 </>
               )}

@@ -715,7 +715,7 @@ export class StripeService {
   }
 
   /**
-   * Cancel subscription at end of billing period
+   * Cancel subscription - immediately for trialing, at period end for active
    */
   static async cancelSubscription(accountId: number, subscriptionId: number): Promise<{ success: boolean; message: string }> {
     const subscriptionRepo = AppDataSource.getRepository(DvybAccountSubscription);
@@ -737,18 +737,75 @@ export class StripeService {
       await stripe.subscriptionSchedules.release(scheduleId);
     }
 
-    await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
-      cancel_at_period_end: true,
-    });
+    // For trialing subscriptions, cancel immediately to avoid any charge
+    // For active subscriptions, schedule cancellation at period end
+    const isTrialing = subscription.status === 'trialing' || stripeSubscription.status === 'trialing';
+    
+    if (isTrialing) {
+      // Immediately cancel trialing subscription - no charge will occur
+      await stripe.subscriptions.cancel(subscription.stripeSubscriptionId);
+      
+      subscription.status = 'canceled';
+      subscription.cancelAtPeriodEnd = false;
+      subscription.canceledAt = new Date();
+      subscription.endedAt = new Date();
+      subscription.pendingPlanId = null;
+      subscription.pendingFrequency = null;
+      await subscriptionRepo.save(subscription);
 
-    subscription.cancelAtPeriodEnd = true;
-    subscription.pendingPlanId = null;
-    subscription.pendingFrequency = null;
-    await subscriptionRepo.save(subscription);
+      // Immediately downgrade to free plan (don't wait for webhook)
+      const planRepo = AppDataSource.getRepository(DvybPricingPlan);
+      const accountRepo = AppDataSource.getRepository(DvybAccount);
+      const accountPlanRepo = AppDataSource.getRepository(DvybAccountPlan);
+      
+      const freePlan = await planRepo.findOne({ where: { isFreeTrialPlan: true, isActive: true } });
+      if (freePlan) {
+        await accountRepo.update(accountId, { currentPlanId: freePlan.id });
+        
+        // End current active plans
+        const activePlans = await accountPlanRepo.find({
+          where: { accountId, status: 'active' },
+        });
+        for (const plan of activePlans) {
+          plan.status = 'cancelled';
+          plan.endDate = new Date();
+          await accountPlanRepo.save(plan);
+        }
+        
+        // Create new account plan entry for free plan
+        const freeAccountPlan = accountPlanRepo.create({
+          accountId,
+          planId: freePlan.id,
+          selectedFrequency: 'monthly',
+          status: 'active',
+          changeType: 'downgrade',
+          startDate: new Date(),
+          endDate: null,
+          notes: 'Reverted to free plan after trial cancellation',
+        });
+        await accountPlanRepo.save(freeAccountPlan);
+        
+        logger.info(`✅ Downgraded account ${accountId} to free plan after trial cancellation`);
+      }
 
-    logger.info(`✅ Scheduled cancellation for subscription ${subscription.stripeSubscriptionId}`);
+      logger.info(`✅ Immediately canceled trialing subscription ${subscription.stripeSubscriptionId} - no charge will occur`);
 
-    return { success: true, message: 'Subscription will be canceled at the end of the billing period' };
+      return { success: true, message: 'Your trial has been canceled. No charges will be made to your payment method.' };
+    } else {
+      // Schedule cancellation at period end for active subscriptions
+      await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
+        cancel_at_period_end: true,
+      });
+
+      subscription.cancelAtPeriodEnd = true;
+      subscription.pendingPlanId = null;
+      subscription.pendingFrequency = null;
+      await subscriptionRepo.save(subscription);
+
+      logger.info(`✅ Scheduled cancellation for subscription ${subscription.stripeSubscriptionId}`);
+
+      return { success: true, message: 'Subscription will be canceled at the end of the billing period' };
+    }
   }
 
   /**
@@ -843,12 +900,14 @@ export class StripeService {
 
   /**
    * Get subscription details for an account
+   * Includes both active and trialing subscriptions
    */
   static async getAccountSubscription(accountId: number): Promise<DvybAccountSubscription | null> {
     const subscriptionRepo = AppDataSource.getRepository(DvybAccountSubscription);
+    const { In } = await import('typeorm');
 
     return subscriptionRepo.findOne({
-      where: { accountId, status: 'active' },
+      where: { accountId, status: In(['active', 'trialing']) },
       relations: ['plan'],
       order: { createdAt: 'DESC' },
     });

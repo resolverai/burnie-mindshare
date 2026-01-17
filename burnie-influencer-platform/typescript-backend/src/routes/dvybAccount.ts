@@ -614,6 +614,8 @@ router.get('/pricing-plans', async (req: Request, res: Response) => {
         extraVideoPostPrice: Number(plan.extraVideoPostPrice),
         isFreeTrialPlan: plan.isFreeTrialPlan,
         planFlow: plan.planFlow,
+        isFreemium: plan.isFreemium,
+        freemiumTrialDays: plan.freemiumTrialDays,
       })),
       timestamp: new Date().toISOString(),
     });

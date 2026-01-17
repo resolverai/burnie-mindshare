@@ -1,4 +1,5 @@
 import { Router, Response } from 'express';
+import { In } from 'typeorm';
 import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddleware';
 import { StripeService } from '../services/StripeService';
 import { AppDataSource } from '../config/database';
@@ -244,16 +245,16 @@ router.post('/switch-billing-cycle', dvybAuthMiddleware, async (req: DvybAuthReq
 
 /**
  * POST /api/dvyb/subscription/cancel
- * Cancel subscription at end of billing period
+ * Cancel subscription - immediately for trialing, at period end for active
  */
 router.post('/cancel', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
   try {
     const accountId = req.dvybAccountId!;
 
-    // Get current subscription
+    // Get current subscription (including both active and trialing)
     const subscriptionRepo = AppDataSource.getRepository(DvybAccountSubscription);
     const subscription = await subscriptionRepo.findOne({
-      where: { accountId, status: 'active' },
+      where: { accountId, status: In(['active', 'trialing']) },
     });
 
     if (!subscription) {
@@ -354,6 +355,8 @@ router.get('/current', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Res
           cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
           pendingPlanId: subscription.pendingPlanId,
           pendingFrequency: subscription.pendingFrequency,
+          trialStart: subscription.trialStart,
+          trialEnd: subscription.trialEnd,
         },
       },
     });

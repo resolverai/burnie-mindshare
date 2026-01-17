@@ -53,6 +53,8 @@ interface SubscriptionData {
     cancelAtPeriodEnd: boolean;
     pendingPlanId?: number;
     pendingFrequency?: 'monthly' | 'annual';
+    trialStart?: string;
+    trialEnd?: string;
     plan?: {
       id: number;
       planName: string;
@@ -168,9 +170,12 @@ export const SubscriptionPage = () => {
       setIsCancelling(true);
       const response = await subscriptionApi.cancel();
       if (response.success) {
+        const wasTrial = isTrialing;
         toast({
-          title: "Subscription Cancelled",
-          description: "Your subscription will end at the current billing period.",
+          title: wasTrial ? "Trial Cancelled" : "Subscription Cancelled",
+          description: response.message || (wasTrial 
+            ? "Your trial has been canceled. No charges will be made to your payment method."
+            : "Your subscription will end at the current billing period."),
         });
         fetchSubscriptionData();
       } else {
@@ -267,8 +272,11 @@ export const SubscriptionPage = () => {
     );
   }
 
-  const isFreePlan = !subscriptionData?.isSubscribed || subscriptionData?.isFree;
   const subscription = subscriptionData?.subscription;
+  // User is on free plan if not subscribed or explicitly on free plan, but NOT if they have a trialing subscription
+  const isFreePlan = (!subscriptionData?.isSubscribed && !subscription) || (subscriptionData?.isFree && !subscription);
+  // Check if user is on a trial
+  const isTrialing = subscription?.status === 'trialing';
   // Get plan data from subscription.plan (for subscribed users) or currentPlan (for free users)
   const currentPlan = subscription?.plan || subscriptionData?.currentPlan;
 
@@ -318,6 +326,11 @@ export const SubscriptionPage = () => {
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <h3 className="text-xl font-semibold">{currentPlan?.planName || subscriptionData?.planName}</h3>
+                    {isTrialing && (
+                      <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-700 hover:bg-purple-100">
+                        Free Trial
+                      </Badge>
+                    )}
                     {subscription?.cancelAtPeriodEnd && subscription?.pendingFrequency && (
                       <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-700 hover:bg-blue-100">
                         Switching to {subscription.pendingFrequency === 'monthly' ? 'Monthly' : 'Annual'}
@@ -329,11 +342,15 @@ export const SubscriptionPage = () => {
                   </div>
                   <p className="text-muted-foreground">
                     {subscription?.frequency === 'annual' ? 'Annual' : 'Monthly'} billing • 
-                    {' '}{formatCurrency(
-                      subscription?.frequency === 'annual' 
-                        ? (currentPlan?.annualPrice || 0) 
-                        : (currentPlan?.monthlyPrice || 0)
-                    )}/{subscription?.frequency === 'annual' ? 'year' : 'month'}
+                    {isTrialing ? (
+                      <>Free trial until {subscription?.trialEnd && format(new Date(subscription.trialEnd), 'MMM d, yyyy')}</>
+                    ) : (
+                      <>{formatCurrency(
+                        subscription?.frequency === 'annual' 
+                          ? (currentPlan?.annualPrice || 0) 
+                          : (currentPlan?.monthlyPrice || 0)
+                      )}/{subscription?.frequency === 'annual' ? 'year' : 'month'}</>
+                    )}
                   </p>
                 </div>
                 <div className="flex gap-2 flex-wrap">
@@ -418,6 +435,25 @@ export const SubscriptionPage = () => {
                       </p>
                       <p className="text-sm text-red-600 mt-1">
                         Click "Resume Subscription" to keep your current plan.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Trial Info */}
+              {isTrialing && subscription?.trialEnd && !subscription?.cancelAtPeriodEnd && (
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 mt-2">
+                  <div className="flex items-start gap-3">
+                    <Calendar className="w-5 h-5 text-purple-600 mt-0.5" />
+                    <div>
+                      <p className="font-medium text-purple-900">Free Trial Active</p>
+                      <p className="text-sm text-purple-700 mt-1">
+                        You&apos;re currently on a free trial. Your trial ends on <strong>{format(new Date(subscription.trialEnd), 'MMM d, yyyy')}</strong>.
+                      </p>
+                      <p className="text-sm text-purple-600 mt-1">
+                        After the trial ends, your payment method will be charged automatically.
+                        Cancel anytime before the trial ends to avoid charges.
                       </p>
                     </div>
                   </div>
@@ -577,16 +613,27 @@ export const SubscriptionPage = () => {
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
               <AlertCircle className="w-5 h-5 text-destructive" />
-              Cancel Subscription?
+              {isTrialing ? 'Cancel Trial?' : 'Cancel Subscription?'}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Your subscription will remain active until the end of your current billing period 
-              ({subscription?.currentPeriodEnd && format(new Date(subscription.currentPeriodEnd), 'MMMM d, yyyy')}).
-              After that, you will be moved to the free plan with limited features.
+              {isTrialing ? (
+                <>
+                  Your free trial will be canceled immediately. No charges will be made to your payment method.
+                  You will be moved to the free plan with limited features.
+                </>
+              ) : (
+                <>
+                  Your subscription will remain active until the end of your current billing period 
+                  ({subscription?.currentPeriodEnd && format(new Date(subscription.currentPeriodEnd), 'MMMM d, yyyy')}).
+                  After that, you will be moved to the free plan with limited features.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isCancelling}>Keep Subscription</AlertDialogCancel>
+            <AlertDialogCancel disabled={isCancelling}>
+              {isTrialing ? 'Keep Trial' : 'Keep Subscription'}
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleCancelSubscription}
               disabled={isCancelling}
