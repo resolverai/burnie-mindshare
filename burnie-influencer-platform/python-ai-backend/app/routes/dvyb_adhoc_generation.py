@@ -1578,7 +1578,7 @@ Be DETAILED and SPECIFIC in your analysis."""
     try:
         print(f"     Creating Grok chat with xai_sdk...")
         client = Client(api_key=settings.xai_api_key, timeout=3600)
-        chat = client.chat.create(model="grok-4-latest")
+        chat = client.chat.create(model="grok-4-fast-reasoning")
         
         chat.append(system(system_prompt))
         
@@ -1736,7 +1736,7 @@ Be ULTRA-DETAILED in your storyline - describe it like a professional storyboard
     try:
         print(f"     Creating Grok chat with xai_sdk...")
         client = Client(api_key=settings.xai_api_key, timeout=3600)
-        chat = client.chat.create(model="grok-4-latest")
+        chat = client.chat.create(model="grok-4-fast-reasoning")
         
         chat.append(system(system_prompt))
         
@@ -3853,7 +3853,7 @@ Analyze the {len(presigned_urls)} image(s) now.
         print(f"🤖 Calling Grok with brand-aware analysis...")
         
         client = Client(api_key=settings.xai_api_key, timeout=3600)
-        chat = client.chat.create(model="grok-4-latest")
+        chat = client.chat.create(model="grok-4-fast-reasoning")
         
         chat.append(system(
             f"You are an expert visual analyst for {brand_info['account_name']}. "
@@ -4512,9 +4512,9 @@ async def analyze_inspiration_links(links: List[str], context: dict = None, acco
             client = Client(api_key=grok_api_key, timeout=3600)
             
             # Create chat with web_source search parameters (NO date range, NO max_results - same as web3)
-            print("🤖 Calling Grok (grok-4-latest) with web_source live search...")
+            print("🤖 Calling Grok (grok-4-fast-reasoning) with web_source live search...")
             chat = client.chat.create(
-                model="grok-4-latest",
+                model="grok-4-fast-reasoning",
                 search_parameters=SearchParameters(
                     mode="auto",
                     sources=[web_source(allowed_websites=allowed_websites)]
@@ -7824,7 +7824,7 @@ CRITICAL REQUIREMENTS:
         from xai_sdk.chat import user, system
         
         client = Client(api_key=settings.xai_api_key, timeout=3600)
-        chat = client.chat.create(model="grok-4-latest")
+        chat = client.chat.create(model="grok-4-fast-reasoning")
         
         chat.append(system(system_prompt))
         chat.append(user(f"Generate {number_of_posts} pieces of content for: {request.topic}"))
@@ -10527,7 +10527,7 @@ async def analyze_single_inspiration(request: InspirationAnalysisRequest):
             
             # Create chat with web_source search parameters
             chat = client.chat.create(
-                model="grok-4-latest",
+                model="grok-4-fast-reasoning",
                 search_parameters=SearchParameters(
                     mode="auto",
                     sources=[web_source(allowed_websites=allowed_websites)]
