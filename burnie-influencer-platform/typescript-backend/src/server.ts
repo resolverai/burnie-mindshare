@@ -86,6 +86,8 @@ import dvybAdhocGenerationRoutes from './routes/dvybAdhocGeneration';
 import dvybCaptionsRoutes from './routes/dvybCaptions';
 import dvybImageEditsRoutes from './routes/dvybImageEdits';
 import dvybImageRegenerationRoutes from './routes/dvybImageRegeneration';
+import dvybVideoEditsRoutes from './routes/dvybVideoEdits';
+import dvybAssetsRoutes from './routes/dvybAssets';
 import dvybSubscriptionRoutes from './routes/dvybSubscription';
 import stripeWebhookRoutes from './routes/stripeWebhook';
 import dvybDashboardRoutes from './routes/dvybDashboard';
@@ -272,6 +274,8 @@ app.use('/api/dvyb/adhoc', dvybAdhocGenerationRoutes); // DVYB ad-hoc generation
 app.use('/api/dvyb/captions', dvybCaptionsRoutes); // DVYB user-edited captions
 app.use('/api/dvyb/image-edits', dvybImageEditsRoutes); // DVYB image edits (text overlays, emojis, stickers)
 app.use('/api/dvyb/image-regeneration', dvybImageRegenerationRoutes); // DVYB image regeneration (AI-based image changes)
+app.use('/api/dvyb/video-edits', dvybVideoEditsRoutes); // DVYB video edits (timeline, clips, audio, effects)
+app.use('/api/dvyb/assets', dvybAssetsRoutes); // DVYB assets library (videos, images, audio, effects)
 app.use('/api/dvyb/subscription', dvybSubscriptionRoutes); // DVYB subscription management (Stripe integration)
 app.use('/api/dvyb/inspirations', dvybInspirationsRoutes); // DVYB inspiration matching for onboarding
 app.use('/api/dvyb', dvybGenerationRoutes); // DVYB content generation routes (has /:uuid catch-all, must be last)

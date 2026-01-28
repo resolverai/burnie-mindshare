@@ -17,6 +17,7 @@ import { ScheduleDialog } from "./ScheduleDialog";
 import { accountApi, captionsApi, imageEditsApi, imageRegenerationApi, contentLibraryApi, postingApi, oauth1Api, authApi, socialConnectionsApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { saveOAuthFlowState } from "@/lib/oauthFlowState";
+import { VideoEditorModal } from "@/components/video-editor/VideoEditorModal";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -122,6 +123,7 @@ export const PostDetailDialog = ({
   const [selectedPlatform, setSelectedPlatform] = useState<Platform>("instagram");
   const [showCaptionEdit, setShowCaptionEdit] = useState(false);
   const [showEditDesign, setShowEditDesign] = useState(false);
+  const [showVideoEditor, setShowVideoEditor] = useState(false);
   const [isSavingDesign, setIsSavingDesign] = useState(false);
   const [regeneratedImageUrl, setRegeneratedImageUrl] = useState<string | null>(null); // For chat-based image regeneration
   const [activeImageS3Key, setActiveImageS3Key] = useState<string | null>(null); // Current image S3 key for regeneration
@@ -2333,8 +2335,8 @@ export const PostDetailDialog = ({
 
   return (
     <>
-      {/* Full Screen Modal - Hide when ScheduleDialog is open to prevent z-index conflicts */}
-      {open && !showScheduleDialog && (
+      {/* Full Screen Modal - Hide when ScheduleDialog or VideoEditor is open to prevent z-index conflicts */}
+      {open && !showScheduleDialog && !showVideoEditor && (
         <>
           {/* Backdrop */}
           <div 
@@ -2750,13 +2752,22 @@ export const PostDetailDialog = ({
                                   <Button 
                                     variant="outline" 
                                     className="w-full"
-                                    disabled={isVideo}
-                                    onClick={() => !isVideo && handleEditDesignToggle(!showEditDesign)}
+                                    onClick={() => {
+                                      if (isVideo) {
+                                        // Close PostDetailDialog and open video editor
+                                        onOpenChange(false);
+                                        // Small delay to ensure dialog closes before opening video editor
+                                        setTimeout(() => {
+                                          setShowVideoEditor(true);
+                                        }, 100);
+                                      } else {
+                                        handleEditDesignToggle(!showEditDesign);
+                                      }
+                                    }}
                                   >
-                                    <span className="mr-2">🎨</span>
-                                    Edit Design
+                                    <span className="mr-2">{isVideo ? '🎬' : '🎨'}</span>
+                                    {isVideo ? 'Edit Video' : 'Edit Design'}
                                   </Button>
-                                  {isVideo && <span className="text-[10px] text-muted-foreground text-center">Coming Soon</span>}
                                 </div>
                               </div>
                             </div>
@@ -2969,13 +2980,22 @@ export const PostDetailDialog = ({
                         <Button 
                           variant="outline" 
                           className="w-full"
-                          disabled={isVideo}
-                          onClick={() => !isVideo && handleEditDesignToggle(!showEditDesign)}
+                          onClick={() => {
+                            if (isVideo) {
+                              // Close PostDetailDialog and open video editor
+                              onOpenChange(false);
+                              // Small delay to ensure dialog closes before opening video editor
+                              setTimeout(() => {
+                                setShowVideoEditor(true);
+                              }, 100);
+                            } else {
+                              handleEditDesignToggle(!showEditDesign);
+                            }
+                          }}
                         >
-                          <span className="mr-2">🎨</span>
-                          Edit Design
+                          <span className="mr-2">{isVideo ? '🎬' : '🎨'}</span>
+                          {isVideo ? 'Edit Video' : 'Edit Design'}
                         </Button>
-                        {isVideo && <span className="text-[10px] text-muted-foreground text-center">Coming Soon</span>}
                       </div>
                     </div>
                   </div>
@@ -3314,6 +3334,38 @@ export const PostDetailDialog = ({
           )}
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Video Editor Modal - Rendered outside PostDetailDialog for proper z-index */}
+      {showVideoEditor && (
+        <VideoEditorModal
+          open={showVideoEditor}
+          onOpenChange={(open) => {
+            setShowVideoEditor(open);
+            // If video editor closes and PostDetailDialog was open, keep it closed
+            // User can reopen PostDetailDialog if needed
+          }}
+          videoData={isVideo && post ? {
+            generatedContentId: post.generatedContentId || post.contentId || 0,
+            postIndex: post.postIndex || 0,
+            videoUrl: post.image,
+            duration: 30, // Will be updated from metadata
+            clips: [{
+              url: post.image,
+              duration: 30,
+              startTime: 0,
+            }],
+            // TODO: Load voiceover and background music from metadata
+          } : undefined}
+          onSave={() => {
+            // Refresh the post data after save
+            if (onScheduleComplete) {
+              onScheduleComplete();
+            }
+            // Close video editor
+            setShowVideoEditor(false);
+          }}
+        />
+      )}
     </>
   );
 };

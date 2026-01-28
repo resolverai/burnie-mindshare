@@ -5,7 +5,7 @@
  * Similar implementation to Python backend's s3_storage_service.py
  */
 
-import { S3Client, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { logger } from '../config/logger';
 import { UrlCacheService } from './UrlCacheService';
@@ -193,6 +193,47 @@ export class S3PresignedUrlService {
       }
       logger.error(`❌ Error checking S3 object existence: ${s3Key}`, error);
       return false;
+    }
+  }
+
+  /**
+   * Generate a presigned URL for uploading to S3
+   * 
+   * @param s3Key - The S3 object key (path within bucket)
+   * @param method - HTTP method (default: 'PUT')
+   * @param expiration - URL expiration time in seconds (default: 3600)
+   * @returns Presigned upload URL
+   */
+  async generatePresignedUploadUrl(
+    s3Key: string,
+    method: 'PUT' | 'POST' = 'PUT',
+    expiration: number = 3600
+  ): Promise<string> {
+    try {
+      // Clean the S3 key
+      let cleanKey = s3Key;
+      if (cleanKey.startsWith('s3://')) {
+        const parts = cleanKey.replace('s3://', '').split('/');
+        cleanKey = parts.slice(1).join('/');
+      }
+      cleanKey = cleanKey.startsWith('/') ? cleanKey.slice(1) : cleanKey;
+
+      logger.info(`🔗 Generating presigned upload URL for: ${cleanKey} (expires in ${expiration}s)`);
+
+      const command = new PutObjectCommand({
+        Bucket: this.bucketName,
+        Key: cleanKey,
+      });
+
+      const presignedUrl = await getSignedUrl(this.s3Client, command, {
+        expiresIn: expiration,
+      });
+
+      logger.info(`✅ Presigned upload URL generated`);
+      return presignedUrl;
+    } catch (error: any) {
+      logger.error(`❌ Failed to generate presigned upload URL for S3 key: ${s3Key}`, error);
+      throw error;
     }
   }
 

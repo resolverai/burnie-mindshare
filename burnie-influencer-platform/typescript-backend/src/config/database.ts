@@ -136,6 +136,8 @@ import { DvybAcceptedContent } from '../models/DvybAcceptedContent';
 import { DvybRejectedContent } from '../models/DvybRejectedContent';
 import { DvybContentStrategy } from '../models/DvybContentStrategy';
 import { DvybAdminContentApproval } from '../models/DvybAdminContentApproval';
+import { DvybAsset } from '../models/DvybAsset';
+import { DvybVideoEdit } from '../models/DvybVideoEdit';
 
 // Import seed data functions
 import { seedDatabase } from './seedData';
@@ -271,6 +273,8 @@ export const AppDataSource = new DataSource({
     DvybRejectedContent,
     DvybContentStrategy,
     DvybAdminContentApproval,
+    DvybAsset,
+    DvybVideoEdit,
   ],
   migrations: [],
   subscribers: [],

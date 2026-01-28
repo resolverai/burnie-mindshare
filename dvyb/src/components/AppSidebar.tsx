@@ -14,7 +14,9 @@ import {
   ImageIcon,
   Video,
   CreditCard,
-  Sparkles
+  Sparkles,
+  Moon,
+  Sun
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -22,6 +24,7 @@ import dvybLogo from "@/assets/dvyb-logo.png";
 import { useAuth } from "@/contexts/AuthContext";
 import { contextApi } from "@/lib/api";
 import { PricingModal } from "@/components/PricingModal";
+import { useTheme } from "next-themes";
 
 interface AppSidebarProps {
   activeView: string;
@@ -64,6 +67,13 @@ export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onM
   } | null>(null);
   const [showPricingModal, setShowPricingModal] = useState(false);
   const { accountId, logout } = useAuth();
+  const { setTheme, resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  // Ensure component is mounted before accessing theme
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Determine if sidebar should be collapsed (either manually or forced)
   const collapsed = forceCollapsed || isCollapsed;
@@ -297,6 +307,29 @@ export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onM
 
         {/* Upgrade & Logout Buttons */}
         <div className="px-3 py-4 border-t border-sidebar-border space-y-2">
+          {/* Theme Toggle */}
+          <button
+            onClick={() => mounted && setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+            className={cn(
+              "w-full flex items-center gap-3 px-3 py-3 rounded-lg text-base font-medium transition-colors",
+              "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+              collapsed && "md:justify-center"
+            )}
+            title={collapsed ? (resolvedTheme === "dark" ? "Light mode" : "Dark mode") : undefined}
+          >
+            {mounted && resolvedTheme === "dark" ? (
+              <Sun className="w-5 h-5 flex-shrink-0" />
+            ) : (
+              <Moon className="w-5 h-5 flex-shrink-0" />
+            )}
+            <span className={cn(
+              "flex-1 text-left",
+              collapsed && "md:hidden"
+            )}>
+              {mounted && resolvedTheme === "dark" ? "Light Mode" : "Dark Mode"}
+            </span>
+          </button>
+
           {/* Upgrade Button */}
           <button
             onClick={() => setShowPricingModal(true)}

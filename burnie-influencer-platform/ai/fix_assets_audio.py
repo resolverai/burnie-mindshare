@@ -68,6 +68,73 @@ from moviepy.editor import (
 OUTPUT_SIZE = (1080, 1920)  # 9:16 vertical
 FPS = 30
 
+# Import text overlay function (for B_ROLL on-screen text)
+try:
+    from video_text_overlay import add_text_overlay
+    TEXT_OVERLAY_AVAILABLE = True
+except ImportError:
+    TEXT_OVERLAY_AVAILABLE = False
+    print("⚠️ video_text_overlay not available - B_ROLL on-screen text will be skipped")
+
+
+def apply_broll_text_overlay(
+    video_path: str,
+    text: str,
+    output_path: Optional[str] = None
+) -> Optional[str]:
+    """
+    Apply on-screen text overlay to a B_ROLL video clip.
+    
+    Uses fixed styling parameters:
+    - Font: Georgia-Italic
+    - Font size: 60
+    - Color: white
+    - Stroke: black, width 2
+    - Position: top-random
+    
+    Args:
+        video_path: Path to input video
+        text: Text to overlay (4-5 words)
+        output_path: Optional output path (default: auto-generated with _text suffix)
+        
+    Returns:
+        Path to output video with text overlay, or None if failed
+    """
+    if not TEXT_OVERLAY_AVAILABLE:
+        print(f"  ⚠️ Text overlay not available - skipping on-screen text")
+        return None
+    
+    if not text or not text.strip():
+        return None
+    
+    if not output_path:
+        base, ext = os.path.splitext(video_path)
+        output_path = f"{base}_text{ext}"
+    
+    try:
+        print(f"  🏷️ Adding on-screen text: \"{text}\"")
+        add_text_overlay(
+            input_video=video_path,
+            output_video=output_path,
+            text=text,
+            font="Georgia-Italic",
+            fontsize=60,
+            color="white",
+            stroke_color="black",
+            stroke_width=2,
+            position="top-random"
+        )
+        # add_text_overlay doesn't return anything, check output_path directly
+        if os.path.exists(output_path):
+            print(f"  ✅ Text overlay applied successfully")
+            return output_path
+        else:
+            print(f"  ⚠️ Text overlay failed - using original video")
+            return None
+    except Exception as e:
+        print(f"  ⚠️ Text overlay error: {e}")
+        return None
+
 
 def apply_speed_and_music(video_path: str, output_path: str, speed: float = 1.0, 
                           music_path: Optional[str] = None, music_volume: float = 0.07,
@@ -451,21 +518,53 @@ def stitch_clips_with_separate_audio(
             if clip.size != OUTPUT_SIZE:
                 clip = clip.resize(OUTPUT_SIZE)
             
-            # Clip 0 handling - normally silent, but can have custom voiceover
+            # Clip 0 handling - can have voiceover from on_screen_text or custom CLI voiceover
+            # CRITICAL: Clip 0 duration should be based on VOICEOVER duration, not planned duration
             if is_silent_image_clip:
+                # Priority: 1) CLI-provided clip0_voiceover, 2) auto-generated voiceover from voiceover_paths
+                clip0_vo_path = None
                 if clip0_voiceover and os.path.exists(clip0_voiceover):
-                    # Custom voiceover for Clip 0
-                    print(f"    Clip {i} #{clip_num}: Adding custom voiceover to opening hook")
-                    voiceover = AudioFileClip(clip0_voiceover)
+                    clip0_vo_path = clip0_voiceover
+                    print(f"    Clip {i} #{clip_num}: Using custom CLI voiceover for opening hook")
+                elif clip_num in voiceover_paths and voiceover_paths[clip_num] and os.path.exists(voiceover_paths[clip_num]):
+                    clip0_vo_path = voiceover_paths[clip_num]
+                    print(f"    Clip {i} #{clip_num}: Using auto-generated voiceover for opening hook (from on_screen_text)")
+                
+                if clip0_vo_path:
+                    # Voiceover for Clip 0 (from on_screen_text or CLI)
+                    voiceover = AudioFileClip(clip0_vo_path)
+                    vo_duration = voiceover.duration
                     
-                    # Trim voiceover to clip duration with buffer
+                    # CRITICAL: Voiceover duration is AUTHORITATIVE for Clip 0
+                    # Video duration MUST match voiceover duration - extend OR trim as needed
                     AUDIO_BUFFER = 0.06
                     VOICEOVER_END_GAP = 0.15
-                    target_duration = min(voiceover.duration, clip_duration) - AUDIO_BUFFER - VOICEOVER_END_GAP
-                    target_duration = max(target_duration, 0.1)
+                    target_clip_duration = vo_duration + 0.3  # 300ms buffer after voiceover ends
                     
-                    if voiceover.duration > target_duration:
-                        voiceover = voiceover.subclip(0, target_duration)
+                    if clip_duration < target_clip_duration:
+                        # Video is shorter than voiceover - EXTEND by looping
+                        print(f"    Clip {i} #{clip_num}: 🔄 Extending video from {clip_duration:.2f}s to {target_clip_duration:.2f}s (voiceover: {vo_duration:.2f}s)")
+                        loops_needed = int(target_clip_duration / clip_duration) + 1
+                        clips_to_loop = [clip] * loops_needed
+                        extended_clip = concatenate_videoclips(clips_to_loop, method="compose")
+                        clip = extended_clip.subclip(0, target_clip_duration)
+                        clip_duration = target_clip_duration
+                        clip_durations[clip_num] = clip_duration
+                    elif clip_duration > target_clip_duration:
+                        # Video is longer than voiceover - TRIM to match voiceover duration
+                        print(f"    Clip {i} #{clip_num}: ✂️ Trimming video from {clip_duration:.2f}s to {target_clip_duration:.2f}s (voiceover: {vo_duration:.2f}s)")
+                        clip = clip.subclip(0, target_clip_duration)
+                        clip_duration = target_clip_duration
+                        clip_durations[clip_num] = clip_duration
+                    else:
+                        print(f"    Clip {i} #{clip_num}: ✅ Video duration ({clip_duration:.2f}s) matches voiceover ({vo_duration:.2f}s + 0.3s buffer)")
+                    
+                    # Now trim voiceover to ensure clean boundaries (with buffer)
+                    target_vo_duration = vo_duration - AUDIO_BUFFER - VOICEOVER_END_GAP
+                    target_vo_duration = max(target_vo_duration, 0.1)
+                    
+                    if voiceover.duration > target_vo_duration:
+                        voiceover = voiceover.subclip(0, target_vo_duration)
                     
                     actual_vo_duration = voiceover.duration
                     
@@ -478,7 +577,7 @@ def stitch_clips_with_separate_audio(
                     voiceover = voiceover.set_start(current_time).set_end(clip_end_time)
                     
                     audio_clips.append(voiceover)
-                    print(f"    Clip {i} #{clip_num}: 🎤 Custom voiceover added ({actual_vo_duration:.2f}s)")
+                    print(f"    Clip {i} #{clip_num}: 🎤 Voiceover added ({actual_vo_duration:.2f}s), video adjusted to {clip_duration:.2f}s")
                 else:
                     print(f"    Clip {i} #{clip_num}: SILENT_IMAGE (no audio)")
                 
@@ -521,17 +620,37 @@ def stitch_clips_with_separate_audio(
                 vo_path = voiceover_paths[clip_num]
                 if os.path.exists(vo_path):
                     voiceover = AudioFileClip(vo_path)
+                    vo_duration = voiceover.duration
                     
-                    # CRITICAL: Trim voiceover to ensure clean boundaries
-                    # Use 60ms buffer to prevent sample alignment issues at clip boundaries
-                    # PLUS add 150ms gap at END of voiceover for breathing room before next voiceover
+                    # CRITICAL: Voiceover duration is AUTHORITATIVE
+                    # Video duration MUST match voiceover duration - extend OR trim as needed
+                    target_clip_duration = vo_duration + 0.3  # 300ms buffer after voiceover ends
+                    
+                    if clip_duration < target_clip_duration:
+                        # Video is shorter than voiceover - EXTEND by looping
+                        print(f"    Clip {i} #{clip_num}: 🔄 Extending video from {clip_duration:.2f}s to {target_clip_duration:.2f}s (voiceover: {vo_duration:.2f}s)")
+                        loops_needed = int(target_clip_duration / clip_duration) + 1
+                        clips_to_loop = [clip] * loops_needed
+                        extended_clip = concatenate_videoclips(clips_to_loop, method="compose")
+                        clip = extended_clip.subclip(0, target_clip_duration)
+                        clip_duration = target_clip_duration
+                        clip_durations[clip_num] = clip_duration
+                    elif clip_duration > target_clip_duration:
+                        # Video is longer than voiceover - TRIM to match voiceover duration
+                        # No gaps allowed - voiceover duration is authoritative
+                        print(f"    Clip {i} #{clip_num}: ✂️ Trimming video from {clip_duration:.2f}s to {target_clip_duration:.2f}s (voiceover: {vo_duration:.2f}s)")
+                        clip = clip.subclip(0, target_clip_duration)
+                        clip_duration = target_clip_duration
+                        clip_durations[clip_num] = clip_duration
+                    
+                    # Now trim voiceover to ensure clean boundaries (with buffer)
                     AUDIO_BUFFER = 0.06  # 60ms buffer
                     VOICEOVER_END_GAP = 0.15  # 150ms gap between voiceovers for natural pacing
-                    target_duration = min(voiceover.duration, clip_duration) - AUDIO_BUFFER - VOICEOVER_END_GAP
-                    target_duration = max(target_duration, 0.1)  # Minimum 100ms
+                    target_vo_duration = min(voiceover.duration, clip_duration) - AUDIO_BUFFER - VOICEOVER_END_GAP
+                    target_vo_duration = max(target_vo_duration, 0.1)  # Minimum 100ms
                     
-                    if voiceover.duration > target_duration:
-                        voiceover = voiceover.subclip(0, target_duration)
+                    if voiceover.duration > target_vo_duration:
+                        voiceover = voiceover.subclip(0, target_vo_duration)
                     
                     actual_vo_duration = voiceover.duration
                     
@@ -730,7 +849,9 @@ def regenerate_from_raw(assets_folder: str, output_path: Optional[str] = None,
                         custom_music_path: Optional[str] = None, speed: float = 1.0,
                         use_saved_transcriptions: bool = True,
                         clip0_voiceover: Optional[str] = None,
-                        include_music: bool = True) -> Optional[str]:
+                        include_music: bool = True,
+                        broll_text: bool = False,
+                        no_influencer_overlay: bool = False) -> Optional[str]:
     """
     Regenerate final video from raw assets.
     
@@ -744,6 +865,8 @@ def regenerate_from_raw(assets_folder: str, output_path: Optional[str] = None,
                If speed != 1.0, video is first stitched without music, then sped up, then music is added.
         clip0_voiceover: Optional path to voiceover audio for Clip 0 (normally silent opening hook)
         include_music: If False, no background music will be added to the final video
+        broll_text: If True, apply on-screen text overlays to B_ROLL clips as specified in video_plan.json
+        no_influencer_overlay: If True, use only B-roll background (without avatar overlay) for AI Influencer clips
     
     Uses:
     - raw_assets/videos/clip_*_raw.mp4 (raw video clips including B_ROLL)
@@ -822,11 +945,30 @@ def regenerate_from_raw(assets_folder: str, output_path: Optional[str] = None,
     video_paths = []
     clip_numbers = []
     
+    # Build lookup for AI_VIDEO clips from video_plan (for --no-influencer-overlay support)
+    ai_video_clip_nums = set()
+    if video_plan:
+        for clip_info in video_plan.get('clips', []):
+            if clip_info.get('clip_type') == 'AI_VIDEO':
+                ai_video_clip_nums.add(clip_info.get('clip_number', -1))
+    
     for vf in sorted(video_files, key=lambda x: int(os.path.basename(x).split("_")[1])):
         # Extract clip number from filename (clip_0_raw.mp4 -> 0)
         basename = os.path.basename(vf)
         clip_num = int(basename.split("_")[1])
-        video_paths.append(vf)
+        
+        # Check if we should use broll_bg instead of raw for AI Influencer clips
+        actual_video_path = vf
+        if no_influencer_overlay and clip_num in ai_video_clip_nums:
+            # Try to find the broll_bg video for this clip
+            broll_bg_path = os.path.join(raw_videos_dir, f"clip_{clip_num}_broll_bg.mp4")
+            if os.path.exists(broll_bg_path):
+                actual_video_path = broll_bg_path
+                print(f"  🔄 Clip {clip_num}: Using B-roll background only (no avatar overlay)")
+            else:
+                print(f"  ⚠️ Clip {clip_num}: broll_bg.mp4 not found, using original raw clip")
+        
+        video_paths.append(actual_video_path)
         clip_numbers.append(clip_num)
     
     # Find voiceover files (check new structure first)
@@ -894,6 +1036,44 @@ def regenerate_from_raw(assets_folder: str, output_path: Optional[str] = None,
                 voiceover_paths[research_clip_num] = research_clip['voiceover_path']
             
             print(f"  📍 Inserted research clip after Clip {insert_after_clip_num} (at index {insert_idx})")
+    
+    # Apply B_ROLL on-screen text overlays if enabled
+    if broll_text and video_plan:
+        print(f"\n  🏷️ Applying B_ROLL on-screen text overlays...")
+        clips_info = video_plan.get('clips', [])
+        
+        # Build a lookup dict from clip number to clip info
+        clip_info_by_num = {}
+        for clip in clips_info:
+            clip_num = clip.get('clip_number', -1)
+            if clip_num >= 0:
+                clip_info_by_num[clip_num] = clip
+        
+        # Process each video path
+        temp_dir = os.path.dirname(video_paths[0]) if video_paths else raw_assets_dir
+        text_overlay_count = 0
+        
+        for i, clip_num in enumerate(clip_numbers):
+            if clip_num >= 1000:  # Skip research clips
+                continue
+                
+            clip_info = clip_info_by_num.get(clip_num, {})
+            clip_type = clip_info.get('clip_type', '')
+            broll_on_screen_text = clip_info.get('broll_on_screen_text')
+            
+            # Only apply to B_ROLL clips with on-screen text specified
+            if clip_type == 'B_ROLL' and broll_on_screen_text and broll_on_screen_text.strip():
+                text_output = os.path.join(temp_dir, f"clip_{clip_num}_broll_text.mp4")
+                text_result = apply_broll_text_overlay(video_paths[i], broll_on_screen_text, text_output)
+                
+                if text_result and os.path.exists(text_result):
+                    video_paths[i] = text_result  # Replace with text-overlaid version
+                    text_overlay_count += 1
+                    print(f"    Clip {clip_num}: Applied text \"{broll_on_screen_text}\"")
+        
+        print(f"  ✅ Applied text overlays to {text_overlay_count} B_ROLL clips")
+    elif broll_text and not video_plan:
+        print(f"  ⚠️ B_ROLL text enabled but no video_plan.json found - skipping text overlays")
     
     # Find music file - use custom music if provided, otherwise use from raw_assets
     # Skip music entirely if include_music=False
@@ -1211,7 +1391,9 @@ def fix_assets(assets_folder: str, output_path: Optional[str] = None,
                speed: float = 1.0, restitch_only_mode: bool = False,
                from_raw: bool = False, captions: Optional[str] = None,
                language_code: str = "en",
-               clip0_voiceover: Optional[str] = None) -> Optional[str]:
+               clip0_voiceover: Optional[str] = None,
+               broll_text: bool = False,
+               no_influencer_overlay: bool = False) -> Optional[str]:
     """
     Main entry point for asset fixing/regeneration.
     
@@ -1219,9 +1401,11 @@ def fix_assets(assets_folder: str, output_path: Optional[str] = None,
         custom_music_path: Optional path to custom background music file (overrides raw_assets music)
         speed: Speed multiplier for final video (e.g., 1.1 for 10% faster)
         clip0_voiceover: Optional path to voiceover audio for Clip 0 (normally silent opening hook)
+        broll_text: If True, apply on-screen text overlays to B_ROLL clips as specified in video_plan.json
+        no_influencer_overlay: If True, use only B-roll background (without avatar overlay) for AI Influencer clips
     """
     if from_raw:
-        return regenerate_from_raw(assets_folder, output_path, captions, language_code, custom_music_path, speed, clip0_voiceover=clip0_voiceover, include_music=include_music)
+        return regenerate_from_raw(assets_folder, output_path, captions, language_code, custom_music_path, speed, clip0_voiceover=clip0_voiceover, include_music=include_music, broll_text=broll_text, no_influencer_overlay=no_influencer_overlay)
     
     if restitch_only_mode:
         return restitch_only(assets_folder, output_path, custom_music_path, speed, clip0_voiceover=clip0_voiceover, include_music=include_music)
@@ -1405,6 +1589,18 @@ Examples:
     )
     
     parser.add_argument(
+        "--broll-text",
+        action="store_true",
+        help="Apply on-screen text overlays to B_ROLL clips as specified in video_plan.json (broll_on_screen_text field)"
+    )
+    
+    parser.add_argument(
+        "--no-influencer-overlay",
+        action="store_true",
+        help="For AI Influencer clips, use only the background B-roll video WITHOUT the avatar overlay (uses *_broll_bg.mp4 instead of *_raw.mp4)"
+    )
+    
+    parser.add_argument(
         "--language", "-l",
         default="en",
         help="Language code for caption transcription (default: en)"
@@ -1573,7 +1769,9 @@ Examples:
         from_raw=args.from_raw,
         captions=args.captions,
         language_code=args.language,
-        clip0_voiceover=args.clip0_voiceover
+        clip0_voiceover=args.clip0_voiceover,
+        broll_text=args.broll_text,
+        no_influencer_overlay=args.no_influencer_overlay
     )
     
     if result:

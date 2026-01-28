@@ -24,12 +24,13 @@ function getAccountIdHeader(): Record<string, string> {
 // Generic API request helper
 async function apiRequest<T>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit & { timeout?: number } = {}
 ): Promise<T> {
   const url = `${API_URL}${endpoint}`;
+  const { timeout, ...fetchOptions } = options;
   
   // Check if this is a FormData request (for file uploads)
-  const isFormData = options.body instanceof FormData;
+  const isFormData = fetchOptions.body instanceof FormData;
   
   // Build headers - always include account ID header for Safari/ITP compatibility
   const accountIdHeader = getAccountIdHeader();
@@ -44,7 +45,7 @@ async function apiRequest<T>(
   }
   
   // Merge with any custom headers (but ensure account ID is always present)
-  const customHeaders = options.headers as Record<string, string> || {};
+  const customHeaders = fetchOptions.headers as Record<string, string> || {};
   const finalHeaders = {
     ...baseHeaders,
     ...customHeaders,
@@ -53,13 +54,30 @@ async function apiRequest<T>(
   
   const defaultOptions: RequestInit = {
     credentials: 'include', // Include cookies for session management
-    ...options,
+    ...fetchOptions,
     headers: finalHeaders,
   };
-
+  
+  // Add timeout support using AbortController
+  let abortController: AbortController | null = null;
+  let timeoutId: NodeJS.Timeout | null = null;
+  
+  if (timeout && timeout > 0) {
+    abortController = new AbortController();
+    timeoutId = setTimeout(() => {
+      abortController?.abort();
+    }, timeout);
+    defaultOptions.signal = abortController.signal;
+  }
+  
   try {
-    console.log(`🌐 API Request: ${options.method || 'GET'} ${url}`);
+    console.log(`🌐 API Request: ${fetchOptions.method || 'GET'} ${url}${timeout ? ` (timeout: ${timeout}ms)` : ''}`);
     const response = await fetch(url, defaultOptions);
+    
+    // Clear timeout on successful response
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
     
     console.log(`📥 API Response: ${response.status} ${response.statusText}`);
     
@@ -77,6 +95,17 @@ async function apiRequest<T>(
 
     return data;
   } catch (error: any) {
+    // Clear timeout on error
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+    
+    // Handle abort (timeout)
+    if (error.name === 'AbortError') {
+      console.error('❌ Request timeout:', error);
+      throw new Error(`Request timed out after ${timeout}ms`);
+    }
+    
     // Handle network-level errors (CORS, blocked requests, etc.)
     if (error.name === 'TypeError' && error.message.includes('fetch')) {
       console.error('❌ Network/CORS Error:', error);
@@ -1308,6 +1337,373 @@ export const imageRegenerationApi = {
   },
 };
 
+// Video Edits API (timeline, clips, audio, effects)
+export const videoEditsApi = {
+  async loadVideoContent(generatedContentId: number, postIndex: number) {
+    return apiRequest<{
+      success: boolean;
+      videoData?: {
+        generatedContentId: number;
+        postIndex: number;
+        videoUrl: string;
+        duration: number;
+        clips: Array<{
+          url: string;
+          duration: number;
+          startTime: number;
+          prompt?: string; // AI prompt that generated this clip
+        }>;
+        voiceover?: {
+          url: string;
+          duration: number;
+          prompt?: string;
+        };
+        backgroundMusic?: {
+          url: string;
+          duration: number;
+        };
+        aspectRatio?: string;
+      };
+      error?: string;
+    }>(`/dvyb/video-edits/load-content/${generatedContentId}/${postIndex}`);
+  },
+
+  async saveVideoEdit(data: {
+    generatedContentId: number;
+    postIndex: number;
+    originalVideoUrl: string;
+    tracks: Array<{
+      id: string;
+      name: string;
+      type: string;
+      clips: Array<{
+        id: string;
+        trackId: string;
+        name: string;
+        startTime: number;
+        duration: number;
+        sourceStart: number;
+        sourceDuration: number;
+        src: string;
+        type: string;
+        thumbnail?: string;
+        transform?: any;
+        volume?: number;
+        fadeIn?: number;
+        fadeOut?: number;
+        muted?: boolean;
+        filters?: any;
+        filterPreset?: string;
+        transitionIn?: string;
+        transitionOut?: string;
+        transitionInDuration?: number;
+        transitionOutDuration?: number;
+        text?: any;
+        blendMode?: string;
+        flipHorizontal?: boolean;
+        flipVertical?: boolean;
+        cornerRadius?: number;
+        borderWidth?: number;
+        borderColor?: string;
+        shadowEnabled?: boolean;
+        shadowColor?: string;
+        shadowBlur?: number;
+        shadowOffsetX?: number;
+        shadowOffsetY?: number;
+      }>;
+      muted: boolean;
+      locked: boolean;
+      visible: boolean;
+    }>;
+    duration: number;
+    aspectRatio?: string;
+  }) {
+    return apiRequest<{
+      success: boolean;
+      data: {
+        editId: number;
+        status: string;
+        message: string;
+      };
+      error?: string;
+    }>('/dvyb/video-edits', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getVideoEdit(generatedContentId: number, postIndex: number) {
+    return apiRequest<{
+      success: boolean;
+      edit?: {
+        id: number;
+        status: 'pending' | 'processing' | 'completed' | 'failed';
+        editedVideoUrl: string | null;
+        originalVideoUrl: string | null;
+        tracks: any[];
+        duration: number;
+        aspectRatio: string;
+        errorMessage: string | null;
+      } | null;
+      error?: string;
+    }>(`/dvyb/video-edits/${generatedContentId}/${postIndex}`);
+  },
+
+  // Export video - sends edit data to Python backend for actual video processing
+  async exportVideo(editData: {
+    generatedContentId?: number;
+    postIndex?: number;
+    originalVideoUrl?: string;
+    projectName: string;
+    aspectRatio: string;
+    duration: number;
+    exportSettings: {
+      resolution: string;
+      format: string;
+      quality: string;
+      fps: number;
+    };
+    tracks: Array<{
+      id: string;
+      name: string;
+      type: string;
+      muted: boolean;
+      visible: boolean;
+      clips: Array<any>;
+    }>;
+  }): Promise<{
+    success: boolean;
+    status?: 'completed' | 'processing' | 'pending' | 'failed';
+    jobId?: string;
+    editId?: number;
+    videoUrl?: string;
+    message?: string;
+    error?: string;
+    blob?: Blob;
+    filename?: string;
+  }> {
+    const url = `${API_URL}/dvyb/video-edits/export`;
+    const accountIdHeader = getAccountIdHeader();
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        ...accountIdHeader,
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify(editData),
+    });
+    
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+    const contentDisposition = response.headers.get('content-disposition') || '';
+    const blob = await response.blob();
+    let filename = 'exported-video.mp4';
+    const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+    if (filenameMatch) filename = filenameMatch[1];
+
+    // Treat as video file if Content-Type says so, or if response is OK and body looks binary (no JSON)
+    const looksLikeVideo =
+      contentType.includes('video/') ||
+      contentType.includes('application/octet-stream') ||
+      (response.ok && blob.size > 1024 && !contentType.includes('application/json'));
+    if (looksLikeVideo && blob.size > 0) {
+      return { success: true, status: 'completed' as const, blob, filename };
+    }
+
+    // Treat as JSON (body already read as blob; parse from text)
+    const text = await blob.text();
+    let data: unknown;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error('Export failed: invalid response from server');
+    }
+    if (!response.ok) {
+      throw new Error((data as { error?: string }).error || `API request failed with status ${response.status}`);
+    }
+    return data as Awaited<ReturnType<typeof videoEditsApi.exportVideo>>;
+  },
+
+  // Get export job status (uses /job/:id/status to avoid route collision with /:generatedContentId/:postIndex)
+  async getExportStatus(jobId: string) {
+    return apiRequest<{
+      success: boolean;
+      status: 'pending' | 'processing' | 'completed' | 'failed';
+      progress?: number;
+      message?: string;
+      videoUrl?: string;
+      error?: string;
+    }>(`/dvyb/video-edits/job/${jobId}/status`);
+  },
+
+  // Download exported video file (uses /job/:id/download to avoid route collision)
+  async downloadVideo(jobId: string): Promise<{ blob: Blob; filename: string }> {
+    const url = `${API_URL}/dvyb/video-edits/job/${jobId}/download`;
+    const accountIdHeader = getAccountIdHeader();
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        ...accountIdHeader,
+      },
+      credentials: 'include',
+    });
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Failed to download video' }));
+      throw new Error(error.error || `Download failed with status ${response.status}`);
+    }
+    
+    const contentType = response.headers.get('content-type') || '';
+    const contentDisposition = response.headers.get('content-disposition') || '';
+    
+    const blob = await response.blob();
+    let filename = 'exported-video.mp4';
+    
+    // Extract filename from Content-Disposition header
+    const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+    if (filenameMatch) {
+      filename = filenameMatch[1];
+    }
+    
+    return { blob, filename };
+  },
+};
+
+// Assets API (videos, images, audio, effects)
+export const assetsApi = {
+  async getAssets(params?: {
+    type?: string;
+    category?: string;
+    search?: string;
+  }) {
+    const queryParams = new URLSearchParams();
+    if (params?.type) queryParams.append('type', params.type);
+    if (params?.category) queryParams.append('category', params.category);
+    if (params?.search) queryParams.append('search', params.search);
+    
+    const url = queryParams.toString()
+      ? `/dvyb/assets?${queryParams.toString()}`
+      : '/dvyb/assets';
+    
+    return apiRequest<{
+      success: boolean;
+      assets: Array<{
+        id: string;
+        name: string;
+        type: string;
+        thumbnail: string;
+        duration?: number;
+        src: string;
+        tags: string[];
+        category?: string;
+        aiGenerated: boolean;
+        createdAt: string;
+        isAdminAsset: boolean;
+      }>;
+      error?: string;
+    }>(url);
+  },
+
+  async uploadAsset(data: {
+    name: string;
+    type: string;
+    category?: string;
+    tags?: string[];
+    metadata?: any;
+  }) {
+    return apiRequest<{
+      success: boolean;
+      asset?: {
+        id: string;
+        name: string;
+        type: string;
+        uploadUrl: string;
+        s3Key: string;
+      };
+      error?: string;
+    }>('/dvyb/assets/upload', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateAsset(assetId: string, data: {
+    duration?: number;
+    thumbnailS3Key?: string;
+    metadata?: any;
+  }) {
+    return apiRequest<{
+      success: boolean;
+      asset?: any;
+      error?: string;
+    }>(`/dvyb/assets/${assetId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteAsset(assetId: string) {
+    return apiRequest<{
+      success: boolean;
+      message?: string;
+      error?: string;
+    }>(`/dvyb/assets/${assetId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  /**
+   * Upload file to asset via backend proxy (avoids S3 CORS). Uses XHR for progress.
+   */
+  uploadAssetFile(
+    assetId: string,
+    file: File,
+    onProgress?: (percent: number) => void
+  ): Promise<{ success: boolean; error?: string; code?: string }> {
+    return new Promise((resolve) => {
+      const url = `${API_URL}/dvyb/assets/upload-file/${assetId}`;
+      const formData = new FormData();
+      formData.append('file', file);
+      const xhr = new XMLHttpRequest();
+      const accountHeader = getAccountIdHeader();
+      xhr.open('POST', url);
+      xhr.withCredentials = true;
+      if (accountHeader['X-DVYB-Account-ID']) {
+        xhr.setRequestHeader('X-DVYB-Account-ID', accountHeader['X-DVYB-Account-ID']);
+      }
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) {
+          onProgress(Math.round((100 * e.loaded) / e.total));
+        }
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const data = JSON.parse(xhr.responseText || '{}');
+            resolve(data.success ? { success: true } : { success: false, error: data.error || 'Upload failed', code: data.code });
+          } catch {
+            resolve({ success: true });
+          }
+        } else {
+          try {
+            const data = JSON.parse(xhr.responseText || '{}');
+            const message = data.code === 'ASSET_NOT_FOUND'
+              ? 'Upload link expired. Please close this dialog and try adding the file again.'
+              : (data.error || `Upload failed (${xhr.status})`);
+            resolve({ success: false, error: message, code: data.code });
+          } catch {
+            resolve({ success: false, error: `Upload failed (${xhr.status})` });
+          }
+        }
+      };
+      xhr.onerror = () => resolve({ success: false, error: 'Network error. Check that the app and API share the same origin or CORS allows this request.' });
+      xhr.send(formData);
+    });
+  },
+};
+
 // Subscription API
 export const subscriptionApi = {
   async createCheckout(planId: number, frequency: 'monthly' | 'annual', promoCode?: string) {
@@ -1560,6 +1956,8 @@ export const dvybApi = {
   captions: captionsApi,
   imageEdits: imageEditsApi,
   imageRegeneration: imageRegenerationApi,
+  videoEdits: videoEditsApi,
+  assets: assetsApi,
   subscription: subscriptionApi,
   inspirations: inspirationsApi,
   contentStrategy: contentStrategyApi,

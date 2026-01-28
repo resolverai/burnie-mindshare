@@ -1,42 +1,58 @@
 #!/usr/bin/env ts-node
 
 /**
- * Upload Inspirations from Google Drive Script
- * 
- * This script recursively downloads images/videos from a Google Drive folder
- * and uploads them as custom inspirations to S3 and the database.
- * 
- * Prerequisites:
- *   Install googleapis package if not already installed:
+ * Upload Inspirations from Google Drive or Local Folder
+ *
+ * This script uploads images/videos as custom inspirations to S3 and the database.
+ * Source can be either:
+ *   - A Google Drive folder link (recursively downloads from Drive), or
+ *   - A local folder path (recursively reads from the filesystem).
+ *
+ * Prerequisites (Google Drive only):
  *   npm install googleapis
- * 
+ *
  * Usage:
  *   npx ts-node src/scripts/upload-inspirations-from-drive.ts <google-drive-folder-link>
- * 
- * Example:
+ *   npx ts-node src/scripts/upload-inspirations-from-drive.ts <local-folder-path>
+ *
+ * Examples:
  *   npx ts-node src/scripts/upload-inspirations-from-drive.ts "https://drive.google.com/drive/folders/1ABC123xyz"
- * 
- * Environment Variables Required:
- *   - AWS_ACCESS_KEY_ID (required)
- *   - AWS_SECRET_ACCESS_KEY (required)
+ *   npx ts-node src/scripts/upload-inspirations-from-drive.ts ./my-inspirations
+ *   npx ts-node src/scripts/upload-inspirations-from-drive.ts /absolute/path/to/folder
+ *
+ * Environment variables (loaded from .env in current working directory when you run the script):
+ *   The script uses the same config as the backend: config/env.ts runs dotenv.config()
+ *   with no path, so .env is loaded from process.cwd() (e.g. typescript-backend/.env if
+ *   you run the command from burnie-influencer-platform/typescript-backend).
+ *
+ *   Database (used for dvyb_inspiration_links):
+ *   - DB_HOST (default: localhost)
+ *   - DB_PORT (default: 5432)
+ *   - DB_NAME (default: roastpower)
+ *   - DB_USERNAME (default: postgres)
+ *   - DB_PASSWORD (optional)
+ *
+ *   AWS S3 (required for uploads):
+ *   - AWS_ACCESS_KEY_ID
+ *   - AWS_SECRET_ACCESS_KEY
  *   - AWS_REGION (optional, default: us-east-1)
- * 
- * Environment Variables for Google Drive (one of these required):
- *   - GOOGLE_API_KEY (for public folders - get from Google Cloud Console)
- *   - GOOGLE_SERVICE_ACCOUNT_JSON (path to service account JSON file for private folders)
- * 
- * Supported File Types:
+ *
+ *   Redis (used when queueing inspiration analysis):
+ *   - REDIS_HOST, REDIS_PORT, REDIS_PASSWORD
+ *
+ *   Google Drive only (one required when using a Drive link):
+ *   - GOOGLE_API_KEY (public folders), or
+ *   - GOOGLE_SERVICE_ACCOUNT_JSON (path to JSON for private folders)
+ *
+ * Supported file types:
  *   Images: .png, .jpg, .jpeg, .webp
  *   Videos: .mp4, .webm, .mpeg
- * 
+ *
  * The script will:
- *   1. Extract folder ID from the Google Drive link
- *   2. Recursively list all files in the folder and subfolders
- *   3. Filter to only supported image/video files
- *   4. Use folder path as category (humanized, e.g., "fashion-trends" → "Fashion Trends")
- *   5. Download each file from Google Drive
- *   6. Upload to S3 bucket (burnie-videos)
- *   7. Create database entries in dvyb_inspiration_links table
+ *   1. Detect source (Drive link vs local path)
+ *   2. Recursively list supported image/video files
+ *   3. Use folder name as category (humanized)
+ *   4. Upload each file to S3 (burnie-videos), create dvyb_inspiration_links row, queue analysis
  */
 
 import { AppDataSource } from '../config/database';
@@ -90,6 +106,59 @@ function extractFolderId(driveLink: string): string | null {
   }
 
   return null;
+}
+
+/** Returns true if the argument looks like a Google Drive URL (not a local path). */
+function isGoogleDriveLink(input: string): boolean {
+  return /^https?:\/\//i.test(input.trim()) && (
+    input.includes('drive.google.com') || extractFolderId(input) != null
+  );
+}
+
+/**
+ * Check if the path is an existing local directory
+ */
+function isLocalFolder(dirPath: string): boolean {
+  try {
+    const resolved = path.resolve(dirPath.trim());
+    return fs.existsSync(resolved) && fs.statSync(resolved).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+interface LocalFileEntry {
+  fullPath: string;
+  name: string;
+  folderPath: string;
+}
+
+/**
+ * Recursively list supported image/video files in a local directory.
+ * Uses immediate parent directory name as category (folderPath), like Drive flow.
+ */
+function listLocalFilesRecursively(
+  dirPath: string,
+  parentFolderName: string,
+  allFiles: LocalFileEntry[] = []
+): LocalFileEntry[] {
+  const resolved = path.resolve(dirPath);
+  const entries = fs.readdirSync(resolved, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const fullPath = path.join(resolved, entry.name);
+    if (entry.isDirectory()) {
+      listLocalFilesRecursively(fullPath, entry.name, allFiles);
+    } else if (entry.isFile() && isSupportedFile(entry.name)) {
+      allFiles.push({
+        fullPath,
+        name: entry.name,
+        folderPath: parentFolderName,
+      });
+      logger.info(`   ✓ Found supported file: ${entry.name} in folder: ${parentFolderName}`);
+    }
+  }
+  return allFiles;
 }
 
 /**
@@ -381,87 +450,107 @@ async function main() {
   const args = process.argv.slice(2);
 
   if (args.length === 0) {
-    console.error('❌ Error: Google Drive folder link is required');
+    console.error('❌ Error: Google Drive folder link or local folder path is required');
     console.log('\nUsage:');
     console.log('  npx ts-node src/scripts/upload-inspirations-from-drive.ts <google-drive-folder-link>');
-    console.log('\nExample:');
+    console.log('  npx ts-node src/scripts/upload-inspirations-from-drive.ts <local-folder-path>');
+    console.log('\nExamples:');
     console.log('  npx ts-node src/scripts/upload-inspirations-from-drive.ts "https://drive.google.com/drive/folders/1ABC123xyz"');
-    console.log('\nEnvironment Variables:');
-    console.log('  - AWS_ACCESS_KEY_ID (required)');
-    console.log('  - AWS_SECRET_ACCESS_KEY (required)');
-    console.log('  - AWS_REGION (optional, default: us-east-1)');
-    console.log('  - GOOGLE_API_KEY (optional, for public folders)');
-    console.log('  - GOOGLE_SERVICE_ACCOUNT_JSON (optional, path to service account JSON)');
+    console.log('  npx ts-node src/scripts/upload-inspirations-from-drive.ts ./my-inspirations');
+    console.log('\nEnvironment: .env is loaded from current working directory (DB_*, AWS_*, REDIS_*, GOOGLE_* for Drive).');
     process.exit(1);
   }
 
-  const driveLink = args[0];
-  if (!driveLink) {
-    console.error('❌ Error: Google Drive folder link is required');
+  const input = (args[0] ?? '').trim();
+  if (!input) {
+    console.error('❌ Error: Empty argument');
     process.exit(1);
   }
 
-  const folderId = extractFolderId(driveLink);
-  if (!folderId) {
+  const useLocalFolder = !isGoogleDriveLink(input) && isLocalFolder(input);
+  const useDrive = isGoogleDriveLink(input);
+  const folderId = useDrive ? extractFolderId(input) : null;
+
+  if (useDrive && !folderId) {
     console.error('❌ Error: Could not extract folder ID from Google Drive link');
     console.log('Expected format: https://drive.google.com/drive/folders/FOLDER_ID');
     process.exit(1);
   }
 
-  // Initialize database with logging disabled for cleaner output
-  // Create a new DataSource instance with logging disabled (declare outside try for finally block)
+  if (!useLocalFolder && !useDrive) {
+    console.error('❌ Error: Argument must be either a Google Drive folder link or an existing local folder path');
+    console.log('  - Drive link example: https://drive.google.com/drive/folders/1ABC123xyz');
+    console.log('  - Local folder example: ./my-inspirations or /path/to/folder');
+    process.exit(1);
+  }
+
+  // Initialize database (uses DB_* env from config/env.ts, loaded from .env in cwd)
   const scriptDataSource = new DataSource({
     ...AppDataSource.options,
-    logging: false, // Disable logging for this script
+    logging: false,
   });
 
   try {
     await scriptDataSource.initialize();
 
-    // Initialize Google Drive client
-    logger.info('🔌 Initializing Google Drive client...');
-    const { drive, apiKey } = await initializeDriveClient();
-    logger.info('✅ Google Drive client initialized');
+    let filesByCategory: Map<string, { name: string; fullPath?: string; id?: string; mimeType?: string; folderPath: string }[]>;
+    let rootFolderName: string;
+    let drive: any = null;
+    let apiKey: string | undefined;
 
-    // Get folder name
-    let rootFolderName = 'Root';
-    try {
-      const params: any = {
-        fileId: folderId,
-        fields: 'name',
-      };
-      // Add API key if using API key auth
-      if (apiKey) {
-        params.key = apiKey;
+    if (useLocalFolder) {
+      const localPath = path.resolve(input);
+      rootFolderName = path.basename(localPath);
+      logger.info(`📂 Local folder: ${localPath} (category base: ${rootFolderName})`);
+      logger.info('📋 Listing files recursively...');
+      const localFiles = listLocalFilesRecursively(localPath, rootFolderName);
+      logger.info(`✅ Found ${localFiles.length} supported files`);
+
+      if (localFiles.length === 0) {
+        logger.warn('⚠️  No supported files found in the folder');
+        process.exit(0);
       }
-      const folderInfo = await drive.files.get(params);
-      rootFolderName = folderInfo.data.name || 'Root';
-      logger.info(`📂 Root folder: ${rootFolderName}`);
-    } catch (error: any) {
-      logger.warn(`⚠️  Could not fetch folder name: ${error.message}. Using 'Root' as default.`);
-      if (error.response) {
-        logger.warn(`   Response: ${error.response.status} - ${JSON.stringify(error.response.data)}`);
+
+      filesByCategory = new Map<string, { name: string; fullPath?: string; folderPath: string }[]>();
+      for (const file of localFiles) {
+        const category = humanizeFolderName(file.folderPath);
+        if (!filesByCategory.has(category)) filesByCategory.set(category, []);
+        filesByCategory.get(category)!.push({ name: file.name, fullPath: file.fullPath, folderPath: file.folderPath });
       }
-    }
+    } else {
+      // Google Drive flow
+      logger.info('🔌 Initializing Google Drive client...');
+      const client = await initializeDriveClient();
+      drive = client.drive;
+      apiKey = client.apiKey;
+      logger.info('✅ Google Drive client initialized');
 
-    // List all files recursively
-    logger.info('📋 Listing all files recursively...');
-    const allFiles = await listFilesRecursively(drive, apiKey, folderId, rootFolderName);
-    logger.info(`✅ Found ${allFiles.length} supported files`);
-
-    if (allFiles.length === 0) {
-      logger.warn('⚠️  No supported files found in the folder');
-      process.exit(0);
-    }
-
-    // Group files by folder path (category)
-    const filesByCategory = new Map<string, typeof allFiles>();
-    for (const file of allFiles) {
-      const category = humanizeFolderName(file.folderPath);
-      if (!filesByCategory.has(category)) {
-        filesByCategory.set(category, []);
+      rootFolderName = 'Root';
+      try {
+        const params: any = { fileId: folderId!, fields: 'name' };
+        if (apiKey) params.key = apiKey;
+        const folderInfo = await drive.files.get(params);
+        rootFolderName = folderInfo.data.name || 'Root';
+        logger.info(`📂 Root folder: ${rootFolderName}`);
+      } catch (error: any) {
+        logger.warn(`⚠️  Could not fetch folder name: ${error.message}. Using 'Root'.`);
       }
-      filesByCategory.get(category)!.push(file);
+
+      logger.info('📋 Listing all files recursively...');
+      const allFiles = await listFilesRecursively(drive, apiKey, folderId!, rootFolderName);
+      logger.info(`✅ Found ${allFiles.length} supported files`);
+
+      if (allFiles.length === 0) {
+        logger.warn('⚠️  No supported files found in the folder');
+        process.exit(0);
+      }
+
+      filesByCategory = new Map<string, { id: string; name: string; mimeType: string; folderPath: string }[]>();
+      for (const file of allFiles) {
+        const category = humanizeFolderName(file.folderPath);
+        if (!filesByCategory.has(category)) filesByCategory.set(category, []);
+        filesByCategory.get(category)!.push(file);
+      }
     }
 
     logger.info(`📁 Found ${filesByCategory.size} categories:`);
@@ -469,7 +558,6 @@ async function main() {
       logger.info(`   - ${category}: ${files.length} files`);
     }
 
-    // Process each file
     let successCount = 0;
     let skipCount = 0;
     let errorCount = 0;
@@ -479,19 +567,23 @@ async function main() {
 
       for (const file of files) {
         try {
-          logger.info(`   📥 Downloading: ${file.name}...`);
+          let buffer: Buffer;
+          if (useLocalFolder && 'fullPath' in file && file.fullPath) {
+            logger.info(`   📥 Reading: ${file.name}...`);
+            buffer = fs.readFileSync(file.fullPath);
+          } else if (!useLocalFolder && drive && 'id' in file && 'mimeType' in file) {
+            logger.info(`   📥 Downloading: ${file.name}...`);
+            buffer = await downloadDriveFile(drive, apiKey, file.id, file.mimeType);
+          } else {
+            errorCount++;
+            logger.error(`   ❌ Invalid file entry`);
+            continue;
+          }
 
-          // Download file
-          const buffer = await downloadDriveFile(drive, apiKey, file.id, file.mimeType);
-
-          // Determine media type
           const mediaType = getMediaType(file.name);
-
-          // Upload to S3
           logger.info(`   ☁️  Uploading to S3...`);
           const mediaUrl = await uploadToS3(buffer, file.name, mediaType);
 
-          // Create database entry
           logger.info(`   💾 Creating database entry...`);
           const inspiration = await createInspirationEntry(
             scriptDataSource,
@@ -504,11 +596,8 @@ async function main() {
           if (inspiration.id) {
             successCount++;
             logger.info(`   ✅ Success: ${file.name} → ${mediaUrl}`);
-            
-            // Queue inspiration analysis job (processed one by one via Redis queue)
-            queueInspirationAnalysis(inspiration.id, mediaUrl, mediaType).catch((error) => {
-              logger.error(`   ⚠️  Failed to queue inspiration analysis for ${file.name}:`, error.message);
-              // Don't fail the script if queueing fails - analysis can be done later
+            queueInspirationAnalysis(inspiration.id, mediaUrl, mediaType).catch((err: any) => {
+              logger.error(`   ⚠️  Failed to queue inspiration analysis for ${file.name}:`, err.message);
             });
           } else {
             skipCount++;
@@ -521,7 +610,6 @@ async function main() {
       }
     }
 
-    // Summary
     logger.info('\n' + '='.repeat(60));
     logger.info('📊 Summary:');
     logger.info(`   ✅ Successfully uploaded: ${successCount}`);
@@ -529,12 +617,10 @@ async function main() {
     logger.info(`   ❌ Errors: ${errorCount}`);
     logger.info(`   📁 Total categories: ${filesByCategory.size}`);
     logger.info('='.repeat(60));
-
   } catch (error: any) {
     logger.error('❌ Script execution failed:', error);
     process.exit(1);
   } finally {
-    // Close database connection
     if (scriptDataSource.isInitialized) {
       await scriptDataSource.destroy();
       logger.info('✅ Database connection closed');

@@ -63,6 +63,24 @@ interface ContentLibraryProps {
   onEditDesignModeChange?: (isEditMode: boolean) => void;
 }
 
+// Helper function to check if content has a draft in localStorage
+const hasEditedDraft = (contentId: number, postIndex: number): boolean => {
+  if (typeof window === 'undefined') return false;
+  const storageKey = `video-edit-draft-${contentId}-${postIndex}`;
+  const savedDraft = localStorage.getItem(storageKey);
+  if (!savedDraft) return false;
+  
+  try {
+    const draftData = JSON.parse(savedDraft);
+    const savedAt = new Date(draftData.savedAt);
+    const hoursSinceSave = (Date.now() - savedAt.getTime()) / (1000 * 60 * 60);
+    // Only show "Edited" if draft is recent (within 24 hours)
+    return hoursSinceSave < 24;
+  } catch {
+    return false;
+  }
+};
+
 export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPost, setSelectedPost] = useState<ContentItem | null>(null);
@@ -719,6 +737,14 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                       >
                         {item.status}
                       </Badge>
+                      {/* Edited badge for content with unsaved edits */}
+                      {hasEditedDraft(item.contentId, item.postIndex) && (
+                        <Badge
+                          className="absolute top-2 left-2 bg-amber-500 hover:bg-amber-600 text-white"
+                        >
+                          Edited
+                        </Badge>
+                      )}
                     </div>
                     <div className="p-4 space-y-3">
                       <div className="flex items-center gap-2">
@@ -795,6 +821,14 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                         >
                           {item.status}
                         </Badge>
+                        {/* Edited badge for content with unsaved edits */}
+                        {hasEditedDraft(item.contentId, item.postIndex) && (
+                          <Badge
+                            className="absolute top-2 left-2 bg-amber-500 hover:bg-amber-600 text-white"
+                          >
+                            Edited
+                          </Badge>
+                        )}
                       </div>
                       <div className="p-3 md:p-4 space-y-2 md:space-y-3">
                         <div className="flex items-center gap-2">
@@ -869,6 +903,14 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                         >
                           selected
                         </Badge>
+                        {/* Edited badge for content with unsaved edits */}
+                        {hasEditedDraft(item.contentId, item.postIndex) && (
+                          <Badge
+                            className="absolute top-2 left-2 bg-amber-500 hover:bg-amber-600 text-white"
+                          >
+                            Edited
+                          </Badge>
+                        )}
                       </div>
                       <div className="p-3 md:p-4 space-y-2 md:space-y-3">
                         <div className="flex items-center gap-2">
@@ -940,6 +982,14 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                         >
                           pending review
                         </Badge>
+                        {/* Edited badge for content with unsaved edits */}
+                        {hasEditedDraft(item.contentId, item.postIndex) && (
+                          <Badge
+                            className="absolute top-2 left-2 bg-amber-500 hover:bg-amber-600 text-white"
+                          >
+                            Edited
+                          </Badge>
+                        )}
                       </div>
                       <div className="p-3 md:p-4 space-y-2 md:space-y-3">
                         <div className="flex items-center gap-2">
@@ -1011,6 +1061,14 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                         >
                           not selected
                         </Badge>
+                        {/* Edited badge for content with unsaved edits */}
+                        {hasEditedDraft(item.contentId, item.postIndex) && (
+                          <Badge
+                            className="absolute top-2 left-2 bg-amber-500 hover:bg-amber-600 text-white"
+                          >
+                            Edited
+                          </Badge>
+                        )}
                       </div>
                       <div className="p-3 md:p-4 space-y-2 md:space-y-3">
                         <div className="flex items-center gap-2">

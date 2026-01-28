@@ -60,6 +60,7 @@ from app.routes.dvyb_topic_generation import router as dvyb_topic_generation_rou
 from app.routes.dvyb_auto_generation import router as dvyb_auto_generation_router
 from app.routes.dvyb_image_overlay import router as dvyb_image_overlay_router
 from app.routes.dvyb_image_regeneration import router as dvyb_image_regeneration_router
+from app.routes.dvyb_video_edit import router as dvyb_video_edit_router
 from app.routes.dvyb_inspiration_matching import router as dvyb_inspiration_matching_router
 from app.routes.dvyb_content_strategy import router as dvyb_content_strategy_router
 from app.routes.utils import router as utils_router
@@ -158,6 +159,7 @@ app.include_router(dvyb_topic_generation_router, prefix="/api/dvyb/topics", tags
 app.include_router(dvyb_auto_generation_router, prefix="/api/dvyb/auto-generation", tags=["dvyb-auto-generation"])
 app.include_router(dvyb_image_overlay_router, prefix="/api/dvyb/image-overlay", tags=["dvyb-image-overlay"])
 app.include_router(dvyb_image_regeneration_router, prefix="/api/dvyb/image-regeneration", tags=["dvyb-image-regeneration"])
+app.include_router(dvyb_video_edit_router, prefix="/api/dvyb/video-edit", tags=["dvyb-video-edit"])
 app.include_router(dvyb_inspiration_matching_router, prefix="/api/dvyb/inspirations", tags=["dvyb-inspiration-matching"])
 app.include_router(dvyb_content_strategy_router, tags=["dvyb-content-strategy"])
 app.include_router(utils_router, prefix="/api/utils", tags=["utils"])
