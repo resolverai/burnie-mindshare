@@ -1088,7 +1088,7 @@ Respond ONLY with the JSON object, no other text."""
         Dynamically generates prompts based on video duration and frame count.
         """
         try:
-            chat = self.grok_client.chat.create(model="grok-4-latest")
+            chat = self.grok_client.chat.create(model="grok-4-fast-reasoning")
             
             chat.append(system("You are a WORLD-CLASS CREATIVE DIRECTOR specializing in viral brand promotion videos. You respond ONLY with valid JSON objects, no extra text or formatting. Every prompt you generate must follow real-world physics and professional video production standards."))
             

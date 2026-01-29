@@ -147,7 +147,7 @@ response = openai_client.responses.create(
 | **Eventbrite** | Official API | Local events, workshops (50km radius, space-separated keywords) |
 | **Holidays** | Nager.Date API | Public holidays, cultural events |
 | **Local Context** | OpenAI Responses API with `web_search` tool | Local businesses, schools, news |
-| **Twitter/X** | Grok `grok-4-latest` with `x_source()` | Trending topics (last 7 days, no OAuth) |
+| **Twitter/X** | Grok `grok-4-fast-reasoning` with `x_source()` | Trending topics (last 7 days, no OAuth) |
 
 ---
 

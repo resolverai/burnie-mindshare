@@ -406,10 +406,10 @@ class CrewAIService:
                         }
                         # Also ensure text uses Grok for dedicated miners
                         if 'text' not in self.model_preferences or not self.model_preferences['text']:
-                            logger.info(f"🔥 DEDICATED MINER - Setting text model to grok-4-latest")
+                            logger.info(f"🔥 DEDICATED MINER - Setting text model to grok-4-fast-reasoning")
                             self.model_preferences['text'] = {
                                 'provider': 'xai',
-                                'model': 'grok-4-latest'
+                                'model': 'grok-4-fast-reasoning'
                             }
                     
                     # Debug: Log the extracted model preferences
@@ -429,7 +429,7 @@ class CrewAIService:
                     # FOR DEDICATED MINERS: Ensure nano-banana/edit is set
                     is_dedicated_miner = getattr(self.mining_session, 'source', None) == 'dedicated_miner'
                     if is_dedicated_miner:
-                        logger.info(f"🔥 DEDICATED MINER (no config) - Setting defaults: nano-banana/edit + grok-4-latest")
+                        logger.info(f"🔥 DEDICATED MINER (no config) - Setting defaults: nano-banana/edit + grok-4-fast-reasoning")
             else:
                 self.user_agent_config = None
                 self.model_preferences = self._get_default_model_preferences()
@@ -437,7 +437,7 @@ class CrewAIService:
                 # FOR DEDICATED MINERS: Ensure nano-banana/edit is set
                 is_dedicated_miner = getattr(self.mining_session, 'source', None) == 'dedicated_miner'
                 if is_dedicated_miner:
-                    logger.info(f"🔥 DEDICATED MINER (no agent_id) - Setting defaults: nano-banana/edit + grok-4-latest")
+                    logger.info(f"🔥 DEDICATED MINER (no agent_id) - Setting defaults: nano-banana/edit + grok-4-fast-reasoning")
             
             # Get Twitter insights for this agent
             self.twitter_insights = {}
@@ -510,7 +510,7 @@ class CrewAIService:
         if is_dedicated_miner:
             # For dedicated miners, always use these defaults
             return {
-                'text': {'provider': 'xai', 'model': 'grok-4-latest'},
+                'text': {'provider': 'xai', 'model': 'grok-4-fast-reasoning'},
                 'image': {'provider': 'fal', 'model': 'fal-ai/nano-banana/edit'},
                 'video': {'provider': 'google', 'model': 'veo-3'},
                 'audio': {'provider': 'openai', 'model': 'tts-1-hd'}
@@ -1165,7 +1165,7 @@ class CrewAIService:
             self.model_preferences = {
                 'text': {
                     'provider': 'xai',
-                    'model': 'grok-4-latest'
+                    'model': 'grok-4-fast-reasoning'
                 }
             }
             
@@ -5156,7 +5156,7 @@ No image generated
             logger.info("🤖 Text-only mode detected - using Grok-3-mini for text regeneration")
             return ChatOpenAI(
                 openai_api_key=settings.xai_api_key,  # Use XAI API key for Grok
-                model_name="grok-4-latest",
+                model_name="grok-4-fast-reasoning",
                 temperature=0.7,
                 max_tokens=4000,
                 base_url="https://api.x.ai/v1"  # XAI API endpoint
@@ -6307,7 +6307,7 @@ class GrokCategoryStyleTool(BaseTool):
                 print(f"   - Prompt: {prompt}")
                 
                 # Get the text model preference
-                text_model = self.model_preferences.get('text', {}).get('model', 'grok-4-latest')
+                text_model = self.model_preferences.get('text', {}).get('model', 'grok-4-fast-reasoning')
                 
                 # Generate content using Grok with handle style + campaign context
                 print(f"🤖 GENERATING CONTENT WITH GROK:")
@@ -6540,7 +6540,7 @@ Style Reference: Generated in the style of {current_handle} (randomly selected f
             logger.error(f"❌ Error parsing prompt: {e}")
             return 'other', {'prompt': prompt, 'category': 'other'}
     
-    def _generate_grok_content(self, selected_handle: str, campaign_context: str, prompt: str, post_type: str = 'tweet', model: str = 'grok-4-latest', image_prompt: str = '') -> str:
+    def _generate_grok_content(self, selected_handle: str, campaign_context: str, prompt: str, post_type: str = 'tweet', model: str = 'grok-4-fast-reasoning', image_prompt: str = '') -> str:
         """Generate content using Grok models in the style of the selected handle (matching unified generation)"""
         try:
             if not self.api_key:

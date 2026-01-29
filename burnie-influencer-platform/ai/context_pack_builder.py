@@ -762,7 +762,7 @@ def grok_twitter_search_items(keywords: List[str], location: str, timezone: tz.t
     from xai_sdk.search import SearchParameters, x_source
     
     print(f"\n{'='*80}")
-    print("🐦 GROK TWITTER/X SEARCH (grok-4-latest)")
+    print("🐦 GROK TWITTER/X SEARCH (grok-4-fast-reasoning)")
     print(f"{'='*80}")
     print(f"Keywords: {', '.join(keywords[:5])}{'...' if len(keywords) > 5 else ''}")
     print(f"Location: {location}")
@@ -785,7 +785,7 @@ def grok_twitter_search_items(keywords: List[str], location: str, timezone: tz.t
         
         # X source: WITH date range and max_results (exactly like unified generation)
         chat = client.chat.create(
-            model="grok-4-latest",
+            model="grok-4-fast-reasoning",
             search_parameters=SearchParameters(
                 mode="auto",
                 max_search_results=20,

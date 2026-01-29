@@ -17,7 +17,7 @@ def generate_avatar_fusion(client, original_tweet_text, original_image_prompt, o
     Returns:
         dict: JSON with new_tweet_text and fusion_image_prompt
     """
-    chat = client.chat.create(model="grok-4-latest")
+    chat = client.chat.create(model="grok-4-fast-reasoning")
     
     # Set system instructions
     chat.append(system(

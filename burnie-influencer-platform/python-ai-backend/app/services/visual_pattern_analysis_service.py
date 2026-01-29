@@ -69,7 +69,7 @@ class VisualPatternAnalysisService:
         print("=" * 80)
         
         # Create chat
-        chat = self.client.chat.create(model="grok-4-latest")
+        chat = self.client.chat.create(model="grok-4-fast-reasoning")
         
         # Build industry and workflow-specific analysis instructions
         analysis_instructions = self._build_analysis_instructions(industry, workflow_type)

@@ -91,7 +91,7 @@ const PROVIDER_OPTIONS = [
     value: 'xai',
     description: 'Grok models with advanced reasoning and multimodal capabilities',
     textModels: [
-      'grok-4-latest',       // Latest Grok model
+      'grok-4-fast-reasoning',       // Latest Grok model
       'grok-4-0709',         // Specific version
       'grok-3',              // Previous generation
       'grok-3-mini'          // Smaller, faster model
@@ -408,7 +408,7 @@ export function CreateAgentModal({ onClose, onAgentCreated, editingAgent }: Crea
         maxTokens: editingAgent.config?.maxTokens || 150,
       })
       setModelPreferences({
-        text: editingAgent.config?.modelPreferences?.text || { provider: 'xai', model: 'grok-4-latest' },
+        text: editingAgent.config?.modelPreferences?.text || { provider: 'xai', model: 'grok-4-fast-reasoning' },
         image: editingAgent.config?.modelPreferences?.image || { provider: 'fal', model: 'fal-ai/nano-banana/edit' },
         video: editingAgent.config?.modelPreferences?.video || { provider: 'openai', model: 'sora' },
         audio: editingAgent.config?.modelPreferences?.audio || { provider: 'elevenlabs', model: 'eleven_multilingual_v2' }
@@ -417,7 +417,7 @@ export function CreateAgentModal({ onClose, onAgentCreated, editingAgent }: Crea
   }, [editingAgent])
 
   const [modelPreferences, setModelPreferences] = useState<ContentTypeModelPreferences>({
-    text: editingAgent?.config?.modelPreferences?.text || { provider: 'xai', model: 'grok-4-latest' },
+    text: editingAgent?.config?.modelPreferences?.text || { provider: 'xai', model: 'grok-4-fast-reasoning' },
     image: editingAgent?.config?.modelPreferences?.image || { provider: 'fal', model: 'fal-ai/nano-banana/edit' },
     video: editingAgent?.config?.modelPreferences?.video || { provider: 'openai', model: 'sora' },
     audio: editingAgent?.config?.modelPreferences?.audio || { provider: 'elevenlabs', model: 'eleven_multilingual_v2' }

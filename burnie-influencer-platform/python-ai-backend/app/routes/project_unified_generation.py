@@ -209,7 +209,7 @@ async def fetch_live_search_web_context(links: List[Dict]) -> Dict[str, str]:
         
         # Web source: NO date range, NO max_results
         chat = client.chat.create(
-            model="grok-4-latest",
+            model="grok-4-fast-reasoning",
             search_parameters=SearchParameters(
                 mode="auto",
                 sources=[web_source(allowed_websites=allowed_websites)]
@@ -297,7 +297,7 @@ async def fetch_live_search_twitter_context(platform_handles: Dict) -> Dict[str,
         
         # X source: WITH date range and max_results
         chat = client.chat.create(
-            model="grok-4-latest",
+            model="grok-4-fast-reasoning",
             search_parameters=SearchParameters(
                 mode="auto",
                 max_search_results=20,
@@ -383,7 +383,7 @@ async def fetch_live_search_data_for_links(links: List[Dict], platform_handles: 
             grok_api_key = settings.xai_api_key
             if grok_api_key:
                 client = Client(api_key=grok_api_key, timeout=3600)
-                chat = client.chat.create(model="grok-4-latest")
+                chat = client.chat.create(model="grok-4-fast-reasoning")
                 
                 insights_prompt = f"""Based on the following context gathered from websites and Twitter handles, provide overall insights and trends:
 
@@ -799,7 +799,7 @@ async def generate_prompts(context: Dict) -> Dict:
         # Create chat WITHOUT live search - we've already fetched all context using live search
         # The live_search_data is already included in the context passed to this function
         # (matching web2 GrokPromptService pattern when use_live_search=False)
-        chat = client.chat.create(model="grok-4-latest")
+        chat = client.chat.create(model="grok-4-fast-reasoning")
         
         logger.info("📝 Using pre-gathered context (live_search_data already included)")
         

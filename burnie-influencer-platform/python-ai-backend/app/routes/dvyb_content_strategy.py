@@ -269,7 +269,7 @@ CRITICAL REQUIREMENTS:
         print(f"\n🤖 Calling Grok-4-latest for strategy generation...")
         
         client = Client(api_key=settings.xai_api_key, timeout=120)
-        chat = client.chat.create(model="grok-4-latest")
+        chat = client.chat.create(model="grok-4-fast-reasoning")
         
         chat.append(system(system_prompt))
         chat.append(user(user_prompt))

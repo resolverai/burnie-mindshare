@@ -2,7 +2,7 @@
 DVYB Auto-Generation Topic & Instructions Endpoint
 
 This endpoint generates creative topics and user instructions for automated
-daily content generation using Grok LLM (grok-4-latest).
+daily content generation using Grok LLM (grok-4-fast-reasoning).
 
 Called by TypeScript backend's DvybAutoGenerationCronService.
 """
@@ -95,7 +95,7 @@ def generate_topic_with_grok(
     previous_generations: List[PreviousGeneration]
 ) -> Dict[str, Any]:
     """
-    Generate creative topic and user instructions using Grok (grok-4-latest).
+    Generate creative topic and user instructions using Grok (grok-4-fast-reasoning).
     Uses live search for trending topics.
     """
     api_key = settings.xai_api_key or os.getenv("XAI_API_KEY")
@@ -274,9 +274,9 @@ Respond ONLY with valid JSON, no markdown or other text."""
             logger.warning(f"⚠️ Failed to print Grok prompts for debugging: {e}")
         
         # Use Grok with live search for trending topics
-        print(f"🤖 Using Grok (grok-4-latest) with live search for auto-generation topic...")
+        print(f"🤖 Using Grok (grok-4-fast-reasoning) with live search for auto-generation topic...")
         chat = client.chat.create(
-            model="grok-4-latest",
+            model="grok-4-fast-reasoning",
             search_parameters=SearchParameters(mode="auto"),
         )
         
@@ -361,7 +361,7 @@ async def generate_auto_generation_topic(request: AutoGenerationTopicRequest):
     This endpoint is called by the TypeScript backend's DvybAutoGenerationCronService
     to get creative, varied content ideas for daily automated generation.
     
-    Uses Grok (grok-4-latest) with live search for trending topics.
+    Uses Grok (grok-4-fast-reasoning) with live search for trending topics.
     """
     try:
         logger.info(f"🎯 Generating auto-generation topic for account {request.account_id}")

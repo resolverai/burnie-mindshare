@@ -3,7 +3,7 @@ from xai_sdk import Client
 from xai_sdk.chat import user, image
 
 def generate_image_recommendations(client, image_urls):
-    chat = client.chat.create(model="grok-4-latest")
+    chat = client.chat.create(model="grok-4-fast-reasoning")
 
     # Generic system prompt
     chat.append(user(

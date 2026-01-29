@@ -12,7 +12,7 @@ def main():
 
     # Create a chat session with grok-4 model and enable live search with specific X handle
     chat = client.chat.create(
-        model="grok-4-latest",
+        model="grok-4-fast-reasoning",
         search_parameters=SearchParameters(
             mode="auto",
             sources=[x_source(included_x_handles=["burnieio"])],

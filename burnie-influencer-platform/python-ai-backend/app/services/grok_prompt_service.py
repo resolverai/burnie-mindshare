@@ -88,12 +88,12 @@ class GrokPromptService:
             from xai_sdk.search import SearchParameters
             print(f"🔥 Using Grok with live search for viral trends...")
             chat = self.client.chat.create(
-                model="grok-4-latest",
+                model="grok-4-fast-reasoning",
                 search_parameters=SearchParameters(mode="auto"),
             )
         else:
             print(f"🤖 Using Grok for prompt generation...")
-            chat = self.client.chat.create(model="grok-4-latest")
+            chat = self.client.chat.create(model="grok-4-fast-reasoning")
         
         # Build system message
         brand_name = context.get('brand_name', 'the brand')
@@ -758,7 +758,7 @@ Be specific and detailed in your analysis. Consider current fashion trends and m
             print(f"🤖 Grok client available: {self.client is not None}")
             
             # Create chat with same model as visual analysis
-            chat = self.client.chat.create(model="grok-4-latest")
+            chat = self.client.chat.create(model="grok-4-fast-reasoning")
             print(f"🤖 Chat object created: {chat is not None}")
             
             # Add system message
@@ -944,7 +944,7 @@ IMPORTANT: Ensure the JSON is valid and contains exactly {num_variations} prompt
             try:
                 # Use the same robust Grok client pattern as regular flow
                 print(f"🤖 Using Grok for edit prompt generation...")
-                chat = self.client.chat.create(model="grok-4-latest")
+                chat = self.client.chat.create(model="grok-4-fast-reasoning")
                 
                 # Build system message (same pattern as regular flow)
                 brand_name = context.get('brand_name', 'the brand')

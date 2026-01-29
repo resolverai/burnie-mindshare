@@ -131,7 +131,7 @@ class IntegratedAvatarFusion:
         try:
             print("🤖 Generating fusion content with Grok...")
             
-            chat = self.grok_client.chat.create(model="grok-4-latest")
+            chat = self.grok_client.chat.create(model="grok-4-fast-reasoning")
             
             # Set system instructions
             chat.append(system(

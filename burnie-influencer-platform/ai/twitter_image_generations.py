@@ -3,7 +3,7 @@ from xai_sdk import Client
 from xai_sdk.chat import user, image as chat_image
 
 def generate_prompt_from_images(client, image_urls):
-    chat = client.chat.create(model="grok-4-latest")
+    chat = client.chat.create(model="grok-4-fast-reasoning")
 
     # System prompt
     chat.append(user(

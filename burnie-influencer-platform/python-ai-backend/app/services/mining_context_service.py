@@ -107,7 +107,7 @@ async def fetch_live_search_web_context(links: List[Dict]) -> Dict[str, str]:
         # Use web_source with allowed_websites, max_results, and citations
         # NO date range for comprehensive historical + current context
         chat = client.chat.create(
-            model="grok-4-latest",
+            model="grok-4-fast-reasoning",
             search_parameters=SearchParameters(
                 mode="on",  # Force live search
                 sources=[web_source(allowed_websites=allowed_websites)],
@@ -209,7 +209,7 @@ async def fetch_live_search_twitter_context(platform_handles: Dict) -> Dict[str,
         
         # Use x_source with included_x_handles and date range
         chat = client.chat.create(
-            model="grok-4-latest",
+            model="grok-4-fast-reasoning",
             search_parameters=SearchParameters(
                 mode="on",  # Force live search
                 sources=[x_source(included_x_handles=clean_handles)],

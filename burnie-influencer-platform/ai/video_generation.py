@@ -579,7 +579,7 @@ Be specific and detailed in your analysis. Consider the product's unique charact
 """
             
             # Create chat with Grok
-            chat = self.grok_client.chat.create(model="grok-4-latest")
+            chat = self.grok_client.chat.create(model="grok-4-fast-reasoning")
             
             # Add system message
             chat.append(system(
@@ -2022,12 +2022,12 @@ Respond ONLY with the JSON object, no other text."""
                 from xai_sdk.search import SearchParameters
                 print("🔥 Using Grok with live search for viral trends...")
                 chat = client.chat.create(
-                    model="grok-4-latest",
+                    model="grok-4-fast-reasoning",
                     search_parameters=SearchParameters(mode="auto"),
                 )
             else:
                 print("🤖 Using Grok without live search...")
-                chat = client.chat.create(model="grok-4-latest")
+                chat = client.chat.create(model="grok-4-fast-reasoning")
             
             chat.append(system(f"You are a WORLD-CLASS CREATIVE DIRECTOR specializing in viral brand promotion videos for {self.project_name}. You respond ONLY with valid JSON objects, no extra text or formatting. Every prompt you generate must follow real-world physics and professional video production standards. Focus on creating compelling content for {self.project_name}."))
             

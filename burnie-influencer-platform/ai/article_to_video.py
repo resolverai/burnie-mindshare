@@ -948,7 +948,7 @@ Return JSON with: image_index, suggested_text, and reason."""
     try:
         print(f"\n  🔗 Connecting to Grok-4-latest...")
         client = Client(api_key=os.getenv('XAI_API_KEY'), timeout=3600)
-        chat = client.chat.create(model="grok-4-latest")
+        chat = client.chat.create(model="grok-4-fast-reasoning")
         
         chat.append(system(system_prompt))
         

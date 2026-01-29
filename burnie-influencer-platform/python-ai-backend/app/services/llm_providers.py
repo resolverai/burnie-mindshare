@@ -1213,7 +1213,7 @@ class XAIProvider(LLMProvider):
             api_key=self.settings.xai_api_key,
             base_url="https://api.x.ai/v1"
         )
-        self.model = "grok-4-latest"  # Latest Grok model
+        self.model = "grok-4-fast-reasoning"  # Latest Grok model
         
     async def analyze_image_with_text(
         self, 
