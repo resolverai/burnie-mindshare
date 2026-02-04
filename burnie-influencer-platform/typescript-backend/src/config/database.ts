@@ -143,6 +143,7 @@ import { DvybBrandAd } from '../models/DvybBrandAd';
 import { DvybBrandFollow } from '../models/DvybBrandFollow';
 import { DvybSavedAd } from '../models/DvybSavedAd';
 import { DvybAccountProduct } from '../models/DvybAccountProduct';
+import { DvybDomainProductImage } from '../models/DvybDomainProductImage';
 
 // Import seed data functions
 import { seedDatabase } from './seedData';
@@ -285,6 +286,7 @@ export const AppDataSource = new DataSource({
     DvybBrandFollow,
     DvybSavedAd,
     DvybAccountProduct,
+    DvybDomainProductImage,
   ],
   migrations: [],
   subscribers: [],

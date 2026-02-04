@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AdDetailModal } from "./AdDetailModal";
+import type { PreselectedInspiration } from "./CreateAdFlowModal";
 import { brandsApi } from "@/lib/api";
 
 const filterConfig: Record<string, string[]> = {
@@ -63,7 +64,7 @@ const getAspectRatioFromId = (id: number): AspectRatio => {
 
 const DRAWER_CLOSE_DURATION_MS = 300;
 
-export function DiscoverScreen({ onCreateAd }: { onCreateAd?: () => void }) {
+export function DiscoverScreen({ onCreateAd }: { onCreateAd?: (inspiration?: PreselectedInspiration) => void }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [hoveredId, setHoveredId] = useState<number | null>(null);
   const [selectedCard, setSelectedCard] = useState<DiscoverCard | null>(null);
@@ -225,7 +226,7 @@ export function DiscoverScreen({ onCreateAd }: { onCreateAd?: () => void }) {
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
-              onClick={onCreateAd}
+              onClick={() => onCreateAd?.()}
               className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[hsl(var(--landing-cta-orange))] text-white hover:opacity-90 text-sm font-medium shadow-soft"
             >
               <UserPlus className="w-4 h-4" />
@@ -415,7 +416,11 @@ export function DiscoverScreen({ onCreateAd }: { onCreateAd?: () => void }) {
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleOpenDetail(card);
+                      onCreateAd?.({
+                        imageUrl: card.image ?? null,
+                        videoUrl: card.videoSrc ?? null,
+                        isVideo: card.isVideo,
+                      });
                     }}
                     className="flex items-center gap-1.5 px-3 py-2 rounded-full text-white text-sm font-semibold bg-[hsl(var(--landing-cta-orange))] hover:opacity-90 transition-opacity whitespace-nowrap"
                   >

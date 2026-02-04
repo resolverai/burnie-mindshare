@@ -43,13 +43,21 @@ const productModalClass =
 const adModalClass =
   "w-[90vw] max-w-[90vw] h-[min(90vh,680px)] min-h-[min(90vh,680px)] flex flex-col p-0 gap-0 bg-[hsl(0,0%,98%)] border-neutral-200/80 text-neutral-900 rounded-2xl shadow-xl overflow-hidden";
 
+export interface PreselectedInspiration {
+  imageUrl: string | null;
+  videoUrl: string | null;
+  isVideo: boolean;
+}
+
 interface CreateAdFlowModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreateAd?: () => void;
+  /** When set, skip the inspiration/ad selection step and use this as inspiration after product selection */
+  preselectedInspiration?: PreselectedInspiration | null;
 }
 
-export function CreateAdFlowModal({ open, onOpenChange, onCreateAd }: CreateAdFlowModalProps) {
+export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedInspiration }: CreateAdFlowModalProps) {
   const router = useRouter();
   const { toast } = useToast();
   const [step, setStep] = useState<Step>("product");
@@ -176,7 +184,13 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd }: CreateAdFl
   };
 
   const handleProductContinue = () => {
-    if (selectedProductId) setStep("ad");
+    if (!selectedProductId) return;
+    if (preselectedInspiration?.imageUrl || preselectedInspiration?.videoUrl) {
+      // Skip ad step: use preselected inspiration and generate directly
+      void handleCreateAd();
+    } else {
+      setStep("ad");
+    }
   };
 
   const handleAdToggle = (id: number) => {
@@ -242,7 +256,12 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd }: CreateAdFl
       return;
     }
 
-    // Either template creatives OR custom reference — not both. Template takes precedence.
+    // Preselected inspiration (from "Create ad using template") takes precedence
+    const preselectedUrls = preselectedInspiration
+      ? [preselectedInspiration.isVideo ? preselectedInspiration.videoUrl : preselectedInspiration.imageUrl].filter(Boolean) as string[]
+      : [];
+
+    // Otherwise: template creatives OR custom reference — not both. Template takes precedence.
     const adUrls = discoverAds
       .filter((ad) => selectedAdIds.has(ad.id))
       .flatMap((ad) => [ad.creativeImageUrl, ad.creativeVideoUrl].filter(Boolean) as string[]);
@@ -250,9 +269,11 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd }: CreateAdFl
     const uploadedLinks = uploadedS3Url ? [uploadedS3Url] : [];
 
     const allInspirationLinks =
-      adUrls.length > 0
-        ? adUrls
-        : [...pastedLinks, ...uploadedLinks].filter(Boolean);
+      preselectedUrls.length > 0
+        ? preselectedUrls
+        : adUrls.length > 0
+          ? adUrls
+          : [...pastedLinks, ...uploadedLinks].filter(Boolean);
 
     if (allInspirationLinks.length === 0) {
       toast({ title: "Select or add inspiration", description: "Choose an ad to replicate, paste a link, or upload an image", variant: "destructive" });

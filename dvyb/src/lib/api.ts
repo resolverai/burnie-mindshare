@@ -328,6 +328,20 @@ export const contextApi = {
       }
     );
   },
+
+  /**
+   * Get cached product images for a domain (from website analysis).
+   * Used during onboarding product step - returns images when available.
+   */
+  async getDomainProductImages(domainOrUrl: string) {
+    return apiRequest<{
+      success: boolean;
+      data: { images: Array<{ id: number; s3Key: string; image: string }> };
+    }>(
+      `/dvyb/context/domain-product-images?domain=${encodeURIComponent(domainOrUrl)}`,
+      { method: 'GET' }
+    );
+  },
 };
 
 // Inspiration Item type

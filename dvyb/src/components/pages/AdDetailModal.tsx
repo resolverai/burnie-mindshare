@@ -19,6 +19,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerClose } from "@/components/ui/drawer";
 import { brandsApi } from "@/lib/api";
+import type { PreselectedInspiration } from "./CreateAdFlowModal";
 
 export interface DiscoverCard {
   id: number;
@@ -46,7 +47,8 @@ interface AdDetailModalProps {
   card: DiscoverCard | null;
   isOpen: boolean;
   onClose: () => void;
-  onCreateAd?: () => void;
+  /** Called when "Create ad using template" is clicked. Pass inspiration to skip the ad selection step. */
+  onCreateAd?: (inspiration?: PreselectedInspiration) => void;
 }
 
 export function AdDetailModal({ card, isOpen, onClose, onCreateAd }: AdDetailModalProps) {
@@ -131,8 +133,13 @@ export function AdDetailModal({ card, isOpen, onClose, onCreateAd }: AdDetailMod
   };
 
   const handleCreateFromTemplate = () => {
+    const inspiration: PreselectedInspiration = {
+      imageUrl: displayImage ?? null,
+      videoUrl: displayVideoSrc ?? null,
+      isVideo: card.isVideo,
+    };
     onClose();
-    onCreateAd?.();
+    onCreateAd?.(inspiration);
   };
 
   return (

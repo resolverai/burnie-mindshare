@@ -3,8 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { Search, Check, ArrowRight } from "lucide-react";
-import { brandsApi, authApi } from "@/lib/api";
+import { Search, Check, ArrowRight, Loader2 } from "lucide-react";
+import { brandsApi, authApi, contextApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { trackInspirationPageViewed, trackInspirationSelected, trackSignInClicked } from "@/lib/mixpanel";
 
@@ -39,7 +39,7 @@ interface OnboardingFlowModalProps {
 
 export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalProps) {
   const { toast } = useToast();
-  const [step, setStep] = useState<Step>("inspiration");
+  const [step, setStep] = useState<Step>("product");
 
   // Inspiration state (discover ads from dvyb_brand_ads)
   const [discoverAds, setDiscoverAds] = useState<DiscoverAd[]>([]);
@@ -50,6 +50,9 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
 
   // Product state
   const [selectedProductIds, setSelectedProductIds] = useState<Set<number>>(new Set());
+  const [domainProductsLoading, setDomainProductsLoading] = useState(true);
+  const [domainProducts, setDomainProducts] = useState<Array<{ id: number; s3Key: string; image: string }>>([]);
+  const [domainProductsDone, setDomainProductsDone] = useState(false); // true when we've stopped polling
 
   // Login state
   const [isConnecting, setIsConnecting] = useState(false);
@@ -57,7 +60,10 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
   useEffect(() => {
     if (!open) return;
     hasFetchedAds.current = false;
-    setStep("inspiration");
+    setStep("product");
+    setDomainProductsLoading(true);
+    setDomainProducts([]);
+    setDomainProductsDone(false);
   }, [open]);
 
   useEffect(() => {
@@ -122,7 +128,26 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
       );
       localStorage.setItem("dvyb_selected_inspirations", JSON.stringify(selected));
     }
-    setStep("product");
+    setStep("login");
+  };
+
+  const handleProductNext = () => {
+    const useDomainProducts = domainProducts.length > 0;
+    if (useDomainProducts) {
+      const selected = domainProducts.filter((p) => selectedProductIds.has(p.id));
+      if (selected.length > 0) {
+        localStorage.setItem(
+          "dvyb_selected_products",
+          JSON.stringify(selected.map((p) => ({ id: p.id, s3Key: p.s3Key, image: p.image })))
+        );
+      }
+    } else {
+      const selected = STATIC_PRODUCTS.filter((p) => selectedProductIds.has(p.id));
+      if (selected.length > 0) {
+        localStorage.setItem("dvyb_selected_products", JSON.stringify(selected));
+      }
+    }
+    setStep("inspiration");
   };
 
   const handleProductToggle = (id: number) => {
@@ -134,13 +159,49 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
     });
   };
 
-  const handleCreateAds = () => {
-    const selected = STATIC_PRODUCTS.filter((p) => selectedProductIds.has(p.id));
-    if (selected.length > 0) {
-      localStorage.setItem("dvyb_selected_products", JSON.stringify(selected));
+  // Fetch domain product images when entering product step - poll every 3s until images arrive or user moves forward
+  useEffect(() => {
+    if (!open || step !== "product") return;
+    const url =
+      localStorage.getItem("dvyb_pending_website_url")?.trim() ||
+      (() => {
+        try {
+          const analysisStr = localStorage.getItem("dvyb_website_analysis");
+          if (analysisStr) {
+            const analysis = JSON.parse(analysisStr);
+            return analysis?.source_urls?.[0] || analysis?.url || analysis?.domain || "";
+          }
+        } catch {
+          /* ignore */
+        }
+        return "";
+      })();
+    if (!url) {
+      setDomainProductsLoading(false);
+      setDomainProductsDone(true);
+      return;
     }
-    setStep("login");
-  };
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const poll = async () => {
+      try {
+        const res = await contextApi.getDomainProductImages(url);
+        if (res.success && res.data?.images?.length > 0) {
+          setDomainProducts(res.data.images.slice(0, 4));
+          setDomainProductsLoading(false);
+          setDomainProductsDone(true);
+          return;
+        }
+      } catch {
+        // ignore
+      }
+      timeoutId = setTimeout(poll, 3000);
+    };
+    poll();
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [open, step]);
+
 
   const handleGoogleLogin = async () => {
     if (isConnecting) return;
@@ -179,7 +240,91 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className={modalShellClass} onInteractOutside={handleInteractOutside}>
-        {/* Step 1: Inspiration */}
+        {/* Step 1: Product */}
+        {step === "product" && (
+          <>
+            <div className="px-6 py-6 border-b border-border shrink-0">
+              <h2 className="text-2xl md:text-3xl font-bold mb-2 text-center text-neutral-900">
+                Select your product photos
+              </h2>
+              <p className="text-muted-foreground text-center mb-2">Choose 1–3 products. We&apos;ll handle the rest.</p>
+              <p className="text-xs text-muted-foreground text-center">
+                You can regenerate with different products later.
+              </p>
+            </div>
+            <div className={`flex-1 min-h-0 overflow-y-auto p-6 ${selectedProductIds.size > 0 ? "pb-24" : "pb-4"}`}>
+              {domainProductsLoading && !domainProductsDone ? (
+                <div className="flex flex-col items-center justify-center py-16 gap-6">
+                  <div className="relative">
+                    <div className="w-16 h-16 rounded-full border-4 border-neutral-200 border-t-neutral-900 animate-spin" />
+                    <div className="absolute inset-0 w-16 h-16 rounded-full border-4 border-transparent border-t-neutral-400 animate-spin" style={{ animationDirection: "reverse", animationDuration: "1.5s" }} />
+                  </div>
+                  <p className="text-muted-foreground text-center max-w-xs">
+                    Please wait… we&apos;re pulling your brand products from your website.
+                  </p>
+                  <p className="text-xs text-muted-foreground">This usually takes a few seconds</p>
+                </div>
+              ) : domainProducts.length > 0 ? (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {domainProducts.map((product) => {
+                    const isSelected = selectedProductIds.has(product.id);
+                    return (
+                      <button
+                        key={product.id}
+                        type="button"
+                        onClick={() => handleProductToggle(product.id)}
+                        className={`text-left rounded-xl overflow-hidden cursor-pointer group transition-all ${
+                          isSelected ? "ring-4 ring-neutral-900 ring-offset-2" : "hover:shadow-lg"
+                        }`}
+                      >
+                        <div className="aspect-square relative bg-neutral-200">
+                          <img src={product.image} alt="Product" className="w-full h-full object-cover" />
+                          {isSelected && (
+                            <div className="absolute top-3 right-3 w-7 h-7 bg-neutral-900 rounded-full flex items-center justify-center">
+                              <Check className="w-4 h-4 text-white" />
+                            </div>
+                          )}
+                          <div className="absolute inset-0 bg-gradient-to-t from-foreground/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {STATIC_PRODUCTS.map((product) => {
+                    const isSelected = selectedProductIds.has(product.id);
+                    return (
+                      <button
+                        key={product.id}
+                        type="button"
+                        onClick={() => handleProductToggle(product.id)}
+                        className={`text-left rounded-xl overflow-hidden cursor-pointer group transition-all ${
+                          isSelected ? "ring-4 ring-neutral-900 ring-offset-2" : "hover:shadow-lg"
+                        }`}
+                      >
+                        <div className="aspect-square relative bg-neutral-200">
+                          <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
+                          {isSelected && (
+                            <div className="absolute top-3 right-3 w-7 h-7 bg-neutral-900 rounded-full flex items-center justify-center">
+                              <Check className="w-4 h-4 text-white" />
+                            </div>
+                          )}
+                          <div className="absolute inset-0 bg-gradient-to-t from-foreground/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                          <div className="absolute bottom-0 left-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <p className="text-primary-foreground font-medium text-sm">{product.name}</p>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* Step 2: Inspiration */}
         {step === "inspiration" && (
           <>
             <div className="px-6 py-6 border-b border-border shrink-0">
@@ -262,51 +407,6 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
           </>
         )}
 
-        {/* Step 2: Product */}
-        {step === "product" && (
-          <>
-            <div className="px-6 py-6 border-b border-border shrink-0">
-              <h2 className="text-2xl md:text-3xl font-bold mb-2 text-center text-neutral-900">
-                Select your product photos
-              </h2>
-              <p className="text-muted-foreground text-center mb-2">Choose 1–3 products. We&apos;ll handle the rest.</p>
-              <p className="text-xs text-muted-foreground text-center">
-                You can regenerate with different products later.
-              </p>
-            </div>
-            <div className={`flex-1 min-h-0 overflow-y-auto p-6 ${selectedProductIds.size > 0 ? "pb-24" : "pb-4"}`}>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {STATIC_PRODUCTS.map((product) => {
-                  const isSelected = selectedProductIds.has(product.id);
-                  return (
-                    <button
-                      key={product.id}
-                      type="button"
-                      onClick={() => handleProductToggle(product.id)}
-                      className={`text-left rounded-xl overflow-hidden cursor-pointer group transition-all ${
-                        isSelected ? "ring-4 ring-neutral-900 ring-offset-2" : "hover:shadow-lg"
-                      }`}
-                    >
-                      <div className="aspect-square relative bg-neutral-200">
-                        <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
-                        {isSelected && (
-                          <div className="absolute top-3 right-3 w-7 h-7 bg-neutral-900 rounded-full flex items-center justify-center">
-                            <Check className="w-4 h-4 text-white" />
-                          </div>
-                        )}
-                        <div className="absolute inset-0 bg-gradient-to-t from-foreground/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                        <div className="absolute bottom-0 left-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <p className="text-primary-foreground font-medium text-sm">{product.name}</p>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </>
-        )}
-
         {/* Step 3: Login */}
         {step === "login" && (
           <div className="flex flex-col items-center justify-center flex-1 px-6 py-8 min-h-0">
@@ -352,7 +452,33 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
         )}
       </DialogContent>
 
-      {/* Floating bar for inspiration step — always rendered when on step, animates from bottom when items selected */}
+      {/* Floating bar for product step (Step 1) — Next goes to inspiration */}
+      {open && step === "product" && typeof document !== "undefined" &&
+        createPortal(
+          <div
+            data-floating-bar
+            className={`fixed bottom-0 left-0 right-0 z-[300] flex justify-center px-[5vw] transition-transform duration-300 ease-out cursor-pointer ${
+              selectedProductIds.size > 0 ? "translate-y-0" : "translate-y-full"
+            }`}
+          >
+            <div className="w-full max-w-[90vw] mb-6 bg-neutral-900 text-white rounded-2xl px-6 py-4 flex items-center justify-between shadow-2xl pointer-events-auto cursor-pointer">
+              <p className="font-medium">
+                {selectedProductIds.size} product{selectedProductIds.size !== 1 ? "s" : ""} selected
+              </p>
+              <button
+                type="button"
+                onClick={handleProductNext}
+                className="inline-flex items-center justify-center gap-2 h-10 px-8 rounded-md text-sm font-medium bg-white text-neutral-900 hover:bg-neutral-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                Next
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </button>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* Floating bar for inspiration step — Create Ads goes to login */}
       {open && step === "inspiration" && typeof document !== "undefined" &&
         createPortal(
           <div
@@ -368,32 +494,6 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
               <button
                 type="button"
                 onClick={handleInspirationNext}
-                className="inline-flex items-center justify-center gap-2 h-10 px-8 rounded-md text-sm font-medium bg-white text-neutral-900 hover:bg-neutral-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              >
-                Next
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </button>
-            </div>
-          </div>,
-          document.body
-        )}
-
-      {/* Floating bar for product step — always rendered when on step, animates from bottom when items selected */}
-      {open && step === "product" && typeof document !== "undefined" &&
-        createPortal(
-          <div
-            data-floating-bar
-            className={`fixed bottom-0 left-0 right-0 z-[300] flex justify-center px-[5vw] transition-transform duration-300 ease-out cursor-pointer ${
-              selectedProductIds.size > 0 ? "translate-y-0" : "translate-y-full"
-            }`}
-          >
-            <div className="w-full max-w-[90vw] mb-6 bg-neutral-900 text-white rounded-2xl px-6 py-4 flex items-center justify-between shadow-2xl pointer-events-auto cursor-pointer">
-              <p className="font-medium">
-                {selectedProductIds.size} product{selectedProductIds.size !== 1 ? "s" : ""} selected
-              </p>
-              <button
-                type="button"
-                onClick={handleCreateAds}
                 className="inline-flex items-center justify-center gap-2 h-10 px-8 rounded-md text-sm font-medium bg-white text-neutral-900 hover:bg-neutral-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
                 Create Ads

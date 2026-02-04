@@ -4,8 +4,25 @@ import { DvybContextService } from '../services/DvybContextService';
 import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddleware';
 import { s3Service } from '../services/S3Service';
 import { UrlCacheService } from '../services/UrlCacheService';
+import { AppDataSource } from '../config/database';
+import { DvybDomainProductImage } from '../models/DvybDomainProductImage';
 
 const router = Router();
+
+/** Normalize URL to domain for cache key (e.g. example.com) */
+function normalizeDomain(url: string): string {
+  const u = (url || '').trim();
+  if (!u) return '';
+  const withProtocol = u.startsWith('http://') || u.startsWith('https://') ? u : `https://${u}`;
+  try {
+    const parsed = new URL(withProtocol);
+    let host = parsed.hostname.toLowerCase();
+    if (host.startsWith('www.')) host = host.slice(4);
+    return host || u;
+  } catch {
+    return u;
+  }
+}
 
 /**
  * POST /api/dvyb/context/analyze-website-guest
@@ -26,17 +43,56 @@ router.post('/analyze-website-guest', async (req, res) => {
 
     logger.info(`⚡ Starting FAST guest website analysis: ${url}`);
 
-    // Call Python AI backend for website analysis (FAST endpoint - 3-4x faster)
     const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
-    const response = await fetch(`${pythonBackendUrl}/api/dvyb/analyze-website-fast`, {
+
+    // Run website analysis and domain product image fetch IN PARALLEL (no waiting)
+    const domain = normalizeDomain(url);
+    const typescriptBackendUrl = process.env.TYPESCRIPT_BACKEND_URL || process.env.BACKEND_URL || 'http://localhost:3001';
+    const callbackUrl = `${typescriptBackendUrl}/api/dvyb/context/domain-product-image-callback`;
+
+    const analysisPromise = fetch(`${pythonBackendUrl}/api/dvyb/analyze-website-fast`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        url: url,  // Python backend expects 'url' not 'website_url'
-      }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
     });
+
+    // Fire domain product image fetch in parallel (don't block on count - start both immediately)
+    if (domain && AppDataSource.isInitialized) {
+      AppDataSource.getRepository(DvybDomainProductImage)
+        .count({ where: { domain } })
+        .then((count) => {
+          if (count > 0) {
+            logger.info(`📦 Domain ${domain} already has ${count} cached product images, skipping fetch`);
+            return;
+          }
+          fetch(`${pythonBackendUrl}/api/dvyb/fetch-domain-images`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url, callback_url: callbackUrl }),
+          })
+            .then(async (r) => {
+              const data = (await r.json()) as { success?: boolean; accepted?: boolean; domain?: string; images?: Array<{ s3_key: string; presigned_url: string; sourceLabel?: string }> };
+              if (data.accepted) {
+                logger.info(`📸 Domain product image fetch started for ${data.domain} (incremental via callback)`);
+                return;
+              }
+              if (data.success && data.domain && data.images && data.images.length > 0 && AppDataSource.isInitialized) {
+                const repo = AppDataSource.getRepository(DvybDomainProductImage);
+                Promise.all(
+                  data.images.map((img: { s3_key: string; presigned_url?: string; sourceLabel?: string }) =>
+                    repo.save({ domain: data.domain!, s3Key: img.s3_key, sourceLabel: img.sourceLabel ?? null })
+                  )
+                )
+                  .then(() => logger.info(`✅ Cached ${data.images!.length} domain product images for ${data.domain}`))
+                  .catch((err: any) => logger.error(`⚠️ Failed to cache domain product images: ${err?.message}`));
+              }
+            })
+            .catch((err) => logger.warn(`⚠️ Domain image fetch failed (non-blocking): ${err?.message}`));
+        })
+        .catch(() => {});
+    }
+
+    const response = await analysisPromise;
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -429,6 +485,103 @@ router.post('/analyze-website', dvybAuthMiddleware, async (req: DvybAuthRequest,
     return res.status(500).json({
       success: false,
       error: error.message || 'Failed to analyze website',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * POST /api/dvyb/context/domain-product-image-callback
+ * Internal: called by Python backend as each domain product image is downloaded.
+ * Saves image to DB immediately so user sees it on product step while fetch continues.
+ */
+router.post('/domain-product-image-callback', async (req, res) => {
+  try {
+    const { domain, s3_key, sourceLabel } = req.body || {};
+    if (!domain || !s3_key || typeof s3_key !== 'string') {
+      return res.status(400).json({ success: false, error: 'domain and s3_key required' });
+    }
+    if (!AppDataSource.isInitialized) {
+      return res.status(503).json({ success: false, error: 'Database not ready' });
+    }
+    const repo = AppDataSource.getRepository(DvybDomainProductImage);
+    await repo.save({
+      domain: String(domain).trim(),
+      s3Key: s3_key,
+      sourceLabel: sourceLabel ?? null,
+    });
+    return res.json({ success: true });
+  } catch (error: any) {
+    logger.error('❌ Domain product image callback error:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * GET /api/dvyb/context/domain-product-images
+ * Get cached product images for a domain (from website analysis).
+ * No auth required - used during onboarding before login.
+ * Returns images with presigned URLs for display.
+ */
+router.get('/domain-product-images', async (req, res) => {
+  try {
+    const { domain: domainParam } = req.query;
+    const urlOrDomain = (domainParam as string)?.trim();
+    if (!urlOrDomain) {
+      return res.status(400).json({
+        success: false,
+        error: 'domain or url query parameter is required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+    const domain = normalizeDomain(urlOrDomain);
+    if (!domain) {
+      return res.json({
+        success: true,
+        data: { images: [] },
+        timestamp: new Date().toISOString(),
+      });
+    }
+    if (!AppDataSource.isInitialized) {
+      return res.json({
+        success: true,
+        data: { images: [] },
+        timestamp: new Date().toISOString(),
+      });
+    }
+    const repo = AppDataSource.getRepository(DvybDomainProductImage);
+    const rows = await repo.find({
+      where: { domain },
+      order: { id: 'ASC' },
+      take: 20,
+    });
+    // Prefer website images; only include Instagram if website has fewer than 4
+    const sorted = rows.sort((a, b) => {
+      const aFirst = a.sourceLabel === 'website' ? 0 : 1;
+      const bFirst = b.sourceLabel === 'website' ? 0 : 1;
+      return aFirst - bFirst;
+    });
+    const top4 = sorted.slice(0, 4);
+    const imagesWithUrls: Array<{ id: number; s3Key: string; image: string }> = await Promise.all(
+      top4.map(async (row) => {
+        const presignedUrl = await s3Service.generatePresignedUrl(row.s3Key, 3600);
+        return {
+          id: row.id,
+          s3Key: row.s3Key,
+          image: presignedUrl || row.s3Key,
+        };
+      })
+    );
+    return res.json({
+      success: true,
+      data: { images: imagesWithUrls },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    logger.error('❌ Get domain product images error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to get domain product images',
       timestamp: new Date().toISOString(),
     });
   }

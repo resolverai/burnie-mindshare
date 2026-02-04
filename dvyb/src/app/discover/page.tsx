@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { AppSidebar } from "@/components/AppSidebar";
 import { DiscoverScreen } from "@/components/pages/DiscoverScreen";
-import { CreateAdFlowModal } from "@/components/pages/CreateAdFlowModal";
+import { CreateAdFlowModal, type PreselectedInspiration } from "@/components/pages/CreateAdFlowModal";
 import { Loader2, Menu } from "lucide-react";
 import Image from "next/image";
 import dvybLogo from "@/assets/dvyb-logo.png";
@@ -14,6 +14,7 @@ export default function DiscoverPage() {
   const [activeView] = useState("discover");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showCreateAdFlow, setShowCreateAdFlow] = useState(false);
+  const [preselectedInspiration, setPreselectedInspiration] = useState<PreselectedInspiration | null>(null);
   const router = useRouter();
   const { isAuthenticated, isLoading } = useAuth();
 
@@ -66,12 +67,21 @@ export default function DiscoverPage() {
           <div className="w-10" />
         </div>
 
-        <DiscoverScreen onCreateAd={() => setShowCreateAdFlow(true)} />
+        <DiscoverScreen
+          onCreateAd={(inspiration) => {
+            setPreselectedInspiration(inspiration ?? null);
+            setShowCreateAdFlow(true);
+          }}
+        />
       </div>
 
       <CreateAdFlowModal
         open={showCreateAdFlow}
-        onOpenChange={setShowCreateAdFlow}
+        onOpenChange={(open) => {
+          setShowCreateAdFlow(open);
+          if (!open) setPreselectedInspiration(null);
+        }}
+        preselectedInspiration={preselectedInspiration}
       />
     </div>
   );

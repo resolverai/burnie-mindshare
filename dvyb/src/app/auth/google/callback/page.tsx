@@ -215,14 +215,19 @@ function DvybGoogleCallbackContent() {
               }
             }
             
-            // Get selected product and upload to S3
+            // Get selected product and upload to S3 (or use existing S3 key from domain products)
             let productImageS3Key: string | undefined
             const selectedProductsStr = localStorage.getItem('dvyb_selected_products')
             if (selectedProductsStr) {
               try {
                 const products = JSON.parse(selectedProductsStr)
                 const firstProduct = Array.isArray(products) ? products[0] : null
-                if (firstProduct?.image) {
+                if (firstProduct?.s3Key) {
+                  // Domain product: already in S3, use key directly
+                  productImageS3Key = firstProduct.s3Key
+                  console.log('✅ Using domain product S3 key:', productImageS3Key)
+                } else if (firstProduct?.image) {
+                  // Static product: fetch from origin and upload
                   const imagePath = firstProduct.image.startsWith('/') ? firstProduct.image : `/${firstProduct.image}`
                   const imageUrl = `${window.location.origin}${imagePath}`
                   console.log('📸 Fetching product image from:', imageUrl)
