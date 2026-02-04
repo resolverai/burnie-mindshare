@@ -1,26 +1,29 @@
 "use client";
 
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
-import { X, Plus, Upload, Link, Loader2, Twitter, Instagram, Linkedin, Heart, XCircle } from "lucide-react";
+import { X, Plus, Upload, Link, Loader2, Twitter, Instagram, Linkedin, Heart, XCircle, Briefcase, Pencil, MessageCircle, Send, Bookmark, Download } from "lucide-react";
 import { PostDetailDialog } from "@/components/calendar/PostDetailDialog";
 import { ScheduleDialog } from "@/components/calendar/ScheduleDialog";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { adhocGenerationApi, postingApi, oauth1Api, authApi, socialConnectionsApi, contentLibraryApi, contentStrategyApi, StrategyPreferences, inspirationsApi, InspirationItem, accountApi } from "@/lib/api";
 import { format } from "date-fns";
+import { useRouter } from "next/navigation";
 import { Play, ChevronDown } from "lucide-react";
 import { StrategyQuestionnaire } from "@/components/onboarding/StrategyQuestionnaire";
 import { saveOAuthFlowState, getOAuthFlowState, clearOAuthFlowState, updateOAuthFlowState } from "@/lib/oauthFlowState";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import { TikTokIcon } from "@/components/icons/TikTokIcon";
 import { FileDropZone } from "@/components/ui/file-drop-zone";
 import { PricingModal } from "@/components/PricingModal";
+import { getWebsiteDomainDisplay } from "@/lib/utils";
 import { 
   trackGenerateDialogOpened,
   trackGenerateDialogClosed,
@@ -51,6 +54,12 @@ interface GenerateContentDialogProps {
   initialJobId?: string | null; // For onboarding auto-generation
   onDialogClosed?: () => void; // Callback when dialog closes for any reason (Done, scheduling, etc.)
   parentPage?: 'home' | 'content_library'; // Which page the dialog is opened from (for OAuth redirects)
+  /** When true, use landing modal style (same dimensions/UI as OnboardingFlowModal) instead of full-screen */
+  landingStyle?: boolean;
+  /** When true, bypass strategy questionnaire (Create Ad flow) */
+  adFlowMode?: boolean;
+  /** Number of images expected (Create Ad flow - matches inspirations count) */
+  expectedImageCount?: number;
 }
 
 type Step = "topic" | "platform" | "content_type" | "context" | "review" | "generating" | "results";
@@ -73,7 +82,7 @@ const PLATFORMS = [
     id: "instagram", 
     name: "Instagram", 
     IconComponent: Instagram,
-    color: "bg-gradient-to-br from-purple-500 to-pink-500" 
+    color: "bg-[hsl(var(--landing-accent-orange))]" 
   },
   { 
     id: "linkedin", 
@@ -234,7 +243,9 @@ const analyzeCustomLink = (url: string): {
   return { type: 'unknown', embedUrl: url };
 };
 
-export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDialogClosed, parentPage = 'home' }: GenerateContentDialogProps) => {
+export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDialogClosed, parentPage = 'home', landingStyle = false, adFlowMode = false, expectedImageCount }: GenerateContentDialogProps) => {
+  const router = useRouter();
+  const { isAuthenticated } = useAuth();
   const [step, setStep] = useState<Step>("topic");
   const [selectedTopic, setSelectedTopic] = useState<string>("");
   const [customTopic, setCustomTopic] = useState("");
@@ -255,6 +266,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
   // Check if user signed up through product shot flow - skip first 2 steps
   const isProductShotFlow = usageData?.initialAcquisitionFlow === 'product_photoshot';
   const [showUpgradePricingModal, setShowUpgradePricingModal] = useState(false);
+  const [showDownloadPricingModal, setShowDownloadPricingModal] = useState(false);
   const [upgradeQuotaType, setUpgradeQuotaType] = useState<'image' | 'video' | 'both'>('both');
   const [showTrialLimitDialog, setShowTrialLimitDialog] = useState(false);
   const [isEndingTrial, setIsEndingTrial] = useState(false);
@@ -461,8 +473,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
     }
   }, [open]);
 
-  // Handle onboarding auto-generation
-  useEffect(() => {
+  // Handle onboarding/ad-flow auto-generation (useLayoutEffect to avoid flash of topic step)
+  useLayoutEffect(() => {
     if (open && initialJobId) {
       console.log('🎉 Auto-opening with onboarding generation job:', initialJobId);
       
@@ -483,20 +495,21 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
       
       // Set initial state for onboarding generation
       setSelectedTopic(contentTopic);
-      setSelectedPlatforms(['twitter']);  // Twitter only for faster demo
+      setSelectedPlatforms(['instagram']);
       setJobId(initialJobId);
       setGenerationUuid(initialJobId); // May be uuid format
-      setImagePostCount([2]);
+      setImagePostCount([4]);
       setVideoPostCount([0]);
       
-      // Create placeholder posts
-      const placeholders = Array.from({ length: 2 }, (_, i) => ({
+      // Create placeholder posts (N items for grid UI - 4 for onboarding, expectedImageCount for ad flow)
+      const count = adFlowMode ? Math.max(1, expectedImageCount ?? 4) : 4;
+      const placeholders = Array.from({ length: count }, (_, i) => ({
         id: String(i + 1),
         date: new Date().toISOString().split('T')[0],
         time: "10:00 AM",
         type: "Loading",
-        platforms: ['twitter'],  // Twitter only for faster demo
-        requestedPlatforms: ['twitter'],  // Twitter only for faster demo
+        platforms: ['instagram'],
+        requestedPlatforms: ['instagram'],
         title: contentTopic,
         description: "Generating content...",
         image: null,
@@ -514,7 +527,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
         pollGenerationStatus();
       }, 1000);
     }
-  }, [open, initialJobId]);
+  }, [open, initialJobId, adFlowMode, expectedImageCount]);
 
   // Check for pending OAuth flow and resume it
   useEffect(() => {
@@ -1411,28 +1424,6 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
   };
 
   const handleClose = () => {
-    // Check if we're on the results step and have generated content that hasn't been reviewed
-    if (step === 'results') {
-      // Check if any content has been generated (not just placeholders)
-      const hasGeneratedContent = generatedPosts.some(post => post.image && !post.isGenerating && !post.isFailed);
-      
-      if (hasGeneratedContent) {
-        // Check if all posts have been reviewed (accepted or rejected)
-        const reviewedCount = acceptedPosts.length + rejectedPosts.length;
-        const reviewablePostsCount = generatedPosts.filter(post => post.image && !post.isGenerating && !post.isFailed).length;
-        
-        if (reviewedCount < reviewablePostsCount) {
-          // Not all posts reviewed - prevent closing
-          toast({
-            title: "Review Required",
-            description: `Please review all generated content before closing. ${reviewablePostsCount - reviewedCount} post(s) remaining.`,
-            variant: "destructive",
-          });
-          return;
-        }
-      }
-    }
-    
     // Track dialog closed
     trackGenerateDialogClosed(step, 'cancelled');
     
@@ -1451,6 +1442,15 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
   };
 
   const renderStep = () => {
+    // When opening with initialJobId (onboarding/ad flow), skip strategy steps - show loading until useEffect sets results
+    if (step === "topic" && initialJobId) {
+      return (
+        <div className="flex flex-col items-center justify-center py-16">
+          <Loader2 className="w-10 h-10 text-muted-foreground animate-spin mb-4" />
+          <p className="text-muted-foreground">Preparing...</p>
+        </div>
+      );
+    }
     switch (step) {
       case "topic":
         return (
@@ -1602,8 +1602,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                 }}
               >
                 <div className="text-center space-y-2">
-                  <div className="w-12 h-12 mx-auto bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center">
-                    <Play className="w-6 h-6 text-purple-600" />
+                  <div className="w-12 h-12 mx-auto bg-orange-100 dark:bg-orange-900/30 rounded-full flex items-center justify-center">
+                    <Play className="w-6 h-6 text-orange-600" />
                   </div>
                   <h3 className="font-semibold text-sm sm:text-base">Videos</h3>
                   <p className="text-xs text-muted-foreground">Animated video clips</p>
@@ -2187,8 +2187,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                   {contentType === "videos" && (
                     <>
                       <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center">
-                          <Play className="w-4 h-4 text-purple-600" />
+                        <div className="w-8 h-8 bg-orange-100 dark:bg-orange-900/30 rounded-full flex items-center justify-center">
+                          <Play className="w-4 h-4 text-orange-600" />
                 </div>
                 <div>
                           <p className="text-sm font-medium">{videoPostCount[0]} {videoPostCount[0] === 1 ? 'Video' : 'Videos'}</p>
@@ -2607,8 +2607,147 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
         const getAcceptIndicatorOpacity = () => Math.min(1, Math.max(0, swipeOffset / 100));
         const getRejectIndicatorOpacity = () => Math.min(1, Math.max(0, -swipeOffset / 100));
         
-        // Show questionnaire full-screen during onboarding content generation
-        const showQuestionnaireFullScreen = isGenerating && !questionnaireCompleted && initialJobId;
+        // Landing style grid view: N items as Instagram cards (no CTAs on card), click opens PostDetailDialog
+        const showLandingGrid = (landingStyle || adFlowMode) && initialJobId;
+        if (showLandingGrid) {
+          const brandDisplay = getWebsiteDomainDisplay();
+          const allComplete = !generatedPosts.some((p) => p.isGenerating || p.isFailed);
+          const sampleCaptions = [
+            "Transform your routine with our latest collection. Limited time offer!",
+            "New drop alert! Be the first to get your hands on these exclusive pieces.",
+            "Elevate your everyday. Quality meets style in our newest arrivals.",
+            "Your new favorites are here! Don't miss out on this season's best.",
+          ];
+          return (
+            <div className="flex flex-col h-full min-h-0">
+              <div className="text-center mb-2 shrink-0">
+                <h2 className="text-xl sm:text-2xl md:text-3xl font-bold mb-1 text-neutral-900">
+                  {allComplete ? "Your ads are ready — unlock full access" : "Creating your ads"}
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  {allComplete
+                    ? "Edit, export, and generate more ads by starting your free trial."
+                    : "Our AI is generating scroll-stopping ads for your brand"}
+                </p>
+              </div>
+              {isGenerating && (
+                <div className="space-y-2 max-w-md mx-auto mb-4 shrink-0">
+                  <div className="flex justify-between text-xs sm:text-sm">
+                    <span className="text-muted-foreground line-clamp-1">{progressMessage || "Preparing..."}</span>
+                    <span className="font-medium ml-2">{progressPercent}%</span>
+                  </div>
+                  <div className="w-full bg-neutral-200 rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className="bg-neutral-900 h-full transition-all duration-300 rounded-full"
+                      style={{ width: `${progressPercent}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+              <div
+                className={
+                  adFlowMode
+                    ? "flex-1 min-h-[320px] md:min-h-[400px] flex flex-wrap justify-center items-start gap-4"
+                    : "grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 flex-1 min-h-[320px] md:min-h-[400px]"
+                }
+              >
+                {(adFlowMode
+                  ? generatedPosts.slice(0, expectedImageCount ?? generatedPosts.length)
+                  : generatedPosts.slice(0, 4)
+                ).map((post, index) => {
+                  const isLoading = post.isGenerating || post.isFailed;
+                  const caption = post.platformTexts?.instagram || post.description || sampleCaptions[index % sampleCaptions.length];
+                  return (
+                    <div
+                      key={post.id}
+                      className={`relative rounded-lg overflow-hidden border border-neutral-200/80 bg-white shadow-sm flex flex-col min-h-0 ${
+                        adFlowMode ? "w-64 shrink-0" : ""
+                      } ${post.image && !post.isFailed ? "cursor-pointer hover:shadow-lg transition-shadow" : ""}`}
+                      onClick={() => {
+                        if (post.image && !post.isFailed) {
+                          setSelectedPost(post);
+                          setShowPostDetail(true);
+                        }
+                      }}
+                    >
+                      {post.image && !post.isFailed ? (
+                        <div className="w-full flex flex-col flex-1 min-h-0">
+                          {/* Instagram Header */}
+                          <div className="flex items-center gap-2 px-3 py-2.5 border-b border-neutral-100 shrink-0">
+                            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-neutral-900 truncate">{brandDisplay}</p>
+                              <p className="text-xs text-muted-foreground">Sponsored</p>
+                            </div>
+                          </div>
+                          {/* Image - flex-1 to fill; aspect-[4/5] for vertical Instagram look in ad flow */}
+                          <div className={`relative ${adFlowMode ? "aspect-[4/5] flex-shrink-0" : "flex-1 min-h-0"}`}>
+                            <img
+                              src={post.image}
+                              alt={post.title}
+                              className="w-full h-full object-cover min-h-[120px] md:min-h-[160px]"
+                            />
+                          </div>
+                          {/* Instagram CTA Section */}
+                          <div className="flex items-center justify-between px-3 py-2 border-t border-neutral-100 bg-neutral-50/50 shrink-0">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-neutral-900">Shop Now</p>
+                              <p className="text-xs text-muted-foreground truncate">{brandDisplay.startsWith("@") ? "instagram.com" : brandDisplay}</p>
+                            </div>
+                          </div>
+                          {/* Instagram Actions - decorative only */}
+                          <div className="px-3 py-2.5 shrink-0">
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="flex items-center gap-3">
+                                <Heart className="w-5 h-5 text-neutral-700" />
+                                <MessageCircle className="w-5 h-5 text-neutral-700" />
+                                <Send className="w-5 h-5 text-neutral-700" />
+                              </div>
+                              <Bookmark className="w-5 h-5 text-neutral-700" />
+                            </div>
+                            <p className="text-sm font-semibold text-neutral-900 mb-0.5">1,234 likes</p>
+                            <p className="text-sm text-neutral-600 line-clamp-2">
+                              <span className="font-semibold text-neutral-900">{brandDisplay}</span>{" "}
+                              {caption}
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className={`flex flex-col items-center justify-center bg-neutral-100 ${adFlowMode ? "aspect-[4/5] min-h-[200px]" : "flex-1 min-h-[200px] md:min-h-[240px]"}`}>
+                          {isLoading ? (
+                            <>
+                              <Loader2 className="w-8 h-8 text-neutral-500 animate-spin mb-2" />
+                              <span className="text-neutral-700 font-semibold text-lg">{progressPercent}%</span>
+                            </>
+                          ) : (
+                            <div className="text-center p-4">
+                              <XCircle className="w-8 h-8 text-red-500 mx-auto mb-2" />
+                              <p className="text-xs text-muted-foreground">Failed to generate</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {allComplete && (
+                <div className="flex justify-center mt-4 shrink-0">
+                  <Button
+                    onClick={() => setShowDownloadPricingModal(true)}
+                    className="bg-neutral-900 hover:bg-neutral-800 text-white h-12 px-8 rounded-xl"
+                  >
+                    <Download className="h-5 w-5 mr-2" />
+                    Download All
+                  </Button>
+                </div>
+              )}
+            </div>
+          );
+        }
+        
+        // Show questionnaire full-screen during onboarding content generation (bypass when adFlowMode)
+        const showQuestionnaireFullScreen = isGenerating && !questionnaireCompleted && initialJobId && !adFlowMode;
         
         if (showQuestionnaireFullScreen) {
         return (
@@ -2672,7 +2811,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
             {/* Show progress bar for regular generation OR after questionnaire is completed */}
             {isGenerating && (
               <div className="space-y-2 max-w-md mx-auto">
-                {strategyGenerating && initialJobId && (
+                {strategyGenerating && initialJobId && !adFlowMode && (
                   <div className="text-center mb-4">
                     <p className="text-sm text-primary font-medium">
                       ✨ Creating your personalized content strategy...
@@ -2685,7 +2824,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                 </div>
                 <div className="w-full bg-secondary rounded-full h-1.5 sm:h-2 overflow-hidden">
                   <div 
-                    className="bg-gradient-to-r from-emerald-500 to-purple-500 h-full transition-all duration-300 ease-out"
+                    className="bg-gradient-to-r from-emerald-500 to-[hsl(var(--landing-accent-orange))] h-full transition-all duration-300 ease-out"
                     style={{ width: `${progressPercent}%` }}
                   />
                 </div>
@@ -2950,7 +3089,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
 
   return (
     <>
-      {/* Full Screen Modal */}
+      {/* Modal - landing style (centered, same as OnboardingFlowModal) or full-screen */}
       {open && !showPostDetail && !showScheduleDialog && (
         <>
           {/* Backdrop */}
@@ -2961,30 +3100,58 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
             onClick={handleClose}
           />
           
-          {/* Modal Content */}
-          <div 
-            className={`fixed inset-0 z-[101] overflow-y-auto transition-transform duration-300 ease-out ${
-              isVisible ? 'translate-y-0' : 'translate-y-full'
-            }`}
-          >
-            <div className="min-h-screen bg-background">
-              {/* Close Button */}
-              <button
-                onClick={handleClose}
-                className="fixed top-4 right-4 md:top-6 md:right-6 z-[102] p-2.5 rounded-full bg-muted hover:bg-muted/80 transition-colors border border-border"
-                aria-label="Close"
+          {(landingStyle || adFlowMode) ? (
+            /* Landing/Ad flow style: centered modal (ad flow matches Choose ad modal: 90vw) */
+            <div 
+              className={`fixed inset-0 z-[101] flex items-center justify-center p-4 transition-opacity duration-300 ${
+                isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+              }`}
+            >
+              <div 
+                className={`relative flex flex-col overflow-hidden bg-[hsl(0,0%,98%)] border border-neutral-200/80 text-neutral-900 rounded-2xl shadow-xl ${
+                  adFlowMode 
+                    ? "w-[90vw] max-w-[90vw] h-[min(90vh,820px)] min-h-[min(90vh,820px)] max-h-[90vh]" 
+                    : "max-w-[95vw] w-full h-[min(90vh,780px)] min-h-[min(90vh,780px)] max-h-[90vh]"
+                }`}
+                onClick={(e) => e.stopPropagation()}
               >
-                <X className="h-5 w-5 text-foreground" />
-              </button>
-
-              {/* Content */}
-              <div className="py-8 md:py-16 px-4">
-                <div className="max-w-3xl mx-auto">
-            {renderStep()}
-          </div>
+                <button
+                  onClick={handleClose}
+                  className="absolute top-4 right-4 z-[102] p-2.5 rounded-full bg-muted hover:bg-muted/80 transition-colors border border-border"
+                  aria-label="Close"
+                >
+                  <X className="h-5 w-5 text-foreground" />
+                </button>
+                <div className={`flex-1 min-h-0 p-6 pt-14 flex flex-col ${step === "results" && (landingStyle || adFlowMode) && initialJobId ? "overflow-hidden" : "overflow-y-auto"}`}>
+                  <div className={`mx-auto flex-1 min-h-0 flex flex-col ${step === "results" && (landingStyle || adFlowMode) && initialJobId ? "max-w-6xl w-full" : "max-w-3xl"}`}>
+                    {renderStep()}
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            /* Default: full-screen modal */
+            <div 
+              className={`fixed inset-0 z-[101] overflow-y-auto transition-transform duration-300 ease-out ${
+                isVisible ? 'translate-y-0' : 'translate-y-full'
+              }`}
+            >
+              <div className="min-h-screen bg-background">
+                <button
+                  onClick={handleClose}
+                  className="fixed top-4 right-4 md:top-6 md:right-6 z-[102] p-2.5 rounded-full bg-muted hover:bg-muted/80 transition-colors border border-border"
+                  aria-label="Close"
+                >
+                  <X className="h-5 w-5 text-foreground" />
+                </button>
+                <div className="py-8 md:py-16 px-4">
+                  <div className="max-w-3xl mx-auto">
+                    {renderStep()}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
 
@@ -3190,6 +3357,34 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
         reason={usageData?.mustSubscribeToFreemium ? 'freemium_required' : 'quota_exhausted'}
         userFlow={usageData?.initialAcquisitionFlow || 'website_analysis'}
         mustSubscribe={usageData?.mustSubscribeToFreemium || false}
+      />
+
+      {/* Pricing Modal for Download All (landing flow - centered modal like OnboardingFlowModal) */}
+      <PricingModal
+        open={showDownloadPricingModal}
+        onClose={() => {
+          setShowDownloadPricingModal(false);
+          onOpenChange(false);
+          onDialogClosed?.();
+          if (isAuthenticated) {
+            router.push("/discover");
+          }
+        }}
+        variant="centered"
+        currentPlanInfo={usageData ? {
+          planName: usageData.planName || 'Free Trial',
+          planId: usageData.planId || null,
+          monthlyPrice: usageData.monthlyPrice || 0,
+          annualPrice: usageData.annualPrice || 0,
+          billingCycle: usageData.billingCycle || 'monthly',
+          isFreeTrialPlan: usageData.isFreeTrialPlan || false,
+        } : null}
+        quotaType="both"
+        isAuthenticated={true}
+        canSkip={true}
+        reason="user_initiated"
+        userFlow={usageData?.initialAcquisitionFlow || 'website_analysis'}
+        mustSubscribe={false}
       />
 
       {/* Trial Limit Exceeded Dialog - Pay Early or Wait */}

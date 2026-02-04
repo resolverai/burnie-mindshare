@@ -4,13 +4,13 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { AppSidebar } from "@/components/AppSidebar";
-import { SubscriptionPage } from "@/components/pages/SubscriptionPage";
+import { SettingsPage } from "@/components/pages/SettingsPage";
 import { Loader2, Menu } from "lucide-react";
 import Image from "next/image";
 import dvybLogo from "@/assets/dvyb-logo.png";
 
 export default function ManageSubscriptionPage() {
-  const [activeView] = useState("subscription");
+  const [activeView] = useState("settings");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const router = useRouter();
   const { isAuthenticated, isLoading } = useAuth();
@@ -21,13 +21,12 @@ export default function ManageSubscriptionPage() {
     }
   }, [isAuthenticated, isLoading, router]);
 
-  const handleViewChange = (view: string) => {
-    if (view === "home") router.push("/home");
-    else if (view === "calendar") router.push("/calendar");
-    else if (view === "brand-kit") router.push("/brand-kit");
-    else if (view === "content-library") router.push("/content-library");
-    else if (view === "brand-plan") return; // Disabled
-    else if (view === "subscription") return; // Already on this page
+  const handleViewChange = (view: string, subView?: string) => {
+    if (view === "discover") router.push("/discover");
+    else if (view === "brands") router.push("/brands");
+    else if (view === "content-library") router.push(subView ? `/content-library?tab=${subView}` : "/content-library");
+    else if (view === "brand-kit") router.push(subView ? `/brand-kit?tab=${subView}` : "/brand-kit");
+    else if (view === "settings") return; // Already on settings/subscription
   };
 
   if (isLoading || !isAuthenticated) {
@@ -42,7 +41,7 @@ export default function ManageSubscriptionPage() {
   }
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
+    <div className="flex h-screen bg-[hsl(var(--app-content-bg))] overflow-hidden">
       <AppSidebar
         activeView={activeView}
         onViewChange={handleViewChange}
@@ -52,7 +51,7 @@ export default function ManageSubscriptionPage() {
 
       <main className="flex-1 flex flex-col overflow-hidden">
         {/* Mobile Header */}
-        <div className="md:hidden flex items-center justify-between px-4 py-3 border-b border-border bg-background">
+        <div className="md:hidden flex items-center justify-between px-4 py-3 border-b border-border bg-[hsl(var(--app-content-bg))]">
           <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             className="p-2 hover:bg-muted rounded-lg transition-colors"
@@ -66,7 +65,7 @@ export default function ManageSubscriptionPage() {
 
         {/* Main Content */}
         <div className="flex-1 overflow-y-auto">
-          <SubscriptionPage />
+          <SettingsPage />
         </div>
       </main>
     </div>

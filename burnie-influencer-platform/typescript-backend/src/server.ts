@@ -62,6 +62,9 @@ import adminDvybPlansRoutes from './routes/adminDvybPlans';
 import adminDvybUpgradeRequestsRoutes from './routes/adminDvybUpgradeRequests';
 import adminDvybInspirationsRoutes from './routes/adminDvybInspirations';
 import adminDvybPromosRoutes from './routes/adminDvybPromos';
+import adminDvybBrandsRoutes from './routes/adminDvybBrands';
+import dvybBrandsRoutes from './routes/dvybBrands';
+import internalDvybBrandsRoutes from './routes/internalDvybBrands';
 import approvedMinersRoutes from './routes/approvedMiners';
 import twitterHandlesRoutes from './routes/twitterHandles';
 import editTweetRoutes from './routes/editTweet';
@@ -100,6 +103,7 @@ import dvybScheduleDebugRoutes from './routes/dvybScheduleDebug';
 import dvybSocialAuthRoutes from './routes/dvybSocialAuth';
 import dvybOAuth1AuthRoutes from './routes/dvybOAuth1Auth';
 import dvybInspirationsRoutes from './routes/dvybInspirations';
+import dvybProductsRoutes from './routes/dvybProducts';
 import cacheRoutes from './routes/cache';
 import s3PresignedRoutes from './routes/s3Presigned';
 import networkRoutes from './routes/networkRoutes';
@@ -152,8 +156,8 @@ const corsOptions = {
     callback(new Error('Not allowed by CORS'), false);
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-DVYB-Account-ID'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-DVYB-Account-ID', 'X-DVYB-API-Key'],
   exposedHeaders: ['X-Total-Count'],
   optionsSuccessStatus: 200
 };
@@ -175,8 +179,8 @@ app.options('*', (req, res) => {
   if (origin && (env.cors.allowedOrigins.includes(origin) || origin.endsWith('.nodeops.network'))) {
     res.header('Access-Control-Allow-Origin', origin);
   }
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-DVYB-Account-ID');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-DVYB-Account-ID, X-DVYB-API-Key');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.sendStatus(200);
 });
@@ -244,6 +248,7 @@ app.use('/api/admin/dvyb-plans', adminDvybPlansRoutes); // DVYB pricing plans ma
 app.use('/api/admin/dvyb-upgrade-requests', adminDvybUpgradeRequestsRoutes); // DVYB upgrade requests management
 app.use('/api/admin/dvyb-inspirations', adminDvybInspirationsRoutes); // DVYB inspiration links management
 app.use('/api/admin/dvyb-promos', adminDvybPromosRoutes); // DVYB promo codes management
+app.use('/api/admin/dvyb-brands', adminDvybBrandsRoutes); // DVYB brands (Discover ads)
 app.use('/api/edit-tweet', editTweetRoutes); // Edit tweet functionality with avatar fusion
 app.use('/api/user-twitter-posts', userTwitterPostsRoutes); // User Twitter posts tracking and engagement
 app.use('/api', videoAnalyticsRoutes); // Video analytics and performance metrics
@@ -278,6 +283,9 @@ app.use('/api/dvyb/video-edits', dvybVideoEditsRoutes); // DVYB video edits (tim
 app.use('/api/dvyb/assets', dvybAssetsRoutes); // DVYB assets library (videos, images, audio, effects)
 app.use('/api/dvyb/subscription', dvybSubscriptionRoutes); // DVYB subscription management (Stripe integration)
 app.use('/api/dvyb/inspirations', dvybInspirationsRoutes); // DVYB inspiration matching for onboarding
+app.use('/api/dvyb/brands', dvybBrandsRoutes); // DVYB brands (user request, discover ads)
+app.use('/api/dvyb/products', dvybProductsRoutes); // DVYB account products (My Products screen)
+app.use('/api/internal/dvyb-brands', internalDvybBrandsRoutes); // Internal callback from Python fetch script
 app.use('/api/dvyb', dvybGenerationRoutes); // DVYB content generation routes (has /:uuid catch-all, must be last)
 app.use('/api/cache', cacheRoutes); // Redis URL cache management
 app.use('/api/s3', s3PresignedRoutes); // S3 presigned URL generation (local TypeScript service)

@@ -23,6 +23,7 @@ redis
 pydantic
 python-dotenv
 httpx
+json-repair
 aiofiles
 python-multipart
 pillow
@@ -69,3 +70,6 @@ pypdf
 python-docx
 PyMuPDF
 Pillow
+json-repair
+rembg
+apify-client

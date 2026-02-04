@@ -47,7 +47,8 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
     const dateFrom = req.query.dateFrom ? new Date(req.query.dateFrom as string) : null;
     const dateTo = req.query.dateTo ? new Date(req.query.dateTo as string) : null;
 
-    // Status filter (for Posted Content toggle)
+    // Status filter: showPosted=true = only posted, showPosted=false = exclude posted, showAll=true = all
+    const showAll = req.query.showAll === 'true';
     const showPosted = req.query.showPosted === 'true';
 
     // Get all generated content
@@ -686,12 +687,14 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
     
     logger.info(`📊 Filtered out ${allProcessedContent.length - contentWithMedia.length} items with no media (failed generations)`);
 
-    // Filter by status if showPosted is specified
+    // Filter by status
     let filteredContent = contentWithMedia;
-    if (showPosted) {
-      filteredContent = contentWithMedia.filter(c => c.status === 'posted');
-    } else {
-      filteredContent = contentWithMedia.filter(c => c.status !== 'posted');
+    if (!showAll) {
+      if (showPosted) {
+        filteredContent = contentWithMedia.filter(c => c.status === 'posted');
+      } else {
+        filteredContent = contentWithMedia.filter(c => c.status !== 'posted');
+      }
     }
 
     // NOW paginate at the POST level (not record level)

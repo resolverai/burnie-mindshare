@@ -2,21 +2,25 @@
 
 import { useState, useEffect } from "react";
 import { 
-  Home, 
-  Calendar, 
   FileText, 
   Palette,
   FolderOpen,
   ChevronLeft,
   ChevronRight,
-  Menu,
+  ChevronDown,
+  ChevronUp,
   LogOut,
   ImageIcon,
   Video,
-  CreditCard,
   Sparkles,
   Moon,
-  Sun
+  Compass,
+  Building2,
+  VideoIcon,
+  Package,
+  Bookmark,
+  Pencil,
+  Settings
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -25,10 +29,12 @@ import { useAuth } from "@/contexts/AuthContext";
 import { contextApi } from "@/lib/api";
 import { PricingModal } from "@/components/PricingModal";
 import { useTheme } from "next-themes";
+import { Switch } from "@/components/ui/switch";
 
 interface AppSidebarProps {
   activeView: string;
-  onViewChange: (view: string) => void;
+  activeSubView?: string;
+  onViewChange: (view: string, subView?: string) => void;
   isMobileOpen?: boolean;
   onMobileClose?: () => void;
   forceCollapsed?: boolean;
@@ -36,16 +42,26 @@ interface AppSidebarProps {
   onHighlightClick?: (item: string) => void;
 }
 
-const menuItems = [
-  { id: "home", label: "Dashboard", icon: Home, disabled: false },
-  { id: "calendar", label: "Calendar", icon: Calendar, disabled: false },
-  { id: "content-library", label: "Content Library", icon: FolderOpen, disabled: false },
-  { id: "brand-plan", label: "Brand Plan", icon: FileText, disabled: true, badge: "coming soon" },
-  { id: "brand-kit", label: "Brand Kit", icon: Palette, disabled: false },
-  { id: "subscription", label: "Manage Subscription", icon: CreditCard, disabled: false },
+// Wanderlust-style nav: Discover, Brands, My Content (collapsible), Brand Kit (collapsible), Settings
+// Hidden (keep code): home, calendar, content-library, brand-plan, subscription
+const topLevelItems = [
+  { id: "discover", label: "Discover", icon: Compass, disabled: false },
+  { id: "brands", label: "Brands", icon: Building2, disabled: false },
 ];
+const myContentSubItems = [
+  { id: "my-ads", label: "My Ads", icon: VideoIcon, route: "/content-library" },
+  { id: "my-products", label: "My Products", icon: Package, route: "/content-library" },
+  { id: "saved-ads", label: "Saved Ads", icon: Bookmark, route: "/content-library" },
+];
+const brandKitSubItems = [
+  { id: "style", label: "Style", icon: Pencil, route: "/brand-kit" },
+  { id: "source-materials", label: "Source Materials", icon: FileText, route: "/brand-kit" },
+];
+// Settings moved to bottom section with Dark Mode, Upgrade, Log out (wanderlust style)
 
-export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onMobileClose, forceCollapsed = false, onboardingHighlight = null, onHighlightClick }: AppSidebarProps) => {
+export const AppSidebar = ({ activeView, activeSubView, onViewChange, isMobileOpen = false, onMobileClose, forceCollapsed = false, onboardingHighlight = null, onHighlightClick }: AppSidebarProps) => {
+  const [myContentExpanded, setMyContentExpanded] = useState(() => activeView === "content-library");
+  const [brandKitExpanded, setBrandKitExpanded] = useState(() => activeView === "brand-kit");
   // Collapsed by default on mobile/tablet, expanded on desktop
   const [isCollapsed, setIsCollapsed] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -74,6 +90,13 @@ export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onM
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (activeView === "content-library") setMyContentExpanded(true);
+  }, [activeView]);
+  useEffect(() => {
+    if (activeView === "brand-kit") setBrandKitExpanded(true);
+  }, [activeView]);
 
   // Determine if sidebar should be collapsed (either manually or forced)
   const collapsed = forceCollapsed || isCollapsed;
@@ -153,32 +176,24 @@ export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onM
     fetchPlan();
   }, [accountId]);
 
-  const handleMenuItemClick = (itemId: string, disabled: boolean) => {
+  const handleMenuItemClick = (itemId: string, disabled: boolean, subView?: string) => {
     if (!disabled) {
-      onViewChange(itemId);
-      // Close mobile drawer when menu item is clicked
-      if (onMobileClose) {
-        onMobileClose();
-      }
-      // Notify parent about highlighted item click
+      const view = itemId.startsWith("/") ? itemId.replace(/^\//, "") : itemId;
+      onViewChange(view, subView);
+      if (onMobileClose) onMobileClose();
       if (onHighlightClick) {
-        if (itemId === 'content-library') {
-          onHighlightClick('content_library');
-        } else if (itemId === 'brand-kit') {
-          onHighlightClick('brand_kit');
+        if (view === "content-library" || subView === "my-ads" || subView === "my-products" || subView === "saved-ads") {
+          onHighlightClick("content_library");
+        } else if (view === "brand-kit" || subView === "style" || subView === "source-materials") {
+          onHighlightClick("brand_kit");
         }
       }
     }
   };
 
-  // Determine if a menu item should show the onboarding highlight ring
   const shouldShowRing = (itemId: string): boolean => {
-    if (itemId === 'content-library' && onboardingHighlight === 'content_library') {
-      return true;
-    }
-    if (itemId === 'brand-kit' && onboardingHighlight === 'brand_kit') {
-      return true;
-    }
+    if ((itemId === "content-library" || itemId === "my-ads") && onboardingHighlight === "content_library") return true;
+    if ((itemId === "brand-kit" || itemId === "style") && onboardingHighlight === "brand_kit") return true;
     return false;
   };
 
@@ -195,7 +210,7 @@ export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onM
       {/* Sidebar */}
       <aside 
         className={cn(
-          "bg-sidebar border-r border-sidebar-border h-screen flex flex-col transition-all duration-300 relative",
+          "bg-[hsl(var(--sidebar-wanderlust-bg))] border-r border-sidebar-border h-screen flex flex-col transition-all duration-300 relative",
           // Mobile: Fixed positioning, slide in/out
           "fixed md:static top-0 left-0 z-[70]",
           isMobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
@@ -262,7 +277,7 @@ export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onM
         {!forceCollapsed && (
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="hidden md:block absolute -right-3 top-20 bg-sidebar border border-sidebar-border rounded-full p-1 hover:bg-sidebar-accent transition-colors z-10"
+            className="hidden md:block absolute -right-3 top-20 bg-[hsl(var(--sidebar-wanderlust-selected))] border border-sidebar-border rounded-full p-1 hover:bg-[hsl(var(--sidebar-wanderlust-selected))] hover:brightness-95 transition-colors z-10"
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
             {collapsed ? (
@@ -273,69 +288,177 @@ export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onM
           </button>
         )}
 
-        {/* Navigation */}
-        <nav className="flex-1 px-3 py-4 space-y-2 overflow-y-auto">
-          {menuItems.map((item) => (
+        {/* Navigation - Wanderlust style */}
+        <nav className="app-sidebar-nav flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+          {topLevelItems.map((item) => (
             <button
               key={item.id}
               onClick={() => handleMenuItemClick(item.id, item.disabled)}
               disabled={item.disabled}
               className={cn(
-                "w-full flex items-center gap-3 px-3 py-3 rounded-lg text-base font-medium transition-colors",
+                "w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors",
                 activeView === item.id
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent/50",
-                collapsed && "md:justify-center",
-                item.disabled && "opacity-50 cursor-not-allowed hover:bg-transparent",
-                shouldShowRing(item.id) && "onboarding-pulse-ring"
+                  ? "bg-[hsl(var(--sidebar-wanderlust-selected))] font-medium"
+                  : "font-normal hover:bg-[hsl(var(--sidebar-wanderlust-hover))]",
+                collapsed && "md:justify-center md:rounded-lg",
+                item.disabled && "opacity-50 cursor-not-allowed hover:bg-transparent"
               )}
+              style={{ fontSize: "var(--sidebar-menu-text-size)" }}
+              data-sidebar-menu
               title={collapsed ? item.label : undefined}
             >
-              <item.icon className="w-5 h-5 flex-shrink-0" />
-              <span className={cn(
-                "flex-1 text-left flex items-center gap-2",
-                collapsed && "md:hidden"
-              )}>
-                {item.label}
-                {item.badge && (
-                  <span className="text-xs text-muted-foreground">({item.badge})</span>
-                )}
-              </span>
+              <item.icon className="w-5 h-5 flex-shrink-0 opacity-80" />
+              <span className={cn("flex-1 text-left", collapsed && "md:hidden")}>{item.label}</span>
             </button>
           ))}
+
+          {/* My Content - collapsible */}
+          <div className="pt-1">
+            <button
+              type="button"
+              onClick={() => setMyContentExpanded(!myContentExpanded)}
+              className={cn(
+                "w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors",
+                activeView === "content-library"
+                  ? "bg-[hsl(var(--sidebar-wanderlust-selected))] font-medium"
+                  : "font-normal hover:bg-[hsl(var(--sidebar-wanderlust-hover))]",
+                collapsed && "md:justify-center md:rounded-lg"
+              )}
+              style={{ fontSize: "var(--sidebar-menu-text-size)" }}
+              data-sidebar-menu
+            >
+              <FolderOpen className="w-5 h-5 flex-shrink-0 opacity-80" />
+              <span className={cn("flex-1 text-left", collapsed && "md:hidden")}>My Content</span>
+              {myContentExpanded ? (
+                <ChevronUp className="w-4 h-4" />
+              ) : (
+                <ChevronDown className="w-4 h-4" />
+              )}
+            </button>
+            {myContentExpanded && !collapsed && (
+              <div className="ml-4 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+                {myContentSubItems.map((sub) => (
+                  <button
+                    key={sub.id}
+                    onClick={() => handleMenuItemClick(sub.route, false, sub.id)}
+                    className={cn(
+                      "w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-colors",
+                      activeView === "content-library" && activeSubView === sub.id
+                        ? "bg-[hsl(var(--sidebar-wanderlust-selected))] font-medium"
+                        : "font-normal hover:bg-[hsl(var(--sidebar-wanderlust-hover))]",
+                      shouldShowRing(sub.id) && "onboarding-pulse-ring"
+                    )}
+                    style={{ fontSize: "var(--sidebar-menu-sub-size)" }}
+                    data-sidebar-menu
+                  >
+                    <sub.icon className="w-4 h-4 flex-shrink-0 opacity-80" />
+                    {sub.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Brand Kit - collapsible */}
+          <div>
+            <button
+              type="button"
+              onClick={() => setBrandKitExpanded(!brandKitExpanded)}
+              className={cn(
+                "w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors",
+                activeView === "brand-kit"
+                  ? "bg-[hsl(var(--sidebar-wanderlust-selected))] font-medium"
+                  : "font-normal hover:bg-[hsl(var(--sidebar-wanderlust-hover))]",
+                collapsed && "md:justify-center md:rounded-lg"
+              )}
+              style={{ fontSize: "var(--sidebar-menu-text-size)" }}
+              data-sidebar-menu
+            >
+              <Palette className="w-5 h-5 flex-shrink-0 opacity-80" />
+              <span className={cn("flex-1 text-left", collapsed && "md:hidden")}>Brand Kit</span>
+              {brandKitExpanded ? (
+                <ChevronUp className="w-4 h-4" />
+              ) : (
+                <ChevronDown className="w-4 h-4" />
+              )}
+            </button>
+            {brandKitExpanded && !collapsed && (
+              <div className="ml-4 mt-1 space-y-0.5 border-l border-sidebar-border pl-2">
+                {brandKitSubItems.map((sub) => (
+                  <button
+                    key={sub.id}
+                    onClick={() => handleMenuItemClick(sub.route, false, sub.id)}
+                    className={cn(
+                      "w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-colors",
+                      activeView === "brand-kit" && activeSubView === sub.id
+                        ? "bg-[hsl(var(--sidebar-wanderlust-selected))] font-medium"
+                        : "font-normal hover:bg-[hsl(var(--sidebar-wanderlust-hover))]",
+                      shouldShowRing(sub.id) && "onboarding-pulse-ring"
+                    )}
+                    style={{ fontSize: "var(--sidebar-menu-sub-size)" }}
+                    data-sidebar-menu
+                  >
+                    <sub.icon className="w-4 h-4 flex-shrink-0 opacity-80" />
+                    {sub.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </nav>
 
-        {/* Upgrade & Logout Buttons */}
-        <div className="px-3 py-4 border-t border-sidebar-border space-y-2">
-          {/* Theme Toggle */}
+        {/* Bottom section: Settings, Dark Mode, Upgrade, Log out (wanderlust style) */}
+        <div className="app-sidebar-nav px-3 py-4 border-t border-sidebar-border space-y-2">
+          {/* Settings */}
           <button
-            onClick={() => mounted && setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+            onClick={() => handleMenuItemClick("settings", false)}
             className={cn(
-              "w-full flex items-center gap-3 px-3 py-3 rounded-lg text-base font-medium transition-colors",
-              "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-              collapsed && "md:justify-center"
+              "w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors",
+              activeView === "settings"
+                ? "bg-[hsl(var(--sidebar-wanderlust-selected))] font-medium"
+                : "font-normal hover:bg-[hsl(var(--sidebar-wanderlust-hover))]",
+              collapsed && "md:justify-center md:rounded-lg"
             )}
-            title={collapsed ? (resolvedTheme === "dark" ? "Light mode" : "Dark mode") : undefined}
+            style={{ fontSize: "var(--sidebar-menu-text-size)" }}
+            data-sidebar-menu
+            title={collapsed ? "Settings" : undefined}
           >
-            {mounted && resolvedTheme === "dark" ? (
-              <Sun className="w-5 h-5 flex-shrink-0" />
-            ) : (
-              <Moon className="w-5 h-5 flex-shrink-0" />
-            )}
-            <span className={cn(
-              "flex-1 text-left",
-              collapsed && "md:hidden"
-            )}>
-              {mounted && resolvedTheme === "dark" ? "Light Mode" : "Dark Mode"}
-            </span>
+            <Settings className="w-5 h-5 flex-shrink-0 opacity-80" />
+            <span className={cn("flex-1 text-left", collapsed && "md:hidden")}>Settings</span>
           </button>
 
-          {/* Upgrade Button */}
+          {/* Dark Mode - toggle switch like new UI (Moon + "Dark Mode" + Switch on right) */}
+          <div
+            className={cn(
+              "w-full flex items-center gap-3 px-3 py-3 rounded-lg font-normal transition-colors",
+              "hover:bg-[hsl(var(--sidebar-wanderlust-hover))]",
+              collapsed && "md:justify-center md:rounded-lg"
+            )}
+            style={{ fontSize: "var(--sidebar-menu-text-size)" }}
+            data-sidebar-menu
+            title={collapsed ? (mounted && resolvedTheme === "dark" ? "Light Theme" : "Dark Theme") : undefined}
+          >
+            <Moon className="w-5 h-5 flex-shrink-0 opacity-80" />
+            <span className={cn("flex-1 text-left", collapsed && "md:hidden")}>
+              {mounted && resolvedTheme === "dark" ? "Light Theme" : "Dark Theme"}
+            </span>
+            {mounted && (
+              <Switch
+                checked={resolvedTheme === "dark"}
+                onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
+                className={cn("shrink-0", collapsed && "md:ml-0")}
+              />
+            )}
+          </div>
+
+          {/* Upgrade Button - inline styles to match new UI (purple-to-pink gradient), no shared class */}
           <button
             onClick={() => setShowPricingModal(true)}
             className={cn(
-              "w-full flex items-center gap-3 px-3 py-3 rounded-lg text-base",
-              "btn-upgrade-sidebar",
+              "w-full flex items-center gap-3 px-3 py-3 text-base",
+              "rounded-full font-semibold text-white border-0",
+              "bg-gradient-to-r from-purple-600 to-pink-500",
+              "transition-opacity duration-200 hover:opacity-90 active:opacity-95",
               collapsed && "md:justify-center"
             )}
             title={collapsed ? "Upgrade" : undefined}
@@ -353,13 +476,15 @@ export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onM
           <button
             onClick={handleLogout}
             className={cn(
-              "w-full flex items-center gap-3 px-3 py-3 rounded-lg text-base font-medium transition-colors",
-              "text-sidebar-foreground hover:bg-destructive/10 hover:text-destructive",
-              collapsed && "md:justify-center"
+              "w-full flex items-center gap-3 px-3 py-3 rounded-lg font-normal transition-colors",
+              "hover:bg-[hsl(var(--sidebar-wanderlust-hover))]",
+              collapsed && "md:justify-center md:rounded-lg"
             )}
+            style={{ fontSize: "var(--sidebar-menu-text-size)" }}
+            data-sidebar-menu
             title={collapsed ? "Log out" : undefined}
           >
-            <LogOut className="w-5 h-5 flex-shrink-0" />
+            <LogOut className="w-5 h-5 flex-shrink-0 opacity-80" />
             <span className={cn(
               "flex-1 text-left",
               collapsed && "md:hidden"

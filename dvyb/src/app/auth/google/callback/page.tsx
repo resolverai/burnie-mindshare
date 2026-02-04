@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { authApi, contextApi } from '@/lib/api'
+import { authApi, contextApi, adhocGenerationApi } from '@/lib/api'
 import { Loader2, XCircle } from 'lucide-react'
 import { trackSignIn, identifyUser } from '@/lib/mixpanel'
 
@@ -180,6 +180,138 @@ function DvybGoogleCallbackContent() {
           return
         }
         
+        // NEW: Landing onboarding flow (website -> inspiration -> product -> login)
+        // Upload product to S3, start adhoc generation, redirect to landing with content modal
+        const landingOnboardingPending = localStorage.getItem('dvyb_landing_onboarding_flow_pending')
+        if (landingOnboardingPending === 'true') {
+          console.log('🎯 Landing onboarding flow detected - upload product, start generation, redirect to /')
+          localStorage.removeItem('dvyb_landing_onboarding_flow_pending')
+          
+          setStatus('Preparing your content...')
+          
+          try {
+            // Save analysis to context (same as brand-profile flow)
+            const storedAnalysis = localStorage.getItem('dvyb_website_analysis')
+            const storedUrl = localStorage.getItem('dvyb_pending_website_url')
+            if (storedAnalysis && storedUrl) {
+              try {
+                const analysisData = JSON.parse(storedAnalysis)
+                await contextApi.updateContext({
+                  website: storedUrl,
+                  accountName: analysisData.base_name,
+                  industry: analysisData.industry || null,
+                  suggestedFirstTopic: analysisData.suggested_first_topic || null,
+                  businessOverview: analysisData.business_overview_and_positioning,
+                  customerDemographics: analysisData.customer_demographics_and_psychographics,
+                  popularProducts: analysisData.most_popular_products_and_services,
+                  whyCustomersChoose: analysisData.why_customers_choose,
+                  brandStory: analysisData.brand_story,
+                  colorPalette: analysisData.color_palette,
+                  logoUrl: analysisData.logo_s3_key || null,
+                })
+                console.log('✅ Analysis saved to context')
+              } catch (saveError) {
+                console.error('⚠️ Failed to save analysis to context:', saveError)
+              }
+            }
+            
+            // Get selected product and upload to S3
+            let productImageS3Key: string | undefined
+            const selectedProductsStr = localStorage.getItem('dvyb_selected_products')
+            if (selectedProductsStr) {
+              try {
+                const products = JSON.parse(selectedProductsStr)
+                const firstProduct = Array.isArray(products) ? products[0] : null
+                if (firstProduct?.image) {
+                  const imagePath = firstProduct.image.startsWith('/') ? firstProduct.image : `/${firstProduct.image}`
+                  const imageUrl = `${window.location.origin}${imagePath}`
+                  console.log('📸 Fetching product image from:', imageUrl)
+                  const res = await fetch(imageUrl)
+                  const blob = await res.blob()
+                  const ext = imagePath.split('.').pop() || 'jpg'
+                  const file = new File([blob], `product.${ext}`, { type: blob.type || 'image/jpeg' })
+                  const s3Url = await adhocGenerationApi.uploadImage(file)
+                  productImageS3Key = adhocGenerationApi.extractS3Key(s3Url)
+                  console.log('✅ Product uploaded to S3:', productImageS3Key)
+                }
+              } catch (uploadErr) {
+                console.error('⚠️ Failed to upload product image:', uploadErr)
+              }
+            }
+            
+            // Get inspiration links (from dvyb_inspirations or dvyb_brand_ads / discover ads)
+            let inspirationLinks: string[] = []
+            const storedInspirations = localStorage.getItem('dvyb_selected_inspirations')
+            if (storedInspirations) {
+              try {
+                const inspirations = JSON.parse(storedInspirations)
+                if (Array.isArray(inspirations) && inspirations.length > 0) {
+                  inspirationLinks = inspirations.flatMap((insp: any) =>
+                    [insp.mediaUrl, insp.url, insp.creativeImageUrl, insp.creativeVideoUrl].filter(Boolean)
+                  )
+                  console.log('🎨 Using inspiration links:', inspirationLinks.length, inspirationLinks)
+                }
+              } catch (e) {
+                console.warn('Could not read inspirations:', e)
+              }
+            }
+            
+            // Topic and user instructions: when product image is passed (onboarding flow),
+            // override to 'Product Showcase' and blank instructions so Grok uses inspiration + product image.
+            // When no product chosen, use topic/instructions from website analysis.
+            const hasProductImage = !!productImageS3Key
+            let contentTopic = 'Product Launch'
+            let topicDescription = 'Generate Product marketing post for this product'
+            if (hasProductImage) {
+              contentTopic = 'Product Showcase'
+              topicDescription = ''
+            } else if (storedAnalysis) {
+              try {
+                const analysisData = JSON.parse(storedAnalysis)
+                if (analysisData.suggested_first_topic?.title) {
+                  contentTopic = analysisData.suggested_first_topic.title
+                  topicDescription = analysisData.suggested_first_topic.description || topicDescription
+                }
+              } catch (e) {
+                console.warn('Could not read topic from analysis:', e)
+              }
+            }
+            
+            const userImages = hasProductImage ? [productImageS3Key] : []
+            
+            const genResponse = await adhocGenerationApi.generateContent({
+              topic: contentTopic,
+              platforms: ['instagram'],
+              number_of_posts: 4,
+              number_of_images: 4,
+              number_of_videos: 0,
+              user_prompt: topicDescription || undefined,
+              user_images: userImages.length > 0 ? userImages : undefined,
+              inspiration_links: inspirationLinks.length > 0 ? inspirationLinks : undefined,
+              is_onboarding_product_image: hasProductImage,
+              force_product_marketing: hasProductImage,
+            })
+            
+            if (genResponse.success && (genResponse.job_id || genResponse.uuid)) {
+              const jobId = genResponse.job_id || genResponse.uuid
+              localStorage.setItem('dvyb_onboarding_generation_job_id', jobId)
+              console.log('✅ Content generation started:', jobId)
+            }
+            
+            localStorage.removeItem('dvyb_selected_inspirations')
+            localStorage.removeItem('dvyb_selected_products')
+          } catch (genError) {
+            console.error('⚠️ Landing onboarding flow error:', genError)
+          }
+          
+          setStatus('Connected! Redirecting...')
+          setTimeout(() => {
+            console.log('🚀 Navigating to / (landing with content modal)')
+            window.location.href = '/?openModal=contentGeneration'
+          }, 800)
+          return
+        }
+        
         // Check localStorage for analysis (in case user just did it before signing in)
         const storedAnalysis = localStorage.getItem('dvyb_website_analysis')
         const storedUrl = localStorage.getItem('dvyb_pending_website_url')
@@ -262,8 +394,15 @@ function DvybGoogleCallbackContent() {
         }, 800)
         
       } catch (error: any) {
+        // Sign-in-only flow: account not found - redirect immediately without showing error UI
+        // The landing page will show the "not registered" modal
+        if (error?.code === 'ACCOUNT_NOT_FOUND' || error?.message?.includes('Account not found')) {
+          console.log('⚠️ Account not found (sign-in-only flow) - redirecting to landing with not_registered')
+          window.location.href = '/?error=not_registered'
+          return
+        }
+
         console.error('❌ Google callback error:', error)
-        console.error('   - Error message:', error?.message)
         setIsError(true)
         
         // Check if it's a state verification error (expired/invalid state)

@@ -71,7 +71,7 @@ const getDisplayTopic = (item: ContentStrategyItem): string => {
 const getPlatformColor = (platform: string) => {
   switch (platform.toLowerCase()) {
     case 'instagram':
-      return 'from-purple-500 to-pink-500';
+      return 'from-[hsl(var(--landing-accent-orange))] to-orange-400';
     case 'twitter':
       return 'from-gray-800 to-black';
     case 'linkedin':

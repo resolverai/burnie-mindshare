@@ -387,7 +387,7 @@ export const CalendarView = () => {
     <div className="bg-background min-h-screen">
       {/* Header */}
       <header className="border-b bg-card">
-        <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 md:py-4">
+        <div className="max-w-7xl mx-auto px-2 md:px-3 lg:px-4 py-3 md:py-4">
           {/* Mobile Header - Stacked Layout */}
           <div className="flex flex-col gap-3 md:hidden">
           <div className="flex items-center justify-between">
@@ -458,8 +458,8 @@ export const CalendarView = () => {
       </header>
 
       {/* Gradient Banner */}
-      <div className="bg-gradient-to-r from-purple-600 via-violet-600 to-indigo-600 text-white">
-        <div className="max-w-7xl mx-auto px-4 md:px-6 py-3">
+      <div className="bg-[hsl(var(--landing-accent-orange))] text-white">
+        <div className="max-w-7xl mx-auto px-2 md:px-3 lg:px-4 py-3">
           {/* Mobile Banner */}
           <div className="md:hidden">
             <div className="flex items-start gap-2">
@@ -491,7 +491,7 @@ export const CalendarView = () => {
       </div>
 
       {/* Calendar Grid */}
-      <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
+      <div className="max-w-7xl mx-auto px-2 md:px-3 lg:px-4 py-4 md:py-6">
         {/* Show generating message for first-time users */}
         {isFirstTime && isGenerating && (
           <div className="flex flex-col items-center justify-center py-12 md:py-20">
@@ -517,7 +517,7 @@ export const CalendarView = () => {
                 <div
                   className={`text-center p-3 rounded-lg text-base font-medium ${
                     currentDay.isToday
-                      ? "bg-gradient-to-r from-purple-600 via-violet-600 to-indigo-600 text-white font-semibold shadow-lg"
+                      ? "bg-[hsl(var(--landing-accent-orange))] text-white font-semibold shadow-lg"
                       : "bg-muted text-foreground"
                   }`}
                 >
@@ -566,7 +566,7 @@ export const CalendarView = () => {
                           <div className="flex items-center gap-2">
                             <div className="flex items-center gap-1.5">
                               {platforms.includes("instagram") && (
-                                <div className="w-4 h-4 rounded bg-gradient-to-br from-purple-500 to-pink-500" />
+                                <div className="w-4 h-4 rounded bg-[hsl(var(--landing-accent-orange))]" />
                               )}
                               {platforms.includes("twitter") && (
                                 <div className="w-4 h-4 rounded bg-black" />
@@ -618,7 +618,7 @@ export const CalendarView = () => {
                   <div
                     className={`text-center p-2.5 rounded-lg text-sm ${
                       day.isToday
-                        ? "bg-gradient-to-r from-purple-600 via-violet-600 to-indigo-600 text-white font-semibold shadow-md"
+                        ? "bg-[hsl(var(--landing-accent-orange))] text-white font-semibold shadow-md"
                         : "text-muted-foreground bg-muted/50"
                     }`}
                   >
@@ -666,7 +666,7 @@ export const CalendarView = () => {
                             <div className="flex items-center gap-2">
                               <div className="flex items-center gap-1">
                                 {platforms.includes("instagram") && (
-                                  <div className="w-3.5 h-3.5 rounded bg-gradient-to-br from-purple-500 to-pink-500" />
+                                  <div className="w-3.5 h-3.5 rounded bg-[hsl(var(--landing-accent-orange))]" />
                                 )}
                                 {platforms.includes("twitter") && (
                                   <div className="w-3.5 h-3.5 rounded bg-black" />
@@ -717,7 +717,7 @@ export const CalendarView = () => {
                 <div
                   className={`text-center p-2 rounded-lg ${
                     day.isToday
-                      ? "bg-gradient-to-r from-purple-600 via-violet-600 to-indigo-600 text-white font-semibold shadow-md"
+                      ? "bg-[hsl(var(--landing-accent-orange))] text-white font-semibold shadow-md"
                       : "text-muted-foreground"
                   }`}
                 >
@@ -765,7 +765,7 @@ export const CalendarView = () => {
                           <div className="flex items-center gap-2">
                             <div className="flex items-center gap-1">
                               {platforms.includes("instagram") && (
-                                <div className="w-4 h-4 rounded bg-gradient-to-br from-purple-500 to-pink-500" />
+                                <div className="w-4 h-4 rounded bg-[hsl(var(--landing-accent-orange))]" />
                               )}
                               {platforms.includes("twitter") && (
                                 <div className="w-4 h-4 rounded bg-black" />

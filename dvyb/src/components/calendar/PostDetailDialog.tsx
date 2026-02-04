@@ -15,6 +15,7 @@ import {
 import { CaptionEditDialog } from "./CaptionEditDialog";
 import { ScheduleDialog } from "./ScheduleDialog";
 import { accountApi, captionsApi, imageEditsApi, imageRegenerationApi, contentLibraryApi, postingApi, oauth1Api, authApi, socialConnectionsApi } from "@/lib/api";
+import { getWebsiteDomainDisplay } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { saveOAuthFlowState } from "@/lib/oauthFlowState";
 import { VideoEditorModal } from "@/components/video-editor/VideoEditorModal";
@@ -2174,10 +2175,10 @@ export const PostDetailDialog = ({
                     className="w-6 h-6 md:w-8 md:h-8 rounded-full object-cover"
                   />
                 ) : (
-                  <div className="w-6 h-6 md:w-8 md:h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500" />
+                  <div className="w-6 h-6 md:w-8 md:h-8 rounded-full bg-[hsl(var(--landing-accent-orange))]" />
                 )}
                 <span className="font-semibold text-xs md:text-sm text-gray-900">
-                  {platformConnections.instagram?.name || platformConnections.instagram?.username || 'instagram_account'}
+                  {platformConnections.instagram?.name || platformConnections.instagram?.username || getWebsiteDomainDisplay('instagram_account')}
                 </span>
               </div>
               <MoreHorizontal className="w-4 h-4 md:w-5 md:h-5 text-gray-900" />
@@ -2208,7 +2209,7 @@ export const PostDetailDialog = ({
               </div>
               <div className="font-semibold text-xs md:text-sm text-gray-900 mb-1">50,024 likes</div>
               <div className="text-xs md:text-sm text-gray-900 line-clamp-3">
-                <span className="font-semibold">{platformConnections.instagram?.name || platformConnections.instagram?.username || 'instagram_account'}</span> {getPlatformCaption('instagram')}
+                <span className="font-semibold">{platformConnections.instagram?.name || platformConnections.instagram?.username || getWebsiteDomainDisplay('instagram_account')}</span> {getPlatformCaption('instagram')}
               </div>
             </div>
           </div>

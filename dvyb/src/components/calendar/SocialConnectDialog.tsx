@@ -61,7 +61,7 @@ export const SocialConnectDialog = ({ open, onOpenChange }: SocialConnectDialogP
               {/* Instagram */}
               <div className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 via-pink-500 to-orange-500 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-lg bg-[hsl(var(--landing-accent-orange))] flex items-center justify-center">
                     <Instagram className="w-6 h-6 text-white" />
                   </div>
                   <span className="font-medium">Instagram</span>

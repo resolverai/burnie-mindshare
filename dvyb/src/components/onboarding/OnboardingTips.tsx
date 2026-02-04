@@ -473,7 +473,7 @@ export const OnboardingTips = ({ onComplete }: OnboardingTipsProps) => {
                       <div className="grid grid-cols-3 gap-2">
                         <div className="aspect-square bg-gradient-to-br from-blue-200 to-blue-300 rounded" />
                         <div className="aspect-square bg-gradient-to-br from-orange-200 to-orange-300 rounded" />
-                        <div className="aspect-square bg-gradient-to-br from-purple-200 to-purple-300 rounded" />
+                        <div className="aspect-square bg-gradient-to-br from-orange-200 to-orange-300 rounded" />
                         <div className="aspect-square bg-gradient-to-br from-gray-200 to-gray-300 rounded" />
                         <div className="aspect-square bg-gradient-to-br from-pink-200 to-pink-300 rounded" />
                         <div className="aspect-square bg-gradient-to-br from-green-200 to-green-300 rounded" />

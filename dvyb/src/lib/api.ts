@@ -90,7 +90,9 @@ async function apiRequest<T>(
 
     if (!response.ok) {
       console.error('❌ API Error:', data);
-      throw new Error(data.error || `API request failed with status ${response.status}`);
+      const err = new Error(data.error || `API request failed with status ${response.status}`);
+      if (data.error_code) (err as any).code = data.error_code;
+      throw err;
     }
 
     return data;
@@ -117,22 +119,32 @@ async function apiRequest<T>(
 
 // Authentication API
 export const authApi = {
-  async getGoogleLoginUrl() {
+  async getGoogleLoginUrl(options?: { signInOnly?: boolean }) {
+    const params = new URLSearchParams();
+    if (options?.signInOnly) params.set('sign_in_only', 'true');
+    const query = params.toString();
     return apiRequest<{ success: boolean; data: { oauth_url: string; state: string } }>(
-      '/dvyb/auth/google/login'
+      `/dvyb/auth/google/login${query ? `?${query}` : ''}`
     );
   },
 
-  async handleGoogleCallback(code: string, state: string, initialAcquisitionFlow?: 'website_analysis' | 'product_photoshot') {
+  async handleGoogleCallback(
+    code: string,
+    state: string,
+    initialAcquisitionFlow?: 'website_analysis' | 'product_photoshot',
+    signInOnly?: boolean
+  ) {
     return apiRequest<{ 
       success: boolean; 
-      data: { 
+      data?: { 
         account_id: number; 
         account_name: string;
         email: string;
         is_new_account: boolean;
         onboarding_complete: boolean;
-      } 
+      };
+      error?: string;
+      error_code?: string;
     }>(
       '/dvyb/auth/google/callback',
       {
@@ -141,6 +153,7 @@ export const authApi = {
           code, 
           state,
           initial_acquisition_flow: initialAcquisitionFlow,
+          sign_in_only: signInOnly,
         }),
       }
     );
@@ -891,6 +904,7 @@ export const contentLibraryApi = {
     dateFrom?: string;
     dateTo?: string;
     showPosted?: boolean;
+    showAll?: boolean;
   }) {
     const queryParams = new URLSearchParams();
     if (params?.page) queryParams.append('page', params.page.toString());
@@ -899,6 +913,7 @@ export const contentLibraryApi = {
     if (params?.dateFrom) queryParams.append('dateFrom', params.dateFrom);
     if (params?.dateTo) queryParams.append('dateTo', params.dateTo);
     if (params?.showPosted !== undefined) queryParams.append('showPosted', params.showPosted.toString());
+    if (params?.showAll !== undefined) queryParams.append('showAll', params.showAll.toString());
     
     const url = queryParams.toString() 
       ? `/dvyb/content-library?${queryParams.toString()}`
@@ -1857,6 +1872,386 @@ export interface ContentStrategyItem {
   generatedContentId?: number;
 }
 
+// Country selection for brand request
+export interface CountrySelection {
+  code: string;
+  name: string;
+}
+
+// Brands API (Discover ads - request brand, list brands, poll for ads)
+export const brandsApi = {
+  /**
+   * Request a brand. Creates dvyb_brands entry with pending_approval. Fetch runs only after admin approves.
+   */
+  async requestBrand(
+    brandDomain: string,
+    options?: { countries?: CountrySelection[]; brandName?: string; media?: 'image' | 'video' | 'both' }
+  ) {
+    return apiRequest<{
+      success: boolean;
+      data: {
+        brand: {
+          id: number;
+          brandName: string;
+          brandDomain: string;
+          approvalStatus: string;
+          fetchStatus: string;
+          lastAdsFetchedAt: string | null;
+        };
+        message: string;
+      };
+      error?: string;
+    }>('/dvyb/brands/request', {
+      method: 'POST',
+      body: JSON.stringify({
+        brandDomain,
+        countries: options?.countries || null,
+        brandName: options?.brandName || null,
+        media: options?.media || 'image',
+      }),
+    });
+  },
+
+  /**
+   * Get following count from dvyb_brands_follow table.
+   */
+  async getFollowingCount() {
+    return apiRequest<{ success: boolean; followingCount: number; error?: string }>(
+      '/dvyb/brands/following-count'
+    );
+  },
+
+  /**
+   * List all brands with completed ads (for Brands page).
+   * Pass { following: true } to get only brands the user follows.
+   */
+  async getBrands(options?: { following?: boolean }) {
+    const params = options?.following ? '?following=true' : '';
+    return apiRequest<{
+      success: boolean;
+      data: {
+        brands: Array<{
+          id: number;
+          brandName: string;
+          brandDomain: string;
+          source: string;
+          fetchStatus: string;
+          lastAdsFetchedAt: string | null;
+          createdAt?: string | null;
+          approvedAdCount?: number;
+          adCount?: number;
+          category?: string | null;
+          isFollowing?: boolean;
+        }>;
+        followingCount: number;
+      };
+      error?: string;
+    }>(`/dvyb/brands${params}`);
+  },
+
+  /**
+   * Follow a brand
+   */
+  async followBrand(brandId: number) {
+    return apiRequest<{ success: boolean; data: { followed: boolean }; error?: string }>(
+      `/dvyb/brands/${brandId}/follow`,
+      { method: 'POST' }
+    );
+  },
+
+  /**
+   * Unfollow a brand
+   */
+  async unfollowBrand(brandId: number) {
+    return apiRequest<{ success: boolean; data: { followed: boolean; unfollowed: boolean }; error?: string }>(
+      `/dvyb/brands/${brandId}/follow`,
+      { method: 'DELETE' }
+    );
+  },
+
+  /**
+   * Get ads for a brand (for polling when fetch is in progress)
+   */
+  async getBrandAds(brandId: number) {
+    return apiRequest<{
+      success: boolean;
+      data: {
+        brand: {
+          id: number;
+          brandName: string;
+          brandDomain: string;
+          fetchStatus: string;
+          lastAdsFetchedAt: string | null;
+        };
+        ads: any[];
+      };
+      error?: string;
+    }>(`/dvyb/brands/${brandId}/ads`);
+  },
+
+  /**
+   * Get fresh presigned URLs for an ad's creatives (for modal when original URLs may have expired).
+   * Also returns isSaved for the current account.
+   */
+  async getAdCreativeUrls(adId: number) {
+    return apiRequest<{
+      success: boolean;
+      data: {
+        creativeImageUrl: string | null;
+        creativeVideoUrl: string | null;
+        mediaType: 'image' | 'video';
+        isSaved?: boolean;
+      };
+      error?: string;
+    }>(`/dvyb/brands/discover/ads/${adId}/creative-urls`);
+  },
+
+  /**
+   * Save an ad
+   */
+  async saveAd(adId: number) {
+    return apiRequest<{ success: boolean; data: { saved: boolean }; error?: string }>(
+      `/dvyb/brands/discover/ads/${adId}/save`,
+      { method: 'POST' }
+    );
+  },
+
+  /**
+   * Unsave an ad
+   */
+  async unsaveAd(adId: number) {
+    return apiRequest<{ success: boolean; data: { saved: boolean; unsaved: boolean }; error?: string }>(
+      `/dvyb/brands/discover/ads/${adId}/save`,
+      { method: 'DELETE' }
+    );
+  },
+
+  /**
+   * Get saved ads (for Saved Ads screen)
+   */
+  async getSavedAds(params?: { page?: number; limit?: number }) {
+    const sp = new URLSearchParams();
+    if (params?.page) sp.set('page', String(params.page));
+    if (params?.limit) sp.set('limit', String(params.limit));
+    const qs = sp.toString();
+    return apiRequest<{
+      success: boolean;
+      data: Array<{
+        id: number;
+        metaAdId: string;
+        creativeImageUrl: string | null;
+        creativeVideoUrl: string | null;
+        mediaType: 'image' | 'video';
+        brandName: string;
+        brandLetter: string;
+        category: string | null;
+        status: string;
+        runtime: string | null;
+        firstSeen: string | null;
+        image: string | null;
+        videoSrc: string | null;
+        isVideo: boolean;
+        timeAgo: string;
+        aspectRatio: '1:1';
+      }>;
+      pagination: { page: number; limit: number; total: number; pages: number };
+      error?: string;
+    }>(`/dvyb/brands/discover/ads/saved${qs ? `?${qs}` : ''}`);
+  },
+
+  /**
+   * Get discover ads for onboarding modal (unauthenticated).
+   * Uses X-DVYB-API-Key instead of user auth.
+   */
+  async getDiscoverAdsOnboarding(params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    media?: string;
+    status?: string;
+    category?: string;
+    runtime?: string;
+    adCount?: string;
+    country?: string;
+    language?: string;
+    sort?: string;
+  }) {
+    const sp = new URLSearchParams();
+    if (params?.page) sp.set('page', String(params.page));
+    if (params?.limit) sp.set('limit', String(params.limit));
+    if (params?.search) sp.set('search', params.search || '');
+    if (params?.media && params.media !== 'All') sp.set('media', params.media);
+    if (params?.status && params.status !== 'All') sp.set('status', params.status);
+    if (params?.category && params.category !== 'All') sp.set('category', params.category);
+    if (params?.runtime && params.runtime !== 'All') sp.set('runtime', params.runtime);
+    if (params?.adCount && params.adCount !== 'All') sp.set('adCount', params.adCount);
+    if (params?.country && params.country !== 'All') sp.set('country', params.country);
+    if (params?.language && params.language !== 'All') sp.set('language', params.language);
+    if (params?.sort) sp.set('sort', params.sort || 'latest');
+    const qs = sp.toString();
+    const apiKey = typeof window !== 'undefined' ? process.env.NEXT_PUBLIC_DVYB_ONBOARDING_API_KEY || '' : '';
+    return apiRequest<{
+      success: boolean;
+      data: Array<{
+        id: number;
+        metaAdId: string;
+        creativeImageUrl: string | null;
+        creativeVideoUrl: string | null;
+        mediaType: 'image' | 'video';
+        brandName: string;
+        brandLetter: string;
+        category: string | null;
+        status: string;
+        runtime: string | null;
+        firstSeen: string | null;
+        image: string | null;
+        videoSrc: string | null;
+        isVideo: boolean;
+        timeAgo: string;
+        aspectRatio: '1:1';
+      }>;
+      pagination: { page: number; limit: number; total: number; pages: number };
+      error?: string;
+    }>(`/dvyb/brands/discover/ads/onboarding${qs ? `?${qs}` : ''}`, {
+      headers: { 'X-DVYB-API-Key': apiKey },
+    });
+  },
+
+  /**
+   * Get discover ads (paginated, with filters and sort).
+   * Requires user authentication - use for Discover screen.
+   */
+  async getDiscoverAds(params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    media?: string;
+    status?: string;
+    category?: string;
+    runtime?: string;
+    adCount?: string;
+    country?: string;
+    language?: string;
+    sort?: string;
+  }) {
+    const sp = new URLSearchParams();
+    if (params?.page) sp.set('page', String(params.page));
+    if (params?.limit) sp.set('limit', String(params.limit));
+    if (params?.search) sp.set('search', params.search);
+    if (params?.media && params.media !== 'All') sp.set('media', params.media);
+    if (params?.status && params.status !== 'All') sp.set('status', params.status);
+    if (params?.category && params.category !== 'All') sp.set('category', params.category);
+    if (params?.runtime && params.runtime !== 'All') sp.set('runtime', params.runtime);
+    if (params?.adCount && params.adCount !== 'All') sp.set('adCount', params.adCount);
+    if (params?.country && params.country !== 'All') sp.set('country', params.country);
+    if (params?.language && params.language !== 'All') sp.set('language', params.language);
+    if (params?.sort) sp.set('sort', params.sort);
+    const qs = sp.toString();
+    return apiRequest<{
+      success: boolean;
+      data: Array<{
+        id: number;
+        metaAdId: string;
+        creativeImageUrl: string | null;
+        creativeVideoUrl: string | null;
+        mediaType: 'image' | 'video';
+        brandName: string;
+        brandLetter: string;
+        category: string | null;
+        status: string;
+        runtime: string | null;
+        firstSeen: string | null;
+        image: string | null;
+        videoSrc: string | null;
+        isVideo: boolean;
+        timeAgo: string;
+        aspectRatio: '1:1';
+      }>;
+      pagination: { page: number; limit: number; total: number; pages: number };
+      error?: string;
+    }>(`/dvyb/brands/discover/ads${qs ? `?${qs}` : ''}`);
+  },
+};
+
+// Products API (My Products screen)
+export const productsApi = {
+  async list() {
+    return apiRequest<{
+      success: boolean;
+      data: Array<{
+        id: number;
+        name: string;
+        imageS3Key: string;
+        imageUrl: string;
+        createdAt: string;
+      }>;
+      error?: string;
+    }>('/dvyb/products');
+  },
+
+  async uploadImage(
+    file: File,
+    onProgress?: (percent: number) => void
+  ): Promise<{ success: boolean; data?: { s3_key: string }; error?: string }> {
+    const url = `${API_URL}/dvyb/products/upload`;
+    const formData = new FormData();
+    formData.append('image', file);
+
+    return new Promise((resolve) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', url);
+      xhr.withCredentials = true;
+
+      const accountId = typeof window !== 'undefined' ? localStorage.getItem('dvyb_account_id') : null;
+      if (accountId) {
+        xhr.setRequestHeader('X-DVYB-Account-ID', accountId);
+      }
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) {
+          onProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      };
+
+      xhr.onload = () => {
+        try {
+          const json = JSON.parse(xhr.responseText || '{}');
+          resolve(json);
+        } catch {
+          resolve({ success: false, error: 'Invalid response' });
+        }
+      };
+
+      xhr.onerror = () => resolve({ success: false, error: 'Network error' });
+      xhr.send(formData);
+    });
+  },
+
+  async create(name: string, imageS3Key: string) {
+    return apiRequest<{
+      success: boolean;
+      data: {
+        id: number;
+        name: string;
+        imageS3Key: string;
+        imageUrl: string;
+        createdAt: string;
+      };
+      error?: string;
+    }>('/dvyb/products', {
+      method: 'POST',
+      body: JSON.stringify({ name, image_s3_key: imageS3Key }),
+    });
+  },
+
+  async delete(id: number) {
+    return apiRequest<{ success: boolean; message?: string; error?: string }>(
+      `/dvyb/products/${id}`,
+      { method: 'DELETE' }
+    );
+  },
+};
+
 export const contentStrategyApi = {
   /**
    * Generate content strategy based on preferences
@@ -1961,4 +2356,5 @@ export const dvybApi = {
   subscription: subscriptionApi,
   inspirations: inspirationsApi,
   contentStrategy: contentStrategyApi,
+  brands: brandsApi,
 };

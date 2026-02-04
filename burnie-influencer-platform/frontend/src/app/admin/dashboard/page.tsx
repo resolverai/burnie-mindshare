@@ -1166,7 +1166,8 @@ export default function AdminDashboard() {
             </button>
             */}
             
-            <button
+            {/* Hidden: Content Requests - functionality still available at /admin/content-requests */}
+            {/* <button
               onClick={() => router.push('/admin/content-requests')}
               className="px-2 py-1.5 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-1 whitespace-nowrap"
             >
@@ -1174,7 +1175,7 @@ export default function AdminDashboard() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
               <span>Content Requests</span>
-            </button>
+            </button> */}
             
             {/* Hidden: Waitlist tab - functionality still available at /admin/waitlist */}
             {/* <button
@@ -1206,6 +1207,16 @@ export default function AdminDashboard() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
               </svg>
               <span>Dvyb Accounts</span>
+            </button>
+
+            <button
+              onClick={() => router.push('/admin/dvyb-brands')}
+              className="px-2 py-1.5 bg-sky-600 text-white text-xs rounded-lg hover:bg-sky-700 transition-colors flex items-center space-x-1 whitespace-nowrap"
+            >
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+              </svg>
+              <span>Dvyb Brands</span>
             </button>
 
             <button
@@ -1258,7 +1269,8 @@ export default function AdminDashboard() {
               <span>Dvyb Assets</span>
             </button>
             
-            <button
+            {/* Hidden: Content Meter - functionality still available at /admin/content-meter */}
+            {/* <button
               onClick={() => router.push('/admin/content-meter')}
               className="px-2 py-1.5 bg-indigo-600 text-white text-xs rounded-lg hover:bg-indigo-700 transition-colors flex items-center space-x-1 whitespace-nowrap"
             >
@@ -1266,9 +1278,10 @@ export default function AdminDashboard() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
               <span>Content Meter</span>
-            </button>
+            </button> */}
             
-            <button
+            {/* Hidden: Add Miners - functionality still available at /admin/approved-miners */}
+            {/* <button
               onClick={() => router.push('/admin/approved-miners')}
               className="px-2 py-1.5 bg-emerald-600 text-white text-xs rounded-lg hover:bg-emerald-700 transition-colors flex items-center space-x-1 whitespace-nowrap"
             >
@@ -1276,7 +1289,7 @@ export default function AdminDashboard() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
               </svg>
               <span>Add Miners</span>
-            </button>
+            </button> */}
           </div>
         </div>
 

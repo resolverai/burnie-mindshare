@@ -91,7 +91,11 @@ interface Payment {
   discountAmount?: number;
 }
 
-export const SubscriptionPage = () => {
+interface SubscriptionPageProps {
+  hideHeader?: boolean;
+}
+
+export const SubscriptionPage = ({ hideHeader }: SubscriptionPageProps) => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [subscriptionData, setSubscriptionData] = useState<SubscriptionData | null>(null);
@@ -281,11 +285,13 @@ export const SubscriptionPage = () => {
   const currentPlan = subscription?.plan || subscriptionData?.currentPlan;
 
   return (
-    <div className="space-y-6 p-4 md:p-6 lg:p-8">
-      <div>
-        <h1 className="text-2xl md:text-3xl font-bold">Manage Subscription</h1>
-        <p className="text-muted-foreground mt-1">View and manage your subscription and billing</p>
-      </div>
+    <div className={`space-y-6 ${!hideHeader ? "px-2 md:px-3 lg:px-4 py-4 md:py-6" : ""}`}>
+      {!hideHeader && (
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold">Manage Subscription</h1>
+          <p className="text-muted-foreground mt-1">View and manage your subscription and billing</p>
+        </div>
+      )}
 
       {/* Current Plan Card */}
       <Card>
@@ -327,7 +333,7 @@ export const SubscriptionPage = () => {
                   <div className="flex items-center gap-2 mb-1">
                     <h3 className="text-xl font-semibold">{currentPlan?.planName || subscriptionData?.planName}</h3>
                     {isTrialing && (
-                      <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-700 hover:bg-purple-100">
+                      <Badge variant="secondary" className="text-xs bg-orange-100 text-orange-700 hover:bg-orange-100">
                         Free Trial
                       </Badge>
                     )}
@@ -443,15 +449,15 @@ export const SubscriptionPage = () => {
               
               {/* Trial Info */}
               {isTrialing && subscription?.trialEnd && !subscription?.cancelAtPeriodEnd && (
-                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 mt-2">
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mt-2">
                   <div className="flex items-start gap-3">
                     <Calendar className="w-5 h-5 text-purple-600 mt-0.5" />
                     <div>
-                      <p className="font-medium text-purple-900">Free Trial Active</p>
-                      <p className="text-sm text-purple-700 mt-1">
+                      <p className="font-medium text-orange-900">Free Trial Active</p>
+                      <p className="text-sm text-orange-700 mt-1">
                         You&apos;re currently on a free trial. Your trial ends on <strong>{format(new Date(subscription.trialEnd), 'MMM d, yyyy')}</strong>.
                       </p>
-                      <p className="text-sm text-purple-600 mt-1">
+                      <p className="text-sm text-orange-600 mt-1">
                         After the trial ends, your payment method will be charged automatically.
                         Cancel anytime before the trial ends to avoid charges.
                       </p>
@@ -560,7 +566,7 @@ export const SubscriptionPage = () => {
                                 paymentType: payment.paymentType,
                               });
                             }}
-                            className="inline-flex items-center gap-1 text-sm text-primary hover:text-primary/80 hover:underline"
+                            className="inline-flex items-center gap-1 text-sm text-foreground hover:text-foreground/80 hover:underline"
                           >
                             View
                             <ExternalLink className="w-3 h-3" />

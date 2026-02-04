@@ -48,11 +48,13 @@ export class DvybGoogleAuthService {
 
   /**
    * Handle Google OAuth callback and create/update account
+   * @param signInOnly - If true, only allow existing users; do not create new accounts. Throws ACCOUNT_NOT_FOUND if user not in dvyb_accounts.
    */
   static async handleGoogleCallback(
     code: string,
     state: string,
-    initialAcquisitionFlow?: 'website_analysis' | 'product_photoshot'
+    initialAcquisitionFlow?: 'website_analysis' | 'product_photoshot',
+    signInOnly?: boolean
   ): Promise<{
     account: DvybAccount;
     isNewAccount: boolean;
@@ -176,6 +178,14 @@ export class DvybGoogleAuthService {
           logger.info(`✅ Google linked to existing account ${account.id}`);
         } else {
           // Completely new account - create account + Google connection
+          // Sign-in-only flow: do NOT create, throw so frontend can show "not registered" modal
+          if (signInOnly) {
+            logger.info(`⚠️ Sign-in-only flow: Google user ${email} not found in dvyb_accounts - rejecting`);
+            const err = new Error('Account not found. Please sign up first.');
+            (err as any).code = 'ACCOUNT_NOT_FOUND';
+            throw err;
+          }
+
           isNewAccount = true;
 
           account = accountRepo.create({

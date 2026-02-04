@@ -128,7 +128,7 @@ export const TopicReview = ({ onComplete }: TopicReviewProps) => {
       switch (channel) {
         case 'instagram':
           return (
-            <div key={channel} className="w-5 h-5 md:w-6 md:h-6 rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-500 border-2 border-white flex items-center justify-center">
+            <div key={channel} className="w-5 h-5 md:w-6 md:h-6 rounded-full bg-[hsl(var(--landing-accent-orange))] border-2 border-white flex items-center justify-center">
               <Instagram className="w-3 h-3 md:w-4 md:h-4 text-white" />
             </div>
           );

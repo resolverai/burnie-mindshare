@@ -40,7 +40,7 @@ const getPlatformIcon = (platform: string, className?: string) => {
 const getPlatformColor = (platform: string) => {
   switch (platform.toLowerCase()) {
     case 'instagram':
-      return 'bg-gradient-to-r from-purple-500 to-pink-500';
+      return 'bg-[hsl(var(--landing-accent-orange))]';
     case 'twitter':
       return 'bg-black';
     case 'linkedin':

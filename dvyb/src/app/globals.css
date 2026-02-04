@@ -8,25 +8,28 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    --background: 210 20% 95%;
-    --foreground: 222 47% 11%;
+    /* Main content: very light subtle grey (match new UI / wander) */
+    --background: 30 20% 98%;
+    --foreground: 0 0% 10%;
 
+    /* Cards & inputs: pure white */
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 0 0% 10%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover-foreground: 0 0% 10%;
 
-    --primary: 270 60% 55%;
+    --primary: 24 95% 53%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
+    /* Secondary: warm light grey for inputs, pills */
+    --secondary: 30 25% 95%;
+    --secondary-foreground: 0 0% 12%;
 
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
+    --muted: 30 15% 94%;
+    --muted-foreground: 0 0% 45%;
 
-    --accent: 270 60% 55%;
+    --accent: 24 95% 53%;
     --accent-foreground: 0 0% 100%;
 
     --teal: 160 84% 39%;
@@ -35,18 +38,58 @@ All colors MUST be HSL.
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 270 60% 55%;
+    --border: 30 15% 90%;
+    --input: 30 15% 90%;
+    --ring: 24 95% 53%;
 
     --radius: 0.75rem;
+
+    /* Landing page - wander alignment */
+    --cta: 25 100% 50%;
+    --cta-foreground: 0 0% 100%;
+    --gradient-hero: radial-gradient(ellipse 80% 50% at 50% -20%, hsl(25 100% 50% / 0.08), transparent);
+    --gradient-section-1: linear-gradient(135deg, hsl(40 40% 96%) 0%, hsl(200 40% 96%) 100%);
+    --gradient-section-2: linear-gradient(225deg, hsl(40 40% 96%) 0%, hsl(200 40% 96%) 100%);
+    --gradient-carousel: linear-gradient(90deg, hsl(40 40% 96%) 0%, hsl(200 40% 96%) 100%);
+    --gradient-brands: linear-gradient(180deg, hsl(40 30% 97%) 0%, hsl(40 25% 95%) 100%);
+    --shadow-soft: 0 4px 20px -4px hsl(0 0% 0% / 0.08);
     
     --gradient-blue: linear-gradient(135deg, hsl(210 100% 97%) 0%, hsl(210 100% 92%) 100%);
     --shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+
+    /* Landing (new dvyb frontend) - very light subtle grey, matches main background */
+    --landing-hero-bg: 30 20% 98%;
+    /* Header: same cream as hero so header and content background match */
+    --landing-nav-bar-bg: 30 20% 98%;
+    --landing-nav-pill-bg: 30 25% 95%;
+    --landing-nav-bar-border: 30 15% 90%;
+    --landing-nav-bg: 220 12% 11%;
+    --landing-cta-bg: 220 10% 14%;
+    --landing-modal-cta-bg: 220 10% 14%;
+    --landing-modal-cta-foreground: 0 0% 100%;
+    /* Match Discover pill filters orange #e88d44 */
+    --landing-accent-orange: 24 79% 59%;
+    /* Original CTA orange (brighter) - for Create ad, Request brand, etc. */
+    --landing-cta-orange: 24 95% 53%;
+    /* Softer orange for Ad Ready badge (alpha/overlay so it’s not too bright) */
+    --landing-accent-orange-ad-ready: 24 85% 48%;
+    /* Explore page filter pills — match new frontend (warm light grey inactive, dark active) */
+    --landing-explore-pill-bg: 30 25% 95%;
+    --landing-explore-pill-hover: 30 15% 94%;
     --shadow-card-hover: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
     --transition-base: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
-    --sidebar-background: 0 0% 98%;
+    /* Sidebar: lighter than main content, matches new UI (wander uses bg-background = 30 20% 98%) */
+    --sidebar-background: 30 20% 98%;
+    --sidebar-wanderlust-bg: 30 20% 98%;
+    /* Selected: subtle darker than sidebar (wander uses bg-secondary) */
+    --sidebar-wanderlust-selected: 30 15% 96%;
+    /* Hover: very subtle */
+    --sidebar-wanderlust-hover: 30 18% 97%;
+    /* Menu item text - wanderlust: soft dark grey (not black), #555555 */
+    --sidebar-menu-text: #555555;
+    --sidebar-menu-text-size: 15px;
+    --sidebar-menu-sub-size: 14px;
 
     --sidebar-foreground: 240 5.3% 26.1%;
 
@@ -61,39 +104,67 @@ All colors MUST be HSL.
     --sidebar-border: 220 13% 91%;
 
     --sidebar-ring: 217.2 91.2% 59.8%;
+
+    /* App main content area - matches new UI across Discover, Brands, My Content, Brand Kit, Settings */
+    --app-content-bg: 30 25% 95%;
+    /* Discover screen: uses app-content-bg */
+    --discover-content-bg: 30 25% 95%;
+    /* Discover screen: search bar & filter pills - white (#ffffff) per new UI */
+    --discover-input-bg: 0 0% 100%;
+    --discover-input-border: 220 13% 91%;
+    --discover-input-placeholder: 220 9% 46%;
+    --discover-pill-bg: 0 0% 100%;
+    --discover-pill-border: 220 13% 91%;
+    --discover-pill-text: 220 13% 18%;
+    --discover-pill-hover: 220 14% 92%;
   }
 
+  /* Dark theme - match wanderlust implementation exactly (neutral greys, warm foreground) */
   .dark {
-    --background: 222 47% 11%;
-    --foreground: 210 40% 98%;
+    --cta: 25 100% 55%;
+    --cta-foreground: 0 0% 100%;
+    --background: 0 0% 8%;
+    --foreground: 30 20% 95%;
 
-    --card: 217 33% 17%;
-    --card-foreground: 210 40% 98%;
+    --card: 0 0% 12%;
+    --card-foreground: 30 20% 95%;
 
-    --popover: 222 47% 11%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 0 0% 12%;
+    --popover-foreground: 30 20% 95%;
 
-    --primary: 270 60% 55%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 30 20% 95%;
+    --primary-foreground: 0 0% 8%;
 
-    --secondary: 217 33% 17%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 0 0% 18%;
+    --secondary-foreground: 30 20% 95%;
 
-    --muted: 217 33% 17%;
-    --muted-foreground: 215 20% 65%;
+    --muted: 0 0% 18%;
+    --muted-foreground: 30 10% 60%;
 
-    --accent: 270 60% 55%;
+    --accent: 25 80% 55%;
     --accent-foreground: 0 0% 100%;
 
     --teal: 160 84% 39%;
     --teal-foreground: 0 0% 100%;
 
-    --destructive: 0 63% 31%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 50%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 217 33% 17%;
-    --input: 217 33% 17%;
-    --ring: 270 60% 55%;
+    --border: 0 0% 20%;
+    --input: 0 0% 20%;
+    --ring: 25 80% 55%;
+
+    --gradient-warm: linear-gradient(135deg, hsl(0 0% 10%) 0%, hsl(0 0% 14%) 50%, hsl(0 0% 12%) 100%);
+    --gradient-card: linear-gradient(180deg, hsl(0 0% 12%) 0%, hsl(0 0% 10%) 100%);
+    --gradient-hero: linear-gradient(180deg, hsl(0 0% 8%) 0%, hsl(0 0% 12%) 100%);
+    --gradient-section-1: linear-gradient(135deg, hsl(30 45% 16%) 0%, hsl(200 40% 18%) 100%);
+    --gradient-section-2: linear-gradient(225deg, hsl(30 45% 16%) 0%, hsl(200 40% 18%) 100%);
+    --gradient-carousel: linear-gradient(90deg, hsl(30 45% 16%) 0%, hsl(200 40% 18%) 100%);
+    --gradient-brands: linear-gradient(180deg, hsl(40 30% 14%) 0%, hsl(35 35% 12%) 40%, hsl(200 30% 14%) 100%);
+    --shadow-soft: 0 4px 20px -4px hsl(0 0% 0% / 0.3);
+    --shadow-card: 0 8px 30px -8px hsl(0 0% 0% / 0.4);
+    --shadow-card-hover: 0 12px 40px -10px hsl(0 0% 0% / 0.5);
+
     --sidebar-background: 240 5.9% 10%;
     --sidebar-foreground: 240 4.8% 95.9%;
     --sidebar-primary: 224.3 76.3% 48%;
@@ -102,6 +173,32 @@ All colors MUST be HSL.
     --sidebar-accent-foreground: 240 4.8% 95.9%;
     --sidebar-border: 240 3.7% 15.9%;
     --sidebar-ring: 217.2 91.2% 59.8%;
+
+    --sidebar-wanderlust-bg: 0 0% 8%;
+    --sidebar-wanderlust-selected: 0 0% 18%;
+    --sidebar-wanderlust-hover: 0 0% 14%;
+    --sidebar-menu-text: #e5e5e5;
+    --sidebar-menu-text-size: 15px;
+    --sidebar-menu-sub-size: 14px;
+
+    --landing-hero-bg: 0 0% 8%;
+    --landing-nav-bar-bg: 0 0% 8%;
+    --landing-nav-pill-bg: 0 0% 18%;
+    --landing-nav-bar-border: 0 0% 20%;
+    --landing-explore-pill-bg: 0 0% 18%;
+    --landing-explore-pill-hover: 0 0% 22%;
+    --app-content-bg: 0 0% 12%;
+    --discover-content-bg: 0 0% 12%;
+    --discover-input-bg: 0 0% 18%;
+    --discover-input-border: 0 0% 20%;
+    --discover-input-placeholder: 30 10% 55%;
+    --discover-pill-bg: 0 0% 18%;
+    --discover-pill-border: 0 0% 20%;
+    --discover-pill-text: 30 20% 95%;
+    --discover-pill-hover: 0 0% 22%;
+
+    --landing-accent-orange: 25 80% 55%;
+    --landing-cta-orange: 25 80% 55%;
   }
 }
 
@@ -111,11 +208,41 @@ All colors MUST be HSL.
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
   }
 }
 
 @layer components {
+  /* Landing pill badges: identical size everywhere (new design) */
+  .landing-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 1.75rem;
+    min-width: 2rem;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1;
+  }
+
+  /* Smaller pill for carousel card top badges (Video, Ad Ready) to match new UI spacing */
+  .landing-pill-sm {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 1.5rem;
+    min-width: 1.5rem;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.625rem;
+    font-weight: 500;
+    line-height: 1;
+  }
+
   /* Calendar date range styling - Fix color conflicts */
   
   /* Remove today's orange background when any date is selected */
@@ -201,243 +328,122 @@ All colors MUST be HSL.
     }
   }
 
-  /* Vibrant Gradient CTA Buttons */
+  /* CTA Buttons - solid orange (match Create my own ad on Discover) */
   .btn-gradient-cta {
-    background: linear-gradient(135deg, #8B5CF6 0%, #6366F1 50%, #4F46E5 100%);
+    background-color: hsl(var(--landing-accent-orange));
     color: white;
     font-weight: 600;
     border: none;
-    position: relative;
-    overflow: hidden;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 
-      0 4px 15px rgba(139, 92, 246, 0.35),
-      0 2px 4px rgba(0, 0, 0, 0.1),
-      inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  }
-
-  .btn-gradient-cta::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(
-      90deg,
-      transparent,
-      rgba(255, 255, 255, 0.2),
-      transparent
-    );
-    transition: left 0.5s ease;
+    transition: opacity 0.2s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   }
 
   .btn-gradient-cta:hover {
-    background: linear-gradient(135deg, #9333EA 0%, #7C3AED 50%, #6366F1 100%);
-    box-shadow: 
-      0 6px 20px rgba(139, 92, 246, 0.45),
-      0 4px 8px rgba(0, 0, 0, 0.15),
-      inset 0 1px 0 rgba(255, 255, 255, 0.25);
-    transform: translateY(-1px);
-  }
-
-  .btn-gradient-cta:hover::before {
-    left: 100%;
+    opacity: 0.9;
   }
 
   .btn-gradient-cta:active {
-    transform: translateY(0);
-    box-shadow: 
-      0 2px 10px rgba(139, 92, 246, 0.3),
-      0 1px 2px rgba(0, 0, 0, 0.1);
+    opacity: 0.95;
   }
 
-  /* Sidebar Upgrade Button - More vibrant gradient */
+  /* Sidebar Upgrade Button - solid warm orange #D68B4F (wanderlust) */
   .btn-upgrade-sidebar {
-    background: linear-gradient(135deg, #8B5CF6 0%, #A855F7 50%, #D946EF 100%);
+    background-color: hsl(24 59% 57%);
     color: white;
     font-weight: 600;
     border: none;
-    position: relative;
-    overflow: hidden;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 
-      0 4px 15px rgba(168, 85, 247, 0.4),
-      0 2px 4px rgba(0, 0, 0, 0.1),
-      inset 0 1px 0 rgba(255, 255, 255, 0.25);
-  }
-
-  .btn-upgrade-sidebar::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(
-      90deg,
-      transparent,
-      rgba(255, 255, 255, 0.3),
-      transparent
-    );
-    transition: left 0.6s ease;
+    border-radius: 9999px;
+    transition: opacity 0.2s ease, filter 0.2s ease;
   }
 
   .btn-upgrade-sidebar:hover {
-    background: linear-gradient(135deg, #9333EA 0%, #C026D3 50%, #E879F9 100%);
-    box-shadow: 
-      0 6px 25px rgba(168, 85, 247, 0.5),
-      0 4px 8px rgba(0, 0, 0, 0.15),
-      inset 0 1px 0 rgba(255, 255, 255, 0.3);
-    transform: translateY(-2px);
-  }
-
-  .btn-upgrade-sidebar:hover::before {
-    left: 100%;
+    opacity: 0.92;
+    filter: brightness(1.05);
   }
 
   .btn-upgrade-sidebar:active {
-    transform: translateY(0);
+    opacity: 0.95;
   }
 
-  /* Teal Gradient Button - For complementary color scheme */
+  /* Teal Button - solid, no glassmorphism */
   .btn-gradient-teal {
-    background: linear-gradient(135deg, #10B981 0%, #059669 50%, #047857 100%);
+    background-color: hsl(160 84% 39%);
     color: white;
     font-weight: 600;
     border: none;
-    position: relative;
-    overflow: hidden;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 
-      0 4px 15px rgba(16, 185, 129, 0.35),
-      0 2px 4px rgba(0, 0, 0, 0.1),
-      inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  }
-
-  .btn-gradient-teal::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(
-      90deg,
-      transparent,
-      rgba(255, 255, 255, 0.2),
-      transparent
-    );
-    transition: left 0.5s ease;
+    transition: opacity 0.2s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   }
 
   .btn-gradient-teal:hover {
-    background: linear-gradient(135deg, #34D399 0%, #10B981 50%, #059669 100%);
-    box-shadow: 
-      0 6px 20px rgba(16, 185, 129, 0.45),
-      0 4px 8px rgba(0, 0, 0, 0.15),
-      inset 0 1px 0 rgba(255, 255, 255, 0.25);
-    transform: translateY(-1px);
-  }
-
-  .btn-gradient-teal:hover::before {
-    left: 100%;
+    opacity: 0.9;
   }
 
   .btn-gradient-teal:active {
-    transform: translateY(0);
-    box-shadow: 
-      0 2px 10px rgba(16, 185, 129, 0.3),
-      0 1px 2px rgba(0, 0, 0, 0.1);
+    opacity: 0.95;
   }
 
-  /* Mixed Gradient Button - Teal to Purple */
+  /* Mixed Button - Teal to Orange (no purple) */
   .btn-gradient-mixed {
-    background: linear-gradient(135deg, #10B981 0%, #8B5CF6 100%);
+    background: linear-gradient(135deg, #10B981 0%, hsl(var(--landing-accent-orange)) 100%);
     color: white;
     font-weight: 600;
     border: none;
-    position: relative;
-    overflow: hidden;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 
-      0 4px 15px rgba(99, 102, 241, 0.35),
-      0 2px 4px rgba(0, 0, 0, 0.1),
-      inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  }
-
-  .btn-gradient-mixed::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(
-      90deg,
-      transparent,
-      rgba(255, 255, 255, 0.25),
-      transparent
-    );
-    transition: left 0.5s ease;
+    transition: opacity 0.2s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   }
 
   .btn-gradient-mixed:hover {
-    background: linear-gradient(135deg, #34D399 0%, #A855F7 100%);
-    box-shadow: 
-      0 6px 20px rgba(139, 92, 246, 0.45),
-      0 4px 8px rgba(0, 0, 0, 0.15),
-      inset 0 1px 0 rgba(255, 255, 255, 0.3);
-    transform: translateY(-1px);
-  }
-
-  .btn-gradient-mixed:hover::before {
-    left: 100%;
+    opacity: 0.9;
   }
 
   .btn-gradient-mixed:active {
-    transform: translateY(0);
-    box-shadow: 
-      0 2px 10px rgba(99, 102, 241, 0.3),
-      0 1px 2px rgba(0, 0, 0, 0.1);
+    opacity: 0.95;
   }
 
-  /* Animated gradient shimmer for special emphasis */
-  @keyframes gradient-shimmer {
-    0% {
-      background-position: 0% 50%;
-    }
-    50% {
-      background-position: 100% 50%;
-    }
-    100% {
-      background-position: 0% 50%;
-    }
-  }
-
+  /* Animated button - orange */
   .btn-gradient-animated {
-    background: linear-gradient(
-      -45deg,
-      #8B5CF6,
-      #6366F1,
-      #A855F7,
-      #7C3AED
-    );
-    background-size: 400% 400%;
-    animation: gradient-shimmer 3s ease infinite;
+    background-color: hsl(var(--landing-accent-orange));
     color: white;
     font-weight: 600;
     border: none;
-    box-shadow: 
-      0 4px 15px rgba(139, 92, 246, 0.35),
-      inset 0 1px 0 rgba(255, 255, 255, 0.2);
-    transition: all 0.3s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    transition: opacity 0.2s ease;
   }
 
   .btn-gradient-animated:hover {
-    box-shadow: 
-      0 6px 25px rgba(139, 92, 246, 0.5),
-      inset 0 1px 0 rgba(255, 255, 255, 0.3);
-    transform: translateY(-2px);
+    opacity: 0.9;
+  }
+
+  /* Sidebar menu items - soft dark grey, not black (wanderlust) */
+  .app-sidebar-nav [data-sidebar-menu] {
+    color: #555555 !important;
+  }
+  .app-sidebar-nav [data-sidebar-menu] svg {
+    color: #555555 !important;
+  }
+  .dark .app-sidebar-nav [data-sidebar-menu] {
+    color: hsl(var(--foreground)) !important;
+  }
+  .dark .app-sidebar-nav [data-sidebar-menu] svg {
+    color: hsl(var(--foreground)) !important;
+  }
+
+}
+
+/* Settings screen: focus ring/border matches Discover pill filters (#e88d44) */
+[data-settings-page] input:focus-visible,
+[data-settings-page] textarea:focus-visible {
+  --tw-ring-color: #e88d44;
+  border-color: #e88d44;
+}
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
   }
 }

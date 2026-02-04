@@ -68,19 +68,55 @@ interface PricingModalProps {
   reason?: 'quota_exhausted' | 'user_initiated' | 'freemium_required'; // Why the modal was opened
   userFlow?: 'website_analysis' | 'product_photoshot'; // User's acquisition flow - determines which plans to show
   mustSubscribe?: boolean; // If true, user MUST subscribe (no close/skip option) - for freemium enforcement
+  /** When 'centered', shows a compact centered modal (like OnboardingFlowModal). Default 'fullscreen' for backward compatibility. */
+  variant?: 'fullscreen' | 'centered';
 }
 
 // Animated Toggle Switch Component
 const BillingToggle = ({ 
   billingCycle, 
-  onChange 
+  onChange,
+  landingStyle = false,
 }: { 
   billingCycle: 'monthly' | 'annual'; 
   onChange: (cycle: 'monthly' | 'annual') => void;
+  landingStyle?: boolean;
 }) => {
+  if (landingStyle) {
+    return (
+      <div className="inline-flex items-center gap-1 rounded-full p-1 bg-[hsl(var(--landing-explore-pill-bg))] border border-[hsl(var(--landing-nav-bar-border))]">
+        <button
+          type="button"
+          onClick={() => onChange('monthly')}
+          className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
+            billingCycle === 'monthly'
+              ? "bg-[hsl(var(--landing-cta-bg))] text-white shadow-soft"
+              : "text-foreground hover:bg-[hsl(var(--landing-explore-pill-hover))]"
+          }`}
+        >
+          Monthly
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange('annual')}
+          className={`px-4 py-2 rounded-full text-sm font-medium transition-all flex items-center gap-2 ${
+            billingCycle === 'annual'
+              ? "bg-[hsl(var(--landing-cta-bg))] text-white shadow-soft"
+              : "text-foreground hover:bg-[hsl(var(--landing-explore-pill-hover))]"
+          }`}
+        >
+          Annual
+          <span className={`px-2 py-0.5 text-xs rounded-full font-semibold ${
+            billingCycle === 'annual' ? "bg-white/20 text-white" : "bg-[hsl(var(--landing-accent-orange))] text-white"
+          }`}>
+            Save 20%
+          </span>
+        </button>
+      </div>
+    );
+  }
   return (
     <div className="inline-flex items-center p-1 rounded-full bg-primary/10 border border-primary/20">
-      {/* Monthly button */}
       <button
         onClick={() => onChange('monthly')}
         className={`relative px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-300 ${
@@ -91,8 +127,6 @@ const BillingToggle = ({
       >
         Monthly
       </button>
-      
-      {/* Annual button */}
       <button
         onClick={() => onChange('annual')}
         className={`relative px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-300 ${
@@ -115,6 +149,7 @@ interface PlanCardProps {
   changeType: 'upgrade' | 'downgrade' | 'current' | 'get_started' | 'switch_to_annual' | 'switch_to_monthly';
   onSelect: (plan: PricingPlan, changeType: string) => void;
   hasActiveSubscription?: boolean; // Whether user already has an active paid subscription
+  landingStyle?: boolean; // Match pricing page / wander lust Download All styling
 }
 
 const PlanCard = ({
@@ -124,6 +159,7 @@ const PlanCard = ({
   changeType,
   onSelect,
   hasActiveSubscription = false,
+  landingStyle = false,
 }: PlanCardProps) => {
   const isCurrent = changeType === 'current';
   const isUsersPlanDifferentCycle = changeType === 'switch_to_annual' || changeType === 'switch_to_monthly';
@@ -151,6 +187,100 @@ const PlanCard = ({
     const savings = Math.round(((monthlyCost - annualCost) / monthlyCost) * 100);
     return savings > 0 ? savings : 0;
   };
+
+  const getPeriod = () => (isFree ? "" : billingCycle === 'monthly' ? "/month" : "/year");
+
+  // Landing style: wanderlust Download All modal (light popular card, black CTAs, pills for posts)
+  if (landingStyle) {
+    const popular = isPopular;
+    const isProductFlow = plan.planFlow === 'product_photoshot';
+    const imageLabel = isProductFlow ? "Image Posts" : "Image Posts";
+    const videoLabel = isProductFlow ? "Video Posts" : "Video Posts";
+    const imageLimit = getImageLimit();
+    const videoLimit = getVideoLimit();
+    const otherFeatures = [
+      "AI-powered content generation",
+      "Multi-platform scheduling",
+      "Brand kit & content library",
+      "Analytics dashboard",
+      ...(!isFree ? ["Priority support"] : []),
+    ];
+    return (
+      <div
+        className={`relative rounded-3xl p-6 h-full flex flex-col ${
+          popular
+            ? "bg-[hsl(var(--landing-accent-orange)/0.12)] border border-[hsl(var(--landing-accent-orange)/0.3)] shadow-card"
+            : "bg-card border border-border shadow-soft"
+        }`}
+      >
+        {popular && (
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+            <span className="px-4 py-1 bg-[hsl(var(--landing-accent-orange))] text-white rounded-full text-xs font-semibold flex items-center gap-1">
+              <Check className="w-3 h-3" />
+              Popular
+            </span>
+          </div>
+        )}
+        {isFree && !popular && (
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+            <span className="px-4 py-1 bg-[hsl(var(--landing-accent-orange))] text-white rounded-full text-xs font-semibold">
+              Free Trial
+            </span>
+          </div>
+        )}
+        <div className="mb-4">
+          <h3 className="text-xl font-semibold mb-1 text-foreground">{plan.planName}</h3>
+          {plan.description && (
+            <p className="text-sm text-muted-foreground mb-2">{plan.description}</p>
+          )}
+          <div className="flex items-baseline gap-1">
+            <span className="text-3xl font-bold text-foreground">{isFree ? "Free" : `$${getPrice()}`}</span>
+            {!isFree && (
+              <span className="text-muted-foreground text-sm">{getPeriod()}</span>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            {isFree ? "7-day trial, no credit card required" : "7-day free trial"}
+          </p>
+        </div>
+        {/* Image/Video posts as pills with icons */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/80 text-sm text-foreground">
+            <ImageIcon className="w-4 h-4 text-muted-foreground" />
+            {imageLimit} {imageLabel}
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/80 text-sm text-foreground">
+            <Video className="w-4 h-4 text-muted-foreground" />
+            {videoLimit} {videoLabel}
+          </span>
+        </div>
+        <ul className="space-y-2 mb-6 flex-1">
+          {otherFeatures.map((feature) => (
+            <li key={feature} className="flex items-start gap-2">
+              <Check className="w-4 h-4 flex-shrink-0 mt-0.5 text-[hsl(var(--landing-accent-orange))]" />
+              <span className="text-sm text-foreground">{feature}</span>
+            </li>
+          ))}
+        </ul>
+        <button
+          type="button"
+          onClick={() => !isCurrent && onSelect(plan, changeType)}
+          disabled={isCurrent}
+          className="w-full py-3 rounded-full font-medium bg-[hsl(var(--landing-cta-bg))] text-white hover:opacity-90 transition-all"
+        >
+          <span className="inline-flex items-center gap-2">
+            <Gift className="w-4 h-4" />
+            {isFree ? "Start Free Trial" : "Start 7-Day Trial"}
+          </span>
+        </button>
+        {!isFree && (plan.extraImagePostPrice > 0 || plan.extraVideoPostPrice > 0) && (
+          <p className="text-center text-xs mt-3 text-muted-foreground">
+            Extra posts: ${plan.extraImagePostPrice}/image post, ${plan.extraVideoPostPrice}/video post
+          </p>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -236,7 +366,7 @@ const PlanCard = ({
         )}
         {/* Only show trial messaging if user does NOT have an active paid subscription */}
         {!isFree && plan.isFreemium && !hasActiveSubscription && (
-          <p className="text-purple-600 text-sm mt-2 font-medium">
+          <p className="text-[hsl(var(--landing-accent-orange))] text-sm mt-2 font-medium">
             {plan.freemiumTrialDays || 7}-day free trial, cancel anytime
           </p>
         )}
@@ -377,12 +507,14 @@ const ModalPlanCarousel = ({
   getPlanChangeType,
   onSelect,
   hasActiveSubscription = false,
+  landingStyle = false,
 }: {
   plans: PricingPlan[];
   billingCycle: 'monthly' | 'annual';
   getPlanChangeType: (plan: PricingPlan) => 'upgrade' | 'downgrade' | 'current' | 'get_started' | 'switch_to_annual' | 'switch_to_monthly';
   onSelect: (plan: PricingPlan, changeType: string) => void;
   hasActiveSubscription?: boolean;
+  landingStyle?: boolean;
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [visibleCount, setVisibleCount] = useState(3);
@@ -419,8 +551,8 @@ const ModalPlanCarousel = ({
   // If all plans fit, just show grid
   if (plans.length <= visibleCount) {
     return (
-      <div className="hidden md:block pt-5">
-        <div className={`grid gap-4 lg:gap-6 ${
+      <div className={`hidden md:block ${landingStyle ? 'pt-2' : 'pt-5'}`}>
+        <div className={`grid ${landingStyle ? 'gap-4' : 'gap-4 lg:gap-6'} ${
           plans.length === 1 ? 'grid-cols-1 max-w-md mx-auto' :
           plans.length === 2 ? 'grid-cols-2 max-w-3xl mx-auto' :
           'grid-cols-3'
@@ -434,6 +566,7 @@ const ModalPlanCarousel = ({
               changeType={getPlanChangeType(plan)}
               onSelect={onSelect}
               hasActiveSubscription={hasActiveSubscription}
+              landingStyle={landingStyle}
             />
           ))}
         </div>
@@ -443,15 +576,15 @@ const ModalPlanCarousel = ({
 
   // Carousel view with arrows
   return (
-    <div className="hidden md:block relative pt-5">
+    <div className={`hidden md:block relative ${landingStyle ? 'pt-2' : 'pt-5'}`}>
       {/* Left Arrow */}
       <button
         onClick={goLeft}
         disabled={!canGoLeft}
-        className={`absolute left-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 lg:w-12 lg:h-12 rounded-full bg-background border border-border shadow-lg flex items-center justify-center transition-all ${
+        className={`absolute left-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 lg:w-12 lg:h-12 rounded-full border shadow-soft flex items-center justify-center transition-all ${
           canGoLeft 
-            ? 'hover:bg-muted cursor-pointer opacity-100' 
-            : 'opacity-30 cursor-not-allowed'
+            ? (landingStyle ? 'bg-card border-[hsl(var(--landing-nav-bar-border))] text-foreground hover:bg-[hsl(var(--landing-explore-pill-hover))] cursor-pointer opacity-100' : 'bg-background border-border hover:bg-muted cursor-pointer opacity-100')
+            : (landingStyle ? 'bg-[hsl(var(--landing-explore-pill-bg))] border-[hsl(var(--landing-nav-bar-border))] text-muted-foreground opacity-50 cursor-not-allowed' : 'opacity-30 cursor-not-allowed')
         }`}
         style={{ left: '-16px' }}
       >
@@ -462,10 +595,10 @@ const ModalPlanCarousel = ({
       <button
         onClick={goRight}
         disabled={!canGoRight}
-        className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 lg:w-12 lg:h-12 rounded-full bg-background border border-border shadow-lg flex items-center justify-center transition-all ${
+        className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 lg:w-12 lg:h-12 rounded-full border shadow-soft flex items-center justify-center transition-all ${
           canGoRight 
-            ? 'hover:bg-muted cursor-pointer opacity-100' 
-            : 'opacity-30 cursor-not-allowed'
+            ? (landingStyle ? 'bg-card border-[hsl(var(--landing-nav-bar-border))] text-foreground hover:bg-[hsl(var(--landing-explore-pill-hover))] cursor-pointer opacity-100' : 'bg-background border-border hover:bg-muted cursor-pointer opacity-100')
+            : (landingStyle ? 'bg-[hsl(var(--landing-explore-pill-bg))] border-[hsl(var(--landing-nav-bar-border))] text-muted-foreground opacity-50 cursor-not-allowed' : 'opacity-30 cursor-not-allowed')
         }`}
         style={{ right: '-16px' }}
       >
@@ -473,7 +606,7 @@ const ModalPlanCarousel = ({
       </button>
 
       {/* Carousel Container */}
-      <div className="overflow-hidden pt-5">
+      <div className={`overflow-hidden ${landingStyle ? 'pt-2' : 'pt-5'}`}>
         <div 
           className="flex transition-transform duration-300 ease-out"
           style={{ 
@@ -496,6 +629,7 @@ const ModalPlanCarousel = ({
                 changeType={getPlanChangeType(plan)}
                 onSelect={onSelect}
                 hasActiveSubscription={hasActiveSubscription}
+                landingStyle={landingStyle}
               />
             </div>
           ))}
@@ -509,10 +643,10 @@ const ModalPlanCarousel = ({
             <button
               key={idx}
               onClick={() => setCurrentIndex(idx)}
-              className={`w-2.5 h-2.5 rounded-full transition-all ${
+              className={`h-2.5 rounded-full transition-all ${
                 idx === currentIndex 
-                  ? 'bg-primary w-6' 
-                  : 'bg-muted-foreground/30 hover:bg-muted-foreground/50'
+                  ? (landingStyle ? 'bg-[hsl(var(--landing-cta-bg))] w-6' : 'bg-primary w-6')
+                  : (landingStyle ? 'w-2.5 bg-[hsl(var(--landing-nav-bar-border))] hover:bg-muted-foreground/50' : 'w-2.5 bg-muted-foreground/30 hover:bg-muted-foreground/50')
               }`}
             />
           ))}
@@ -531,7 +665,8 @@ export const PricingModal = ({
   canSkip = false,
   reason = 'user_initiated',
   userFlow = 'website_analysis',
-  mustSubscribe = false
+  mustSubscribe = false,
+  variant = 'fullscreen',
 }: PricingModalProps) => {
   const router = useRouter();
   const [plans, setPlans] = useState<PricingPlan[]>([]);
@@ -958,47 +1093,38 @@ export const PricingModal = ({
   // Use portal to render modal at document body level to avoid clipping from parent containers
   if (typeof document === 'undefined') return null;
   
-  return createPortal(
+  const modalContent = (
     <>
-      {/* Backdrop */}
-      <div 
-        className={`fixed inset-0 z-[100] bg-black/50 transition-opacity duration-300 ${
-          isVisible ? 'opacity-100' : 'opacity-0'
-        }`}
+      {/* Close Button - always visible */}
+      <button
         onClick={handleClose}
-      />
-      
-      {/* Modal Content */}
-      <div 
-        className={`fixed inset-0 z-[101] overflow-y-auto transition-transform duration-300 ease-out ${
-          isVisible ? 'translate-y-0' : 'translate-y-full'
+        className={`z-[112] p-2.5 rounded-full bg-muted hover:bg-muted/80 transition-colors border border-border ${
+          variant === 'centered' ? 'absolute top-4 right-4' : 'fixed top-4 right-4 md:top-6 md:right-6'
         }`}
+        aria-label="Close pricing"
       >
-        <div className="min-h-screen bg-background">
-          {/* Close Button - always visible */}
-          <button
-            onClick={handleClose}
-            className="fixed top-4 right-4 md:top-6 md:right-6 z-[102] p-2.5 rounded-full bg-muted hover:bg-muted/80 transition-colors border border-border"
-            aria-label="Close pricing"
-          >
-            <X className="h-5 w-5 text-foreground" />
-          </button>
+        <X className="h-5 w-5 text-foreground" />
+      </button>
 
-          <div className="py-8 md:py-16 px-4">
-            <div className="max-w-6xl mx-auto">
+      <div className={`flex-1 min-h-0 flex flex-col ${variant === 'centered' ? 'py-8 px-4 pt-14 pb-10 overflow-hidden' : 'py-8 md:py-16 px-4'}`}>
+        <div className={`flex-1 min-h-0 flex flex-col ${variant === 'centered' ? 'max-w-6xl mx-auto w-full' : 'max-w-6xl mx-auto'}`}>
               {/* Header */}
-              <div className="text-center mb-8 md:mb-12">
+              <div className={`text-center shrink-0 ${variant === 'centered' ? 'mb-3' : 'mb-8 md:mb-12'}`}>
                 {mustSubscribe ? (
-                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-purple-100 mb-4">
-                    <Gift className="h-4 w-4 text-purple-600" />
-                    <span className="text-purple-600 text-sm font-medium">
+                  <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full mb-4 ${
+                    variant === 'centered' ? 'bg-[hsl(var(--landing-accent-orange)/0.15)]' : 'bg-purple-100'
+                  }`}>
+                    <Gift className={`h-4 w-4 ${variant === 'centered' ? 'text-[hsl(var(--landing-accent-orange))]' : 'text-orange-600'}`} />
+                    <span className={`text-sm font-medium ${variant === 'centered' ? 'text-[hsl(var(--landing-accent-orange))]' : 'text-orange-600'}`}>
                       Start your free trial to continue
                     </span>
                   </div>
                 ) : reason === 'quota_exhausted' && quotaType && isAuthenticated && (
-                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 mb-4">
-                    <Sparkles className="h-4 w-4 text-primary" />
-                    <span className="text-primary text-sm font-medium">
+                  <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full mb-4 ${
+                    variant === 'centered' ? 'bg-[hsl(var(--landing-accent-orange)/0.15)]' : 'bg-primary/10'
+                  }`}>
+                    <Sparkles className={`h-4 w-4 ${variant === 'centered' ? 'text-[hsl(var(--landing-accent-orange))]' : 'text-primary'}`} />
+                    <span className={`text-sm font-medium ${variant === 'centered' ? 'text-[hsl(var(--landing-accent-orange))]' : 'text-primary'}`}>
                       {quotaType === 'image' 
                         ? 'Image quota reached' 
                         : quotaType === 'video' 
@@ -1008,22 +1134,28 @@ export const PricingModal = ({
                   </div>
                 )}
                 
-                <h1 className="text-3xl md:text-5xl font-bold text-foreground mb-4">
-                  {mustSubscribe 
+                <h1 className={`font-bold text-foreground mb-4 ${variant === 'centered' ? 'text-2xl md:text-3xl font-semibold' : 'text-3xl md:text-5xl'}`}>
+                  {variant === 'centered' && reason === 'user_initiated'
+                    ? 'Sign up for 7-day trial'
+                    : mustSubscribe 
                     ? 'Choose Your Plan' 
                     : isAuthenticated 
                     ? 'Upgrade Your Plan' 
                     : 'Choose Your Plan'}
                 </h1>
-                <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto">
-                  {mustSubscribe 
+                <p className={`text-muted-foreground max-w-2xl mx-auto ${variant === 'centered' ? 'text-sm md:text-base' : 'text-lg md:text-xl'}`}>
+                  {variant === 'centered' && reason === 'user_initiated'
+                    ? 'cancel anytime'
+                    : mustSubscribe 
                     ? 'Start with a free 7-day trial. Your card will only be charged after the trial ends.'
                     : 'Unlock more AI-powered content generation and take your brand to the next level'}
                 </p>
 
-                {/* Current Plan Info - hidden when mustSubscribe is true (user is on free trial, not helpful to show) */}
-                {isAuthenticated && currentPlanInfo && !mustSubscribe && (
-                  <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-muted border border-border">
+                {/* Current Plan Info - hidden when centered+user_initiated (Download All flow) or mustSubscribe */}
+                {isAuthenticated && currentPlanInfo && !mustSubscribe && !(variant === 'centered' && reason === 'user_initiated') && (
+                  <div className={`mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg ${
+                    variant === 'centered' ? 'bg-[hsl(var(--landing-explore-pill-bg))] border border-[hsl(var(--landing-nav-bar-border))]' : 'bg-muted border border-border'
+                  }`}>
                     <span className="text-sm text-muted-foreground">Current plan:</span>
                     <span className="text-sm font-semibold text-foreground">
                       {currentPlanInfo.planName}
@@ -1038,22 +1170,23 @@ export const PricingModal = ({
               </div>
 
               {/* Billing Toggle */}
-              <div className="flex justify-center mb-6">
+              <div className={`flex justify-center shrink-0 ${variant === 'centered' ? 'mb-3' : 'mb-6'}`}>
                 <BillingToggle 
                   billingCycle={billingCycle} 
-                  onChange={setBillingCycle} 
+                  onChange={setBillingCycle}
+                  landingStyle={variant === 'centered'}
                 />
               </div>
 
               {/* Plans Grid */}
               {loading ? (
-                <div className="flex items-center justify-center py-20">
-                  <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                <div className={`flex items-center justify-center flex-1 ${variant === 'centered' ? 'py-8' : 'py-20'}`}>
+                  <Loader2 className={`h-10 w-10 animate-spin ${variant === 'centered' ? 'text-foreground' : 'text-primary'}`} />
                 </div>
               ) : (
-                <>
+                <div className={`flex-1 min-h-0 flex flex-col ${variant === 'centered' ? 'overflow-hidden' : ''}`}>
                   {/* Mobile: Vertical stack */}
-                  <div className="md:hidden flex flex-col gap-6">
+                  <div className={`md:hidden flex flex-col flex-1 min-h-0 overflow-hidden ${variant === 'centered' ? 'gap-4' : 'gap-6'}`}>
                     {displayPlans.map((plan) => (
                       <PlanCard 
                         key={plan.id} 
@@ -1063,23 +1196,27 @@ export const PricingModal = ({
                         changeType={getPlanChangeType(plan)}
                         onSelect={handleSelectPlan}
                         hasActiveSubscription={hasActiveStripeSubscription}
+                        landingStyle={variant === 'centered'}
                       />
                     ))}
                   </div>
                   
                   {/* Tablet/Desktop Carousel */}
-                  <ModalPlanCarousel 
-                    plans={displayPlans}
-                    billingCycle={billingCycle}
-                    getPlanChangeType={getPlanChangeType}
-                    onSelect={handleSelectPlan}
-                    hasActiveSubscription={hasActiveStripeSubscription}
-                  />
-                </>
+                  <div className="hidden md:block flex-1 min-h-0 overflow-hidden">
+                    <ModalPlanCarousel 
+                      plans={displayPlans}
+                      billingCycle={billingCycle}
+                      getPlanChangeType={getPlanChangeType}
+                      onSelect={handleSelectPlan}
+                      hasActiveSubscription={hasActiveStripeSubscription}
+                      landingStyle={variant === 'centered'}
+                    />
+                  </div>
+                </div>
               )}
 
               {/* Footer */}
-              <div className="mt-10 text-center">
+              <div className={`text-center shrink-0 ${variant === 'centered' ? 'mt-4' : 'mt-10'}`}>
                 {mustSubscribe || reason === 'freemium_required' ? (
                   // User MUST subscribe (opt-out trial enforcement) - no skip option
                   <div className="space-y-2">
@@ -1107,16 +1244,56 @@ export const PricingModal = ({
                   // User-initiated modal or other case - show maybe later
                   <button
                     onClick={handleClose}
-                    className="text-muted-foreground hover:text-foreground text-sm underline underline-offset-4 transition-colors"
+                    className={`text-sm underline underline-offset-4 transition-colors ${
+                      variant === 'centered' 
+                        ? 'text-muted-foreground hover:text-[hsl(var(--landing-accent-orange))]' 
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
                   >
-                    Maybe later
+                    {variant === 'centered' && reason === 'user_initiated' ? 'Skip for now' : 'Maybe later'}
                   </button>
                 )}
               </div>
             </div>
           </div>
+    </>
+  );
+
+  return createPortal(
+    <>
+      {/* Backdrop - dark black alpha so background (e.g. GenerateContentDialog) is not visible; z-[110] above GenerateContentDialog (z-101) */}
+      <div 
+        className={`fixed inset-0 z-[110] bg-black/80 backdrop-blur-sm transition-opacity duration-300 ${
+          isVisible ? 'opacity-100' : 'opacity-0'
+        }`}
+        onClick={handleClose}
+      />
+      
+      {/* Modal Content - fullscreen or centered */}
+      {variant === 'centered' ? (
+        <div 
+          className={`fixed inset-0 z-[111] flex items-center justify-center p-4 transition-opacity duration-300 ${
+            isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}
+        >
+          <div 
+            className="relative max-w-[82vw] w-full max-h-[95vh] overflow-hidden rounded-2xl border border-[hsl(var(--landing-nav-bar-border))] bg-[hsl(var(--landing-hero-bg))] shadow-xl flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {modalContent}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div 
+          className={`fixed inset-0 z-[111] overflow-y-auto transition-transform duration-300 ease-out ${
+            isVisible ? 'translate-y-0' : 'translate-y-full'
+          }`}
+        >
+          <div className="min-h-screen bg-background">
+            {modalContent}
+          </div>
+        </div>
+      )}
     </>,
     document.body
   );

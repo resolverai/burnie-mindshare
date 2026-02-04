@@ -6,10 +6,32 @@ import tempfile
 import argparse
 from openai import OpenAI
 
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    _PIL_AVAILABLE = True
+except ImportError:
+    _PIL_AVAILABLE = False
+
+try:
+    import cv2
+    import numpy as np
+    _OPENCV_AVAILABLE = True
+except ImportError:
+    _OPENCV_AVAILABLE = False
+
+# When True, highlight_line preset uses Python+OpenCV for rendering (animated rounded box).
+# Set to False to use FFmpeg-only path again.
+USE_OPENCV_FOR_HIGHLIGHT_LINE = True
+
 class VideoCaptionStyler:
     """Add beautifully styled captions with word-by-word effects using OpenAI transcription"""
     
-    def __init__(self, video_path, output_path="output_with_captions.mp4", api_key=None):
+    # Vertical position expressions for alignment (FFmpeg drawtext y)
+    ALIGNMENT_TOP = "h*0.12"
+    ALIGNMENT_MIDDLE = "h*0.5"
+    ALIGNMENT_BOTTOM = "h*0.85"
+
+    def __init__(self, video_path, output_path="output_with_captions.mp4", api_key=None, alignment=None):
         self.video_path = video_path
         self.output_path = output_path
         self.captions = []
@@ -17,10 +39,12 @@ class VideoCaptionStyler:
         self.video_width = None
         self.video_height = None
         self.is_vertical = False
-        
+        # Alignment: "top" | "middle" | "bottom" (overrides style y when set)
+        self.alignment = (alignment or "").strip().lower() or None
+
         # Get video dimensions
         self._detect_video_dimensions()
-        
+
         # Initialize OpenAI client - use provided key or fallback to env variable
         api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not api_key:
@@ -227,7 +251,7 @@ class VideoCaptionStyler:
     
     def auto_generate_captions(self, max_words_per_caption=None, style_preset="karaoke", 
                                word_effect="karaoke", custom_css=None, transliterate=False,
-                               caption_start_time: float = 0.0):
+                               caption_start_time: float = 0.0, no_highlight_box: bool = False):
         """
         Automatically generate captions from transcription data
         
@@ -239,6 +263,7 @@ class VideoCaptionStyler:
             transliterate: If True, transliterate Devanagari text to English
             caption_start_time: Start captions only after this time (seconds). 
                                Words before this time will be excluded from captions.
+            no_highlight_box: If True (preset mode), no background/box on highlighted word; 2+ words shown horizontally.
         """
         if not self.transcription_data:
             print("No transcription data! Run transcribe_audio() first.")
@@ -351,6 +376,24 @@ class VideoCaptionStyler:
             print("⚠ Warning: No words found in transcription!")
             return
         
+        # For horizontal grouped layout: enforce minimum spacing by capping words per group
+        style = self._get_style(style_preset, custom_css)
+        horizontal_layout = style.get("horizontal_layout", False) and word_effect == "karaoke"
+        min_word_gap_px = 72  # minimum gap between words; must match fixed_gap_px in _create_word_effect_filters
+        karaoke_fontsize = 55  # must match KARAOKE_FIXED_FONTSIZE in _create_word_effect_filters
+        char_width_approx = karaoke_fontsize * 0.6
+        
+        def _max_words_for_min_spacing(word_list, vid_width, min_gap):
+            """Largest n such that sum(word widths) + (n-1)*min_gap <= vid_width."""
+            if not word_list or not vid_width or vid_width <= 0:
+                return len(word_list)
+            total = 0
+            for n, w in enumerate(word_list, 1):
+                total += len(w) * char_width_approx + (min_gap if n > 1 else 0)
+                if total > vid_width:
+                    return max(1, n - 1)
+            return len(word_list)
+        
         # Group words into caption segments
         current_caption_words = []
         current_word_timings = []
@@ -376,9 +419,26 @@ class VideoCaptionStyler:
                                    ends_sentence or is_last_word)
             
             if should_create_caption:
-                caption_text = " ".join(current_caption_words)
-                start_time = current_word_timings[0][1]
-                end_time = current_word_timings[-1][2]
+                # For horizontal grouped layout: cap words so minimum spacing is satisfied
+                use_words = current_caption_words
+                use_timings = current_word_timings
+                if horizontal_layout and self.video_width and len(current_caption_words) > 1:
+                    n_fit = _max_words_for_min_spacing(
+                        current_caption_words, self.video_width, min_word_gap_px
+                    )
+                    n_fit = min(n_fit, len(current_caption_words))
+                    n_fit = max(1, n_fit)
+                    use_words = current_caption_words[:n_fit]
+                    use_timings = current_word_timings[:n_fit]
+                    current_caption_words = current_caption_words[n_fit:]
+                    current_word_timings = current_word_timings[n_fit:]
+                else:
+                    current_caption_words = []
+                    current_word_timings = []
+                
+                caption_text = " ".join(use_words)
+                start_time = use_timings[0][1]
+                end_time = use_timings[-1][2]
                 
                 self.add_caption(
                     caption_text,
@@ -386,28 +446,37 @@ class VideoCaptionStyler:
                     end_time,
                     style_preset=style_preset,
                     word_effect=word_effect,
-                    word_timings=current_word_timings,
-                    custom_css=custom_css
+                    word_timings=use_timings,
+                    custom_css=custom_css,
+                    no_highlight_box=no_highlight_box
                 )
                 
                 caption_count += 1
-                current_caption_words = []
-                current_word_timings = []
         
-        # Add remaining words if any (shouldn't happen with is_last_word check, but safety net)
+        # Add remaining words if any (e.g. remainder after spacing trim, or safety net)
         if current_caption_words:
-            caption_text = " ".join(current_caption_words)
-            start_time = current_word_timings[0][1]
-            end_time = current_word_timings[-1][2]
-            
+            use_words = current_caption_words
+            use_timings = current_word_timings
+            if horizontal_layout and self.video_width and len(current_caption_words) > 1:
+                n_fit = _max_words_for_min_spacing(
+                    current_caption_words, self.video_width, min_word_gap_px
+                )
+                n_fit = min(n_fit, len(current_caption_words))
+                n_fit = max(1, n_fit)
+                use_words = current_caption_words[:n_fit]
+                use_timings = current_word_timings[:n_fit]
+            caption_text = " ".join(use_words)
+            start_time = use_timings[0][1]
+            end_time = use_timings[-1][2]
             self.add_caption(
                 caption_text,
                 start_time,
                 end_time,
                 style_preset=style_preset,
                 word_effect=word_effect,
-                word_timings=current_word_timings,
-                custom_css=custom_css
+                word_timings=use_timings,
+                custom_css=custom_css,
+                no_highlight_box=no_highlight_box
             )
             caption_count += 1
         
@@ -416,7 +485,7 @@ class VideoCaptionStyler:
         print(f"✓ Generated {len(self.captions)} caption segments")
     
     def add_caption(self, text, start_time, end_time, style_preset="default", 
-                   custom_css=None, word_effect="none", word_timings=None):
+                   custom_css=None, word_effect="none", word_timings=None, no_highlight_box=False):
         """Add a caption with timing, style, and word effects"""
         if word_timings:
             words_data = word_timings
@@ -436,7 +505,8 @@ class VideoCaptionStyler:
             "end": end_time,
             "style": self._get_style(style_preset, custom_css),
             "word_effect": word_effect,
-            "words_data": words_data
+            "words_data": words_data,
+            "no_highlight_box": no_highlight_box,
         }
         self.captions.append(caption)
     
@@ -851,18 +921,255 @@ class VideoCaptionStyler:
                 "x": "(w-text_w)/2",
                 "y": "h*0.80"
             },
+
+            # ===========================================
+            # UI PRESETS (Select a preset to add to your captions)
+            # ===========================================
+            "basic": {
+                "fontsize": base_size,
+                "fontcolor": "black",
+                "fontfile": default_font,
+                "borderw": 8,
+                "bordercolor": "white",
+                "shadowx": 4,
+                "shadowy": 4,
+                "shadowcolor": "white@0.9",
+                "x": "(w-text_w)/2",
+                "y": "h*0.5"
+            },
+            "revid": {
+                "fontsize": base_size,
+                "fontcolor": "black",
+                "fontfile": default_font,
+                "borderw": 0,
+                "x": "(w-text_w)/2",
+                "y": "h*0.5"
+            },
+            "hormozi": {
+                "fontsize": int(base_size * 1.1),
+                "fontcolor": "#FFE135",
+                "highlight_color": "#FFFFFF",
+                "fontfile": default_font,
+                "borderw": 10,
+                "bordercolor": "#B8860B",
+                "shadowx": 5,
+                "shadowy": 5,
+                "shadowcolor": "black@1.0",
+                "x": "(w-text_w)/2",
+                "y": "h*0.5"
+            },
+            "ali": {
+                "fontsize": base_size,
+                "fontcolor": "black",
+                "fontfile": default_font,
+                "borderw": 0,
+                "x": "(w-text_w)/2",
+                "y": "h*0.5"
+            },
+            "wrap_1": {
+                "fontsize": 60,
+                "fontcolor": "white",
+                "highlight_color": "#EF4444",
+                "fontfile": default_font,
+                "box": 1,
+                "boxcolor": "#EF4444@0.9",
+                "boxborderw": 14,
+                "borderw": 4,
+                "bordercolor": "black",
+                "shadowx": 4,
+                "shadowy": 4,
+                "shadowcolor": "black@1.0",
+                "x": "(w-text_w)/2",
+                "y": "h*0.80"
+            },
+            "wrap_2": {
+                "fontsize": 60,
+                "fontcolor": "white",
+                "highlight_color": "#3B82F6",
+                "fontfile": default_font,
+                "box": 1,
+                "boxcolor": "#93C5FD@0.9",
+                "boxborderw": 14,
+                "borderw": 4,
+                "bordercolor": "black",
+                "shadowx": 4,
+                "shadowy": 4,
+                "shadowcolor": "black@1.0",
+                "all_caps": True,
+                "x": "(w-text_w)/2",
+                "y": "h*0.80"
+            },
+            "faceless": {
+                "fontsize": base_size,
+                "fontcolor": "#9CA3AF",
+                "fontfile": default_font,
+                "borderw": 4,
+                "bordercolor": "#6B7280",
+                "shadowx": 2,
+                "shadowy": 2,
+                "shadowcolor": "#374151@0.8",
+                "x": "(w-text_w)/2",
+                "y": "h*0.5"
+            },
+            "elegant": {
+                "fontsize": int(base_size * 0.95),
+                "fontcolor": "black",
+                "fontfile": default_font,
+                "borderw": 2,
+                "bordercolor": "#E5E7EB",
+                "x": "(w-text_w)/2",
+                "y": "h*0.5"
+            },
+            "difference": {
+                "fontsize": base_size,
+                "fontcolor": "white",
+                "fontfile": default_font,
+                "box": 1,
+                "boxcolor": "#374151@0.9",
+                "boxborderw": 10,
+                "borderw": 0,
+                "x": "(w-text_w)/2",
+                "y": "h*0.5"
+            },
+            "opacity": {
+                "fontsize": base_size,
+                "fontcolor": "white",
+                "fontfile": default_font,
+                "box": 1,
+                "boxcolor": "#4B5563@0.85",
+                "boxborderw": 8,
+                "borderw": 0,
+                "x": "(w-text_w)/2",
+                "y": "h*0.5"
+            },
+            "playful": {
+                "fontsize": base_size,
+                "fontcolor": "#B45309",
+                "highlight_color": "#F59E0B",
+                "fontfile": default_font,
+                "borderw": 6,
+                "bordercolor": "#78350F",
+                "shadowx": 3,
+                "shadowy": 3,
+                "shadowcolor": "#92400E@0.7",
+                "x": "(w-text_w)/2",
+                "y": "h*0.5"
+            },
+            "bold_punch": {
+                "fontsize": int(base_size * 1.15),
+                "fontcolor": "#FBBF24",
+                "highlight_color": "#F59E0B",
+                "fontfile": default_font,
+                "borderw": 12,
+                "bordercolor": "black",
+                "shadowx": 6,
+                "shadowy": 6,
+                "shadowcolor": "black@1.0",
+                "x": "(w-text_w)/2",
+                "y": "h*0.5"
+            },
+            "movie": {
+                "fontsize": base_size,
+                "fontcolor": "white",
+                "fontfile": default_font,
+                "borderw": 10,
+                "bordercolor": "black",
+                "shadowx": 5,
+                "shadowy": 5,
+                "shadowcolor": "black@1.0",
+                "x": "(w-text_w)/2",
+                "y": "h*0.5"
+            },
+            "outline": {
+                "fontsize": base_size,
+                "fontcolor": "white",
+                "fontfile": default_font,
+                "borderw": 6,
+                "bordercolor": "#1F2937",
+                "shadowx": 2,
+                "shadowy": 2,
+                "shadowcolor": "black@0.8",
+                "x": "(w-text_w)/2",
+                "y": "h*0.5"
+            },
+            "cove": {
+                "fontsize": base_size,
+                "fontcolor": "#9CA3AF",
+                "fontfile": default_font,
+                "borderw": 4,
+                "bordercolor": "#6B7280",
+                "shadowx": 2,
+                "shadowy": 2,
+                "shadowcolor": "#4B5563@0.7",
+                "x": "(w-text_w)/2",
+                "y": "h*0.5"
+            },
+            "beat": {
+                "fontsize": base_size,
+                "fontcolor": "black",
+                "fontfile": default_font,
+                "borderw": 0,
+                "x": "(w-text_w)/2",
+                "y": "h*0.5"
+            },
+            # Reels line: white text, light blue highlight (color only, no box), black outline, horizontal line, max 4 words, all caps
+            "reels_line": {
+                "fontsize": base_size,
+                "fontcolor": "white",
+                "highlight_color": "#93C5FD",
+                "fontfile": default_font,
+                "borderw": 10,
+                "bordercolor": "black",
+                "shadowx": 5,
+                "shadowy": 5,
+                "shadowcolor": "black@1.0",
+                "horizontal_layout": True,
+                "all_caps": True,
+                "x": "(w-text_w)/2",
+                "y": "h*0.85"
+            },
+            # Highlight line: all white text, purplish highlight box (expand/shrink animation, no fade), horizontal, max 4 words
+            # Font size and fontfile from preset are used so you can control font size, font style, etc.
+            # Use larger font than base_size so caption text is clearly readable (OpenCV/PIL render at this size).
+            "highlight_line": {
+                "fontsize": 90 if self.is_vertical else 110,
+                "fontcolor": "white",
+                "highlight_color": "#A855F7",   # violet/purple highlight
+                "fontfile": default_font,
+                "borderw": 0,
+                "shadowx": 0,
+                "shadowy": 0,
+                "horizontal_layout": True,
+                "all_caps": True,
+                "box_alpha_animation": False,    # no fade-in; OpenCV path uses expand/shrink only
+                "no_text_border": True,
+                "corner_radius": 12,
+                "x": "(w-text_w)/2",
+                "y": "h*0.85"
+            },
         }
         
         style = presets.get(preset, presets["classic"]).copy()
         if custom_css:
             style.update(custom_css)
+        # Override vertical position when alignment is set (CLI --alignment)
+        if self.alignment == "top":
+            style["y"] = self.ALIGNMENT_TOP
+        elif self.alignment == "middle":
+            style["y"] = self.ALIGNMENT_MIDDLE
+        elif self.alignment == "bottom":
+            style["y"] = self.ALIGNMENT_BOTTOM
         return style
     
     def _create_word_effect_filters(self, caption):
-        """Create filters for word-by-word effects with animations"""
+        """Create filters for word-by-word effects with animations.
+        Returns (base_filters, hi_filters, overlay_specs, temp_files).
+        overlay_specs: list of (x,y,w,h,t_start,t_end,color_hex,alpha) for rounded highlight boxes."""
         effect = caption["word_effect"]
         style = caption["style"]
-        filters = []
+        base_filters = []
+        hi_filters = []
+        overlay_specs = []
         temp_files = []  # Track temp text files for cleanup
         base_fontsize = style.get('fontsize', 48)
         
@@ -875,123 +1182,251 @@ class VideoCaptionStyler:
             filter_str, temp_file = self._create_drawtext_filter(
                 caption["text"], caption["start"], caption["end"], style
             )
-            filters.append(filter_str)
+            base_base_filters.append(filter_str)
             if temp_file:
                 temp_files.append(temp_file)
         
         elif effect == "karaoke":
-            # KARAOKE EFFECT: Stack words vertically (one per line)
-            # Current word highlighted with colored box, previous words shown in white above
-            # Maximum 2 words visible at a time
+            # KARAOKE EFFECT: vertical stack by default; horizontal line when style has horizontal_layout (e.g. reels_line)
+            # When no_highlight_box (preset): no background/box; highlight = color only
             words_list = [w for w, _, _ in caption["words_data"]]
+            no_box = caption.get("no_highlight_box", False)
+            horizontal_layout = style.get("horizontal_layout", False)
             
-            # Helper function to escape text for FFmpeg expressions
-            def escape_ffmpeg_text(t):
-                """Escape single quotes for FFmpeg text expressions"""
-                return t.replace("'", "''").replace("\\", "\\\\")
-            
-            # FIXED font size for consistency across ALL clips (AI_VIDEO, IMAGE_ONLY, etc.)
-            # This is hardcoded to ensure the same font size regardless of video dimensions
             KARAOKE_FIXED_FONTSIZE = 55
             fontsize = KARAOKE_FIXED_FONTSIZE
-            line_height = fontsize * 1.4  # Spacing between lines (40% of font size)
+            base_y = style.get("y", "h*0.85")
             
-            # Base y position - pushed down to 85% from top for better visibility
-            base_y_pct = 0.85
-            base_y = f"h*{base_y_pct}"
-            
-            # Base style for non-highlighted words (white text, no box)
+            # Base style for previous (already spoken) word — use preset colors when no_box
             base_style = style.copy()
-            base_style['fontsize'] = KARAOKE_FIXED_FONTSIZE  # FORCE fixed font size
-            base_style['fontcolor'] = 'white'
-            base_style['borderw'] = 5  # Thicker border for bolder/heavier appearance
-            base_style['bordercolor'] = 'black'
-            base_style['shadowx'] = 5
-            base_style['shadowy'] = 5
-            base_style['shadowcolor'] = 'black@1.0'
-            base_style['x'] = '(w-text_w)/2'  # Centered horizontally
-            # Remove box properties for base style
+            base_style['fontsize'] = KARAOKE_FIXED_FONTSIZE
+            if no_box:
+                base_style['fontcolor'] = style.get('fontcolor', 'white')  # preserve preset (e.g. Cove = gray)
+                base_style['borderw'] = style.get('borderw', 5)
+                base_style['bordercolor'] = style.get('bordercolor', 'black')
+                base_style['shadowx'] = style.get('shadowx', 5)
+                base_style['shadowy'] = style.get('shadowy', 5)
+                base_style['shadowcolor'] = style.get('shadowcolor', 'black@1.0')
+            else:
+                base_style['fontcolor'] = style.get('fontcolor', 'white')
+                base_style['borderw'] = 0 if style.get('no_text_border') else 5
+                base_style['bordercolor'] = 'black'
+                base_style['shadowx'] = 0 if style.get('no_text_border') else 5
+                base_style['shadowy'] = 0 if style.get('no_text_border') else 5
+                base_style['shadowcolor'] = 'black@1.0'
+            base_style['x'] = '(w-text_w)/2'
             for key in ['box', 'boxcolor', 'boxborderw']:
                 if key in base_style:
                     del base_style[key]
             
-            # Highlighted style for current word (white text with colored box)
+            # Highlighted style: preserve preset border/shadow (e.g. Cove = gray outline) so current word stands out
             highlight_style = style.copy()
-            highlight_style['fontsize'] = KARAOKE_FIXED_FONTSIZE  # FORCE fixed font size
-            highlight_style['fontcolor'] = 'white'
-            highlight_style['box'] = 1
-            highlight_style['boxcolor'] = style.get('highlight_color', '#D946EF') + '@0.95'
-            highlight_style['boxborderw'] = 14  # Thicker box border for more impact
-            highlight_style['borderw'] = 0  # No text border for highlighted word (box provides border)
-            highlight_style['shadowx'] = 5
-            highlight_style['shadowy'] = 5
-            highlight_style['shadowcolor'] = 'black@1.0'
-            highlight_style['x'] = '(w-text_w)/2'  # Centered horizontally
+            highlight_style['fontsize'] = KARAOKE_FIXED_FONTSIZE
+            if no_box:
+                hi_color = style.get('highlight_color') or style.get('fontcolor')
+                base_fc = style.get('fontcolor', 'white')
+                base_fc_lower = str(base_fc).lower()
+                is_black_text = base_fc_lower in ('black', '#000', '#000000')
+                is_white_text = base_fc_lower in ('white', '#fff', '#ffffff')
+                if is_black_text:
+                    # Movie, basic, ali, beat: keep black text + white outline; highlight via thicker outline
+                    highlight_style['fontcolor'] = 'black'
+                    highlight_style['borderw'] = max(style.get('borderw', 5) + 4, 14)  # thicker outline for current word
+                    highlight_style['bordercolor'] = style.get('bordercolor', 'white')
+                    highlight_style['shadowx'] = style.get('shadowx', 5)
+                    highlight_style['shadowy'] = style.get('shadowy', 5)
+                    highlight_style['shadowcolor'] = style.get('shadowcolor', 'black@1.0')
+                elif is_white_text:
+                    highlight_style['fontcolor'] = style.get('highlight_color') or '#FBBF24'
+                    highlight_style['borderw'] = style.get('borderw', 5)
+                    highlight_style['bordercolor'] = style.get('bordercolor', 'black')
+                    highlight_style['shadowx'] = style.get('shadowx', 5)
+                    highlight_style['shadowy'] = style.get('shadowy', 5)
+                    highlight_style['shadowcolor'] = style.get('shadowcolor', 'black@1.0')
+                elif hi_color == base_fc or (not style.get('highlight_color') and is_black_text):
+                    highlight_style['fontcolor'] = 'white'
+                    highlight_style['borderw'] = style.get('borderw', 5)
+                    highlight_style['bordercolor'] = style.get('bordercolor', 'black')
+                    highlight_style['shadowx'] = style.get('shadowx', 5)
+                    highlight_style['shadowy'] = style.get('shadowy', 5)
+                    highlight_style['shadowcolor'] = style.get('shadowcolor', 'black@1.0')
+                else:
+                    # Gray/colored presets (e.g. Cove): highlight current word in white so it stands out
+                    highlight_style['fontcolor'] = 'white'
+                    highlight_style['borderw'] = style.get('borderw', 5)
+                    highlight_style['bordercolor'] = style.get('bordercolor', 'black')
+                    highlight_style['shadowx'] = style.get('shadowx', 5)
+                    highlight_style['shadowy'] = style.get('shadowy', 5)
+                    highlight_style['shadowcolor'] = style.get('shadowcolor', 'black@1.0')
+                for key in ['box', 'boxcolor', 'boxborderw']:
+                    if key in highlight_style:
+                        del highlight_style[key]
+            else:
+                highlight_style['fontcolor'] = 'white'
+                highlight_style['box'] = 1
+                highlight_style['boxcolor'] = style.get('highlight_color', '#D946EF') + '@0.95'
+                highlight_style['boxborderw'] = 14
+                highlight_style['borderw'] = 0
+                highlight_style['shadowx'] = 0 if style.get('no_text_border') else 5
+                highlight_style['shadowy'] = 0 if style.get('no_text_border') else 5
+                highlight_style['shadowcolor'] = 'black@1.0'
+            highlight_style['x'] = '(w-text_w)/2'
+            # For highlight_line (horizontal + box): use preset fontsize/fontfile so font size and style are controllable
+            if horizontal_layout and highlight_style.get("box"):
+                fontsize = int(style.get("fontsize", KARAOKE_FIXED_FONTSIZE))
+                base_style['fontsize'] = highlight_style['fontsize'] = fontsize
+            line_height = fontsize * 1.4  # Spacing between lines (40% of font size)
             
-            # Process each word, showing it and previous word(s) stacked vertically
-            for i, (word, w_start, w_end) in enumerate(caption["words_data"]):
-                # Capitalize the word
-                word_upper = word.upper()
-                
-                # Show up to 2 words: current word + previous word (if exists)
-                # Previous words are shown in white above the current highlighted word
-                words_to_show = []
-                if i > 0:
-                    # Show previous word in white above
-                    prev_word = words_list[i-1].upper()
-                    words_to_show.append((prev_word, i-1, 'white'))
-                
-                # Current word highlighted with box
-                words_to_show.append((word_upper, i, 'highlighted'))
-                
-                # Draw each word on its own line, stacked vertically
-                for word_idx, (word_text, word_index, word_style_type) in enumerate(words_to_show):
-                    # Calculate y position: base position + offset for line number
-                    # Previous words go above (negative offset), current word at base position
-                    if word_style_type == 'white':
-                        # Previous word: above current word
-                        y_offset = -line_height
-                        word_y = f"{base_y}+{y_offset}"
-                        word_style = base_style.copy()
-                    else:
-                        # Current word: at base position
-                        word_y = base_y
-                        word_style = highlight_style.copy()
-                    
-                    word_style['y'] = word_y
-                    
-                    # Use the timing of the actual word being displayed
-                    if word_style_type == 'white':
-                        # Previous word: show during current word's time
-                        word_start_time = w_start
-                        word_end_time = w_end
-                    else:
-                        # Current word: use its own timing
-                        word_start_time = w_start
-                        word_end_time = w_end
-                    
+            if horizontal_layout:
+                # Fixed gap between end of one word and start of next. Estimate word width only to place "end".
+                fixed_gap_px = 72  # constant gap in pixels between words (comfortable spacing)
+                char_width_approx = fontsize * 0.6  # only used to get end-of-word position for next word
+                offsets = [0]
+                for w in words_list[:-1]:
+                    end_of_word = offsets[-1] + len(w) * char_width_approx
+                    offsets.append(int(end_of_word) + fixed_gap_px)
+                last_word_width = len(words_list[-1]) * char_width_approx
+                total_width_px = int(offsets[-1] + last_word_width)
+                # Center line once in Python; use absolute x per word so no (w-text_w)/2 in filter — spacing stays fixed
+                line_start_x = max(0, (self.video_width - total_width_px) // 2) if self.video_width else 0
+                cap_end = caption["end"]
+                # One drawtext per word: highlight when t in [w_start, w_end], base when t >= next word start.
+                # When highlight has box, use rounded-rect overlay (drawtext without box) if PIL is available.
+                loc_base, base_temps = [], []
+                loc_hi, hi_temps = [], []
+                loc_overlay = []  # (x, y, w, h, t_start, t_end, color_hex, alpha) per highlight word
+                use_rounded_box = _PIL_AVAILABLE and highlight_style.get("box") and self.video_width and self.video_height
+                boxborderw = int(highlight_style.get("boxborderw", 14))
+                # Padding for rounded overlay (comfortable room around text, not sticky)
+                overlay_pad = 14 if use_rounded_box else boxborderw
+                base_y_px = int(self.video_height * 0.85) if self.video_height else 0
+                boxcolor = highlight_style.get("boxcolor", "#A855F7@0.95")
+                if "@" in str(boxcolor):
+                    boxcolor_hex, box_alpha_str = str(boxcolor).split("@", 1)
+                    box_alpha = float(box_alpha_str.strip()) if box_alpha_str.strip() else 0.95
+                else:
+                    boxcolor_hex, box_alpha = (boxcolor.strip() or "#A855F7"), 0.95
+                for j, (word, w_start, w_end) in enumerate(caption["words_data"]):
+                    w_start = float(w_start)
+                    w_end = float(w_end)
+                    word_text = word.upper() if style.get("all_caps") else word
+                    x_px = line_start_x + int(offsets[j])  # absolute pixel — no centering expr, so gap stays fixed
+                    word_style_hi = highlight_style.copy()
+                    word_style_hi['x'] = x_px
+                    word_style_hi['y'] = base_y
+                    if use_rounded_box:
+                        # Rounded box via overlay; drawtext without box. Even padding on all sides.
+                        word_style_hi = {k: v for k, v in word_style_hi.items() if k not in ("box", "boxcolor", "boxborderw")}
+                        word_style_hi["box"] = 0
+                        # Symmetric padding; box width uses a more generous char-width estimate so right padding
+                        # stays even across words (layout uses 0.6*fontsize; proportional fonts vary, so box uses ~0.68).
+                        pad_l = pad_r = pad_b = overlay_pad
+                        pad_t = overlay_pad + 10  # extra above (drawtext y/metrics often leave top tighter)
+                        char_width_box = fontsize * 0.68  # slightly more than layout 0.6 so box isn't tight on right
+                        text_w_box = int(len(word_text) * char_width_box)
+                        text_height_approx = max(32, int(fontsize * 0.95))
+                        w_box = text_w_box + pad_l + pad_r
+                        h_box = text_height_approx + pad_t + pad_b
+                        x_box = max(0, x_px - pad_l)
+                        y_box = max(0, base_y_px - pad_t)
+                        alpha_expr = f"if(lt(t-{w_start},0.12),(t-{w_start})/0.12,1)" if style.get("box_alpha_animation") else None
+                        loc_overlay.append((x_box, y_box, w_box, h_box, w_start, w_end, boxcolor_hex, box_alpha, alpha_expr))
+                    box_pop_alpha = None
+                    if style.get("box_alpha_animation") and word_style_hi.get("box"):
+                        t0 = round(float(w_start), 3)
+                        box_pop_alpha = f"if(lt(t-{t0},0.12),(t-{t0})/0.12,1)"
                     filter_str, temp_file = self._create_drawtext_filter(
-                        word_text, word_start_time, word_end_time, word_style
+                        word_text, w_start, w_end, word_style_hi, alpha_expr=box_pop_alpha
                     )
-                    filters.append(filter_str)
+                    loc_hi.append(filter_str)
                     if temp_file:
-                        temp_files.append(temp_file)
+                        hi_temps.append(temp_file)
+                    if j + 1 < len(caption["words_data"]):
+                        next_start = float(caption["words_data"][j + 1][1])
+                        word_style_base = base_style.copy()
+                        word_style_base['x'] = x_px
+                        word_style_base['y'] = base_y
+                        filter_str, temp_file = self._create_drawtext_filter(
+                            word_text, next_start, cap_end, word_style_base
+                        )
+                        loc_base.append(filter_str)
+                        if temp_file:
+                            base_temps.append(temp_file)
+                base_filters.extend(loc_base)
+                hi_filters.extend(loc_hi)
+                overlay_specs.extend(loc_overlay)
+                temp_files.extend(base_temps)
+                temp_files.extend(hi_temps)
+            else:
+                # Vertical stack: PREVIOUS word above (base), CURRENT word below (highlight). Draw previous first so current is on top.
+                # Same word must get highlight only when it is current — draw HIGHLIGHT segment last so it wins.
+                base_v, temps_base = [], []
+                hi_v, temps_hi = [], []
+                for i, (word, w_start, w_end) in enumerate(caption["words_data"]):
+                    w_start = float(w_start)
+                    w_end = float(w_end)
+                    word_upper = word.upper()
+                    # Previous word in BASE style only — ABOVE (smaller y), drawn first
+                    if i > 0:
+                        prev_word = words_list[i - 1].upper()
+                        style_base = base_style.copy()
+                        style_base['y'] = f"{base_y}+{-line_height}"  # above
+                        fstr, tfile = self._create_drawtext_filter(prev_word, w_start, w_end, style_base)
+                        base_v.append(fstr)
+                        if tfile:
+                            temps_base.append(tfile)
+                    # Current word in HIGHLIGHT style only — BELOW (base_y), drawn last so it is on top
+                    style_hi = highlight_style.copy()
+                    style_hi['y'] = base_y  # below
+                    fstr, tfile = self._create_drawtext_filter(word_upper, w_start, w_end, style_hi)
+                    hi_v.append(fstr)
+                    if tfile:
+                        temps_hi.append(tfile)
+                base_filters.extend(base_v)
+                hi_filters.extend(hi_v)
+                temp_files.extend(temps_base)
+                temp_files.extend(temps_hi)
                 
         elif effect == "boxed":
-            # BOXED EFFECT: Each word shown with colored background box (simpler version)
-            # Words appear one at a time at the bottom with a colored box
-            for word, w_start, w_end in caption["words_data"]:
-                # Keep original capitalization (don't force uppercase)
+            # BOXED EFFECT: Each word in colored box. For 2-word groups show both (previous above, current below).
+            words_data = caption["words_data"]
+            cap_end = caption["end"]
+            base_y = style.get("y", "h*0.80")
+            line_height = (style.get("fontsize", 60) * 1.4)
+            n_words = len(words_data)
+            for j, (word, w_start, w_end) in enumerate(words_data):
+                w_start = float(w_start)
+                w_end = float(w_end)
                 box_style = style.copy()
                 box_style['fontcolor'] = 'white'
                 box_style['box'] = 1
                 box_style['boxcolor'] = style.get('highlight_color', '#D946EF') + '@0.9'
-                box_style['boxborderw'] = 10
-                box_style['borderw'] = 0  # No text border, just the box
-                filter_str, temp_file = self._create_drawtext_filter(
-                    word, w_start, w_end, box_style
-                )
-                filters.append(filter_str)
+                box_style['boxborderw'] = style.get('boxborderw', 14)
+                if style.get('borderw'):
+                    box_style['borderw'] = style['borderw']
+                    box_style['bordercolor'] = style.get('bordercolor', 'black')
+                if style.get('shadowx') is not None:
+                    box_style['shadowx'] = style['shadowx']
+                    box_style['shadowy'] = style['shadowy']
+                    box_style['shadowcolor'] = style.get('shadowcolor', 'black@1.0')
+                display_word = word.upper() if style.get('all_caps') else word
+                if n_words >= 2:
+                    # Grouped: word 0 above, word 1 below (same as karaoke vertical order)
+                    if j == 0:
+                        box_style['y'] = f"{base_y}+{-line_height}"
+                        t_end = cap_end  # stay visible until segment end
+                    else:
+                        box_style['y'] = base_y
+                        t_end = cap_end
+                    filter_str, temp_file = self._create_drawtext_filter(
+                        display_word, w_start, t_end, box_style
+                    )
+                else:
+                    box_style['y'] = base_y
+                    filter_str, temp_file = self._create_drawtext_filter(
+                        display_word, w_start, w_end, box_style
+                    )
+                base_filters.append(filter_str)
                 if temp_file:
                     temp_files.append(temp_file)
             
@@ -1008,7 +1443,7 @@ class VideoCaptionStyler:
                 filter_str, temp_file = self._create_drawtext_filter(
                     word, w_start, w_end, highlight_style, y_expr=y_expr, alpha_expr=alpha_expr
                 )
-                filters.append(filter_str)
+                base_filters.append(filter_str)
                 if temp_file:
                     temp_files.append(temp_file)
                 
@@ -1022,7 +1457,7 @@ class VideoCaptionStyler:
                 filter_str, temp_file = self._create_drawtext_filter(
                     word, w_start, w_end, style, y_expr=y_expr
                 )
-                filters.append(filter_str)
+                base_filters.append(filter_str)
                 if temp_file:
                     temp_files.append(temp_file)
                 
@@ -1037,7 +1472,7 @@ class VideoCaptionStyler:
                 filter_str, temp_file = self._create_drawtext_filter(
                     word, w_start, w_end, style, y_expr=y_expr, alpha_expr=alpha_expr
                 )
-                filters.append(filter_str)
+                base_filters.append(filter_str)
                 if temp_file:
                     temp_files.append(temp_file)
                 
@@ -1054,7 +1489,7 @@ class VideoCaptionStyler:
                 filter_str, temp_file = self._create_drawtext_filter(
                     word, w_start, w_end, highlight_style, x_expr=x_expr, alpha_expr=alpha_expr
                 )
-                filters.append(filter_str)
+                base_filters.append(filter_str)
                 if temp_file:
                     temp_files.append(temp_file)
         
@@ -1068,7 +1503,7 @@ class VideoCaptionStyler:
                 filter_str, temp_file = self._create_drawtext_filter(
                     word, w_start, w_end, highlight_style, alpha_expr=alpha_expr
                 )
-                filters.append(filter_str)
+                base_filters.append(filter_str)
                 if temp_file:
                     temp_files.append(temp_file)
                 
@@ -1082,7 +1517,7 @@ class VideoCaptionStyler:
                 filter_str, temp_file = self._create_drawtext_filter(
                     word, w_start, w_end, style, x_expr=x_expr, alpha_expr=alpha_expr
                 )
-                filters.append(filter_str)
+                base_filters.append(filter_str)
                 if temp_file:
                     temp_files.append(temp_file)
                 
@@ -1094,7 +1529,7 @@ class VideoCaptionStyler:
                 filter_str, temp_file = self._create_drawtext_filter(
                     word, w_start, w_end, highlight_style
                 )
-                filters.append(filter_str)
+                base_filters.append(filter_str)
                 if temp_file:
                     temp_files.append(temp_file)
                 
@@ -1106,7 +1541,7 @@ class VideoCaptionStyler:
                 filter_str, temp_file = self._create_drawtext_filter(
                     accumulated.strip(), w_start, caption["end"], style
                 )
-                filters.append(filter_str)
+                base_filters.append(filter_str)
                 if temp_file:
                     temp_files.append(temp_file)
                 
@@ -1117,7 +1552,7 @@ class VideoCaptionStyler:
                 filter_str, temp_file = self._create_drawtext_filter(
                     word, w_start, w_end, style, alpha_expr=alpha_expr
                 )
-                filters.append(filter_str)
+                base_filters.append(filter_str)
                 if temp_file:
                     temp_files.append(temp_file)
                 
@@ -1127,11 +1562,11 @@ class VideoCaptionStyler:
                 filter_str, temp_file = self._create_drawtext_filter(
                     word, w_start, w_end, style
                 )
-                filters.append(filter_str)
+                base_filters.append(filter_str)
                 if temp_file:
                     temp_files.append(temp_file)
         
-        return filters, temp_files
+        return (base_filters, hi_filters, overlay_specs, temp_files)
     
     def _escape_ffmpeg_text(self, text):
         """Escape special characters for FFmpeg drawtext filter"""
@@ -1149,6 +1584,29 @@ class VideoCaptionStyler:
         temp_file.close()
         return temp_file.name
     
+    def _create_rounded_rect_png(self, width, height, color_hex, alpha=0.95, corner_radius=12, out_path=None):
+        """Create a PNG with a rounded rectangle (for highlight box overlay). Returns path or None if PIL missing."""
+        if not _PIL_AVAILABLE or width <= 0 or height <= 0:
+            return None
+        if out_path is None:
+            fd, out_path = tempfile.mkstemp(suffix=".png", prefix="caption_rect_")
+            os.close(fd)
+        try:
+            # Parse hex color (#RRGGBB) and apply alpha
+            color_hex = (color_hex or "#A855F7").lstrip("#")
+            if len(color_hex) == 6:
+                r, g, b = int(color_hex[0:2], 16), int(color_hex[2:4], 16), int(color_hex[4:6], 16)
+            else:
+                r, g, b = 168, 85, 247  # #A855F7 violet
+            rad = min(corner_radius, min(width, height) // 2)
+            img = Image.new("RGBA", (max(2, width), max(2, height)), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(img)
+            draw.rounded_rectangle((0, 0, width - 1, height - 1), radius=rad, fill=(r, g, b, int(255 * alpha)))
+            img.save(out_path, "PNG")
+            return out_path
+        except Exception:
+            return None
+
     def _create_drawtext_filter(self, text, start, end, style, 
                                 alpha_expr=None, base_alpha=None, x_expr=None,
                                 y_expr=None, text_file_path=None):
@@ -1167,19 +1625,17 @@ class VideoCaptionStyler:
         # Escape the textfile path for FFmpeg (only escape single quotes)
         text_file_path_escaped = text_file_path.replace("'", "'\\''")
         
+        # FFmpeg: clean decimal times; between(t,a,b) is true when a <= t <= b
+        t_start = float(start)
+        t_end = float(end)
         params = [
             f"textfile='{text_file_path_escaped}'",  # Use textfile for Unicode support
             f"fontsize={fontsize}",
             f"fontcolor={style.get('fontcolor', 'white')}",
             f"x={x_value}",
             f"y={y_value}",
-            f"enable='between(t,{start},{end})'"
+            f"enable='between(t,{t_start:.3f},{t_end:.3f})'"
         ]
-        
-        if alpha_expr:
-            params.append(f"alpha='{alpha_expr}'")
-        elif base_alpha:
-            params.append(f"alpha={base_alpha}")
         
         # Use fontfile for reliable cross-platform font rendering
         # FFmpeg needs the font path properly escaped
@@ -1204,8 +1660,164 @@ class VideoCaptionStyler:
         if "shadowx" in style:
             params.append(f"shadowx={style['shadowx']}")
             params.append(f"shadowy={style['shadowy']}")
-            
+        if "shadowcolor" in style:
+            params.append(f"shadowcolor={style['shadowcolor']}")
+        # Alpha last so it applies to entire drawtext (text + box). Escape commas in
+        # expression so FFmpeg does not treat them as filter parameter separators.
+        if alpha_expr:
+            alpha_escaped = alpha_expr.replace(",", "\\,")
+            params.append(f"alpha='{alpha_escaped}'")
+        elif base_alpha:
+            params.append(f"alpha={base_alpha}")
+
         return ("drawtext=" + ":".join(params), text_file_path)
+    
+    def _render_via_opencv_highlight(self, opencv_caption_overlays, all_temp_files, quality):
+        """Render highlight_line preset with Python+OpenCV: rounded box with expand/shrink only (no fade-in), font from style."""
+        cap = cv2.VideoCapture(self.video_path)
+        if not cap.isOpened():
+            raise RuntimeError(f"OpenCV could not open video: {self.video_path}")
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        w_vid = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h_vid = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fd, video_only_path = tempfile.mkstemp(suffix=".mp4", prefix="caption_opencv_")
+        os.close(fd)
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        out = cv2.VideoWriter(video_only_path, fourcc, fps, (w_vid, h_vid))
+        if not out.isOpened():
+            cap.release()
+            raise RuntimeError("OpenCV VideoWriter could not be opened")
+        # Padding so highlight box covers word with some padding (matches overlay_specs from _create_word_effect_filters)
+        pad_l, pad_t = 14, 24
+        style = opencv_caption_overlays[0][0]["style"] if opencv_caption_overlays else {}
+        corner_radius = int(style.get("corner_radius", 12))  # controllable via preset/custom_css
+        # Expand/shrink only (no fade-in): 0.92→1.0 over 0.08s, then 1.0→0.98 over 0.04s
+        expand_duration, shrink_duration = 0.08, 0.04
+        # Font size from preset. PIL truetype size is in points (~1:1 pixels at 72 DPI); use preset so it's controllable.
+        fontsize = int(style.get("fontsize", 55))
+        fontfile = style.get("fontfile")
+        if not fontfile or not os.path.isfile(fontfile):
+            fontfile = None
+        try:
+            pil_font = ImageFont.truetype(fontfile, fontsize) if fontfile else ImageFont.load_default()
+        except Exception:
+            pil_font = ImageFont.load_default()
+        box_color_hex = (style.get("highlight_color") or style.get("boxcolor") or "#A855F7").split("@")[0].strip().lstrip("#")
+        if len(box_color_hex) == 6:
+            box_r, box_g, box_b = int(box_color_hex[0:2], 16), int(box_color_hex[2:4], 16), int(box_color_hex[4:6], 16)
+        else:
+            box_r, box_g, box_b = 168, 85, 247
+        frame_idx = 0
+        while frame_idx < total_frames:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            t = frame_idx / fps
+            frame_idx += 1
+            # Find caption that contains t
+            caption, overlay_specs = None, None
+            for c, specs in opencv_caption_overlays:
+                if c["start"] <= t <= c["end"]:
+                    caption, overlay_specs = c, specs
+                    break
+            if not caption or not overlay_specs:
+                out.write(frame)
+                continue
+            words_data = caption["words_data"]
+            # Draw base-style words (past words: t >= next word start)
+            for i, (word, w_start, w_end) in enumerate(words_data):
+                next_start = float(words_data[i + 1][1]) if i + 1 < len(words_data) else caption["end"] + 1
+                if next_start <= t <= caption["end"]:
+                    spec = overlay_specs[i]
+                    x_px = spec[0] + pad_l
+                    base_y_px = spec[1] + pad_t
+                    word_upper = word.upper() if caption["style"].get("all_caps", True) else word
+                    frame = self._opencv_draw_text(frame, word_upper, x_px, base_y_px, (255, 255, 255), pil_font)
+            # Current word: highlight box (expand/shrink animation, no fade) + highlight text
+            for i, (word, w_start, w_end) in enumerate(words_data):
+                w_start, w_end = float(w_start), float(w_end)
+                if w_start <= t <= w_end:
+                    spec = overlay_specs[i]
+                    x_box, y_box, w_box, h_box = spec[0], spec[1], spec[2], spec[3]
+                    dt = t - w_start
+                    # Expand 0.92→1.0 over expand_duration, then shrink 1.0→0.98 over shrink_duration
+                    if dt < 0:
+                        scale = 0.92
+                    elif dt < expand_duration:
+                        scale = 0.92 + (1.0 - 0.92) * (dt / expand_duration)
+                    elif dt < expand_duration + shrink_duration:
+                        scale = 1.0 + (0.98 - 1.0) * ((dt - expand_duration) / shrink_duration)
+                    else:
+                        scale = 0.98
+                    cx, cy = x_box + w_box / 2, y_box + h_box / 2
+                    w_s, h_s = max(2, int(w_box * scale)), max(2, int(h_box * scale))
+                    x_s = int(cx - w_s / 2)
+                    y_s = int(cy - h_s / 2)
+                    frame = self._opencv_draw_rounded_rect(frame, x_s, y_s, w_s, h_s, (box_r, box_g, box_b), 0.95, corner_radius)
+                    word_upper = word.upper() if caption["style"].get("all_caps", True) else word
+                    x_px = spec[0] + pad_l
+                    base_y_px = spec[1] + pad_t
+                    frame = self._opencv_draw_text(frame, word_upper, x_px, base_y_px, (255, 255, 255), pil_font)
+                    break
+            out.write(frame)
+        cap.release()
+        out.release()
+        # Mux video with audio from original
+        bitrate_map = {"lossless": "50M", "high": "10M", "medium": "5M"}
+        bitrate = bitrate_map.get(quality, "10M")
+        mux_cmd = [
+            "ffmpeg", "-y",
+            "-i", video_only_path,
+            "-i", self.video_path,
+            "-map", "0:v", "-map", "1:a",
+            "-c:v", "libopenh264", "-b:v", bitrate,
+            "-pix_fmt", "yuv420p", "-c:a", "copy",
+            "-shortest",
+            self.output_path
+        ]
+        subprocess.run(mux_cmd, check=True, capture_output=True, text=True)
+        try:
+            os.remove(video_only_path)
+        except OSError:
+            pass
+        print("✓ Video rendered (OpenCV highlight_line path)")
+    
+    def _opencv_draw_rounded_rect(self, frame_bgr, x, y, w, h, color_rgb, alpha, radius):
+        """Draw a rounded rectangle on frame with given alpha (0-1)."""
+        if not _PIL_AVAILABLE or w <= 0 or h <= 0:
+            return frame_bgr
+        x, y = int(x), int(y)
+        w, h = int(w), int(h)
+        radius = min(radius, w // 2, h // 2)
+        img_rgba = np.zeros((h, w, 4), dtype=np.uint8)
+        pil_img = Image.fromarray(img_rgba)
+        draw = ImageDraw.Draw(pil_img)
+        draw.rounded_rectangle((0, 0, w - 1, h - 1), radius=radius, fill=(*color_rgb, int(255 * alpha)))
+        overlay = np.array(pil_img)
+        h_vid, w_vid = frame_bgr.shape[0], frame_bgr.shape[1]
+        y1, y2 = max(0, y), min(h_vid, y + h)
+        x1, x2 = max(0, x), min(w_vid, x + w)
+        sy1, sy2 = max(0, y1 - y), min(h, y2 - y)
+        sx1, sx2 = max(0, x1 - x), min(w, x2 - x)
+        if sy2 <= sy1 or sx2 <= sx1:
+            return frame_bgr
+        roi = frame_bgr[y1:y2, x1:x2].astype(np.float32)
+        ov = overlay[sy1:sy2, sx1:sx2]
+        a = (ov[:, :, 3:4] / 255.0).astype(np.float32)
+        frame_bgr[y1:y2, x1:x2] = (roi * (1 - a) + cv2.cvtColor(ov[:, :, :3], cv2.COLOR_RGB2BGR).astype(np.float32) * a).astype(np.uint8)
+        return frame_bgr
+    
+    def _opencv_draw_text(self, frame_bgr, text, x, y, color_rgb, font):
+        """Draw text on frame at (x,y) using PIL font."""
+        if not _PIL_AVAILABLE:
+            return frame_bgr
+        img_pil = Image.fromarray(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
+        draw = ImageDraw.Draw(img_pil)
+        draw.text((int(x), int(y)), text, font=font, fill=color_rgb)
+        arr = np.array(img_pil)
+        frame_bgr[:, :] = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+        return frame_bgr
     
     def render(self, quality="high"):
         """
@@ -1218,31 +1830,93 @@ class VideoCaptionStyler:
             print("No captions added!")
             return
         
-        all_filters = []
-        all_temp_files = []  # Track all temp files for cleanup
+        all_base = []
+        all_hi = []
+        all_overlays = []
+        all_temp_files = []
+        opencv_caption_overlays = []  # (caption, overlay_specs) for captions that have rounded-box overlays
         
         for caption in self.captions:
-            filters, temp_files = self._create_word_effect_filters(caption)
-            all_filters.extend(filters)
+            base_filters, hi_filters, overlay_specs, temp_files = self._create_word_effect_filters(caption)
+            all_base.extend(base_filters)
+            all_hi.extend(hi_filters)
+            all_overlays.extend(overlay_specs)
+            if overlay_specs:
+                opencv_caption_overlays.append((caption, overlay_specs))
             all_temp_files.extend(temp_files)
         
-        filter_complex = ",".join(all_filters)
+        # Parallel path: Python+OpenCV for highlight_line (animated rounded box). FFmpeg path kept below.
+        if USE_OPENCV_FOR_HIGHLIGHT_LINE and opencv_caption_overlays and _OPENCV_AVAILABLE and _PIL_AVAILABLE:
+            try:
+                self._render_via_opencv_highlight(opencv_caption_overlays, all_temp_files, quality)
+                return
+            except Exception as e:
+                print(f"⚠ OpenCV highlight render failed ({e}), falling back to FFmpeg path")
         
         # Quality settings using bitrate (compatible with all H264 encoders)
         bitrate_map = {"lossless": "50M", "high": "10M", "medium": "5M"}
         bitrate = bitrate_map.get(quality, "10M")
         
-        cmd = [
-            "ffmpeg",
-            "-i", self.video_path,
-            "-vf", filter_complex,
-            "-c:v", "libopenh264",   # OpenH264 codec (widely available)
-            "-b:v", bitrate,          # Video bitrate for quality
-            "-pix_fmt", "yuv420p",    # Compatibility
-            "-c:a", "copy",           # Copy audio without re-encoding
-            "-y",
-            self.output_path
-        ]
+        use_rounded_overlay = len(all_overlays) > 0 and _PIL_AVAILABLE
+        rounded_png_path = None
+        
+        if use_rounded_overlay:
+            # Create one template rounded-rect PNG (scaled per overlay in filter)
+            rounded_png_path = self._create_rounded_rect_png(
+                200, 80,
+                all_overlays[0][6] if all_overlays else "#A855F7",
+                all_overlays[0][7] if all_overlays else 0.95,
+                corner_radius=12
+            )
+            if rounded_png_path:
+                all_temp_files.append(rounded_png_path)
+            else:
+                use_rounded_overlay = False
+        
+        if use_rounded_overlay and rounded_png_path:
+            # Build filter_complex: [0:v] base_filters [v0]; then for each hi: scale overlay, overlay, drawtext
+            parts = []
+            if all_base:
+                parts.append("[0:v]" + ",".join(all_base) + "[v0]")
+            else:
+                parts.append("[0:v]null[v0]")
+            cur = "v0"
+            for i, spec in enumerate(all_overlays):
+                # spec: (x, y, w, h, t_start, t_end, color_hex, alpha, alpha_expr or None)
+                x, y, w, h, t_start, t_end = spec[0], spec[1], spec[2], spec[3], spec[4], spec[5]
+                ov_label = f"ov{i}"
+                v_after_overlay = f"v{2*i+1}"
+                v_after_dt = f"v{2*i+2}"
+                parts.append(f"[1:v]scale={w}:{h}[{ov_label}]")
+                # overlay filter's alpha= is for format (straight/premultiplied), not opacity; no fade-in on overlay
+                overlay_opts = f"{x}:{y}:enable='between(t\\,{t_start:.3f}\\,{t_end:.3f})'"
+                parts.append(f"[{cur}][{ov_label}]overlay={overlay_opts}[{v_after_overlay}]")
+                parts.append(f"[{v_after_overlay}]{all_hi[i]}[{v_after_dt}]")
+                cur = v_after_dt
+            filter_complex = ";".join(parts)
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", self.video_path,
+                "-i", rounded_png_path,
+                "-filter_complex", filter_complex,
+                "-map", f"[{cur}]", "-map", "0:a",
+                "-c:v", "libopenh264", "-b:v", bitrate,
+                "-pix_fmt", "yuv420p", "-c:a", "copy",
+                self.output_path
+            ]
+        else:
+            filter_complex = ",".join(all_base + all_hi)
+            cmd = [
+                "ffmpeg",
+                "-i", self.video_path,
+                "-vf", filter_complex,
+                "-c:v", "libopenh264",   # OpenH264 codec (widely available)
+                "-b:v", bitrate,          # Video bitrate for quality
+                "-pix_fmt", "yuv420p",    # Compatibility
+                "-c:a", "copy",           # Copy audio without re-encoding
+                "-y",
+                self.output_path
+            ]
         
         print(f"Rendering video with {len(self.captions)} animated captions...")
         print(f"Output: {self.output_path}")
@@ -1361,8 +2035,43 @@ COMBINATIONS = [
 ]
 
 
+# UI presets (Select a preset to add to your captions) - used with --preset
+# effect defaults to "karaoke"; use "boxed" for per-word box styles (wrap_1, wrap_2)
+UI_PRESETS = [
+    {"name": "basic", "description": "BASIC - Black bold with white outline", "effect": "karaoke"},
+    {"name": "revid", "description": "REVID - Plain black, no border", "effect": "karaoke"},
+    {"name": "hormozi", "description": "HORMOZI - Yellow bold with dark outline", "effect": "karaoke"},
+    {"name": "ali", "description": "Ali - Plain black", "effect": "karaoke"},
+    {"name": "wrap_1", "description": "Wrap 1 - Red box", "effect": "boxed"},
+    {"name": "wrap_2", "description": "WRAP 2 - Blue box", "effect": "boxed"},
+    {"name": "faceless", "description": "FACELESS - Light gray with gray outline", "effect": "karaoke"},
+    {"name": "elegant", "description": "Elegant - Black with subtle border", "effect": "karaoke"},
+    {"name": "difference", "description": "Difference - White on dark blue-gray box", "effect": "karaoke"},
+    {"name": "opacity", "description": "Opacity - White on dark gray box", "effect": "karaoke"},
+    {"name": "playful", "description": "Playful - Golden-brown with brown outline", "effect": "karaoke"},
+    {"name": "bold_punch", "description": "BOLD PUNCH - Bright yellow, strong black outline", "effect": "karaoke"},
+    {"name": "movie", "description": "Movie - White text with black outline (no background)", "effect": "karaoke"},
+    {"name": "outline", "description": "Outline - White on dark background", "effect": "karaoke"},
+    {"name": "cove", "description": "Cove - Light gray with gray outline", "effect": "karaoke"},
+    {"name": "beat", "description": "BEAT - Plain black", "effect": "karaoke"},
+    {"name": "reels_line", "description": "Reels line - White text, blue highlight (no box), black outline, horizontal (max 4 words)", "effect": "karaoke", "max_words": 4},
+    {"name": "highlight_line", "description": "Highlight line - All white text, highlight box with pop-in, black outline, horizontal (max 4 words)", "effect": "karaoke", "max_words": 4, "highlight_box": True},
+]
+
+ALIGNMENT_OPTIONS = ["top", "middle", "bottom"]
+
+
+def find_ui_preset(name):
+    """Find UI preset by name (case-insensitive). Returns style name for _get_style."""
+    name_lower = name.lower().strip().replace(" ", "_")
+    for p in UI_PRESETS:
+        if p["name"].lower() == name_lower:
+            return p
+    return None
+
+
 def list_combinations():
-    """Print all available combinations"""
+    """Print all available combinations, UI presets, and alignment options"""
     print("="*60)
     print("AVAILABLE CAPTION STYLE COMBINATIONS")
     print("="*60)
@@ -1371,9 +2080,22 @@ def list_combinations():
         print(f"{i:2d}. {combo['name']:20s} - {combo['description']}")
     print()
     print("="*60)
+    print("UI PRESETS (--preset)")
+    print("="*60)
+    for i, p in enumerate(UI_PRESETS, 1):
+        print(f"{i:2d}. {p['name']:20s} - {p['description']}")
+    print()
+    print("="*60)
+    print("ALIGNMENT (--alignment)")
+    print("="*60)
+    for a in ALIGNMENT_OPTIONS:
+        print(f"  {a}")
+    print()
+    print("="*60)
     print("Usage:")
-    print("  python video_captions.py --video <path> --combination <name>")
-    print("  python video_captions.py --video <path> --combination boxed_pink")
+    print("  python video_captions.py --video <path> --combination <name> [--alignment top|middle|bottom]")
+    print("  python video_captions.py --video <path> --preset <name> [--alignment top|middle|bottom]")
+    print("  python video_captions.py --video <path> --preset basic [--output /path/to/out.mp4]")
     print("="*60)
 
 
@@ -1393,17 +2115,21 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # List all available combinations
+  # List all combinations, presets, and alignment options
   python video_captions.py --list
 
-  # Generate a specific combination
+  # Generate with a combination (legacy)
   python video_captions.py --video /path/to/video.mp4 --combination boxed_pink
 
-  # Generate with Hindi transliteration (Devanagari → English)
-  python video_captions.py --video /path/to/video.mp4 --combination boxed_pink --language hi --transliterate
+  # Generate with a UI preset and alignment (top, middle, or bottom)
+  python video_captions.py --video /path/to/video.mp4 --preset basic --alignment bottom
+  python video_captions.py --video /path/to/video.mp4 --preset bold_punch --alignment top
 
-  # Specify custom output directory
-  python video_captions.py --video /path/to/video.mp4 --combination karaoke_purple --output /path/to/output
+  # With Hindi transliteration
+  python video_captions.py --video /path/to/video.mp4 --preset wrap_1 --language hi --transliterate
+
+  # Custom output file path
+  python video_captions.py --video /path/to/video.mp4 --preset movie --output /path/to/captioned.mp4
         """
     )
     
@@ -1416,13 +2142,24 @@ Examples:
     parser.add_argument(
         "--combination",
         type=str,
-        help="Name of the caption style combination to use (e.g., 'boxed_pink', 'karaoke_purple')"
+        help="Caption style combination (e.g., 'boxed_pink', 'karaoke_purple')"
     )
-    
+    parser.add_argument(
+        "--preset",
+        type=str,
+        help="UI preset (e.g., 'basic', 'revid', 'wrap_1', 'bold_punch', 'movie')"
+    )
+    parser.add_argument(
+        "--alignment",
+        type=str,
+        choices=ALIGNMENT_OPTIONS,
+        default="bottom",
+        help="Vertical alignment: top, middle, or bottom (default: bottom)"
+    )
     parser.add_argument(
         "--output",
         type=str,
-        help="Output directory for the captioned video (default: same directory as input video)"
+        help="Output file path for the captioned video (default: same directory as input, file named captioned_<style>.mp4)"
     )
     
     parser.add_argument(
@@ -1453,41 +2190,59 @@ Examples:
     
     # Validate required arguments
     if not args.video:
-        parser.error("--video is required. Use --list to see available combinations.")
-    
-    if not args.combination:
-        parser.error("--combination is required. Use --list to see available combinations.")
+        parser.error("--video is required. Use --list to see available combinations and presets.")
+    if not args.combination and not args.preset:
+        parser.error("Either --combination or --preset is required. Use --list to see options.")
+    if args.combination and args.preset:
+        parser.error("Use only one of --combination or --preset.")
     
     # Check if video file exists
     if not os.path.exists(args.video):
         parser.error(f"Video file not found: {args.video}")
     
-    # Find the requested combination
-    combo = find_combination(args.combination)
-    if not combo:
-        print(f"Error: Combination '{args.combination}' not found!")
-        print()
-        list_combinations()
-        exit(1)
+    alignment = (args.alignment or "bottom").strip().lower()
     
-    # Determine output directory and path
+    if args.preset:
+        ui_preset = find_ui_preset(args.preset)
+        if not ui_preset:
+            print(f"Error: Preset '{args.preset}' not found!")
+            print()
+            list_combinations()
+            exit(1)
+        combo = {
+            "name": ui_preset["name"],
+            "style": ui_preset["name"],
+            "effect": ui_preset.get("effect", "karaoke"),
+            "description": ui_preset["description"],
+        }
+        if "max_words" in ui_preset:
+            combo["max_words"] = ui_preset["max_words"]
+        if "highlight_box" in ui_preset:
+            combo["highlight_box"] = ui_preset["highlight_box"]
+    else:
+        combo = find_combination(args.combination)
+        if not combo:
+            print(f"Error: Combination '{args.combination}' not found!")
+            print()
+            list_combinations()
+            exit(1)
+    
+    # Determine output file path (--output is the final file path, no folder creation)
     if args.output:
-        output_dir = args.output
-        os.makedirs(output_dir, exist_ok=True)
+        output_path = args.output
     else:
         output_dir = os.path.dirname(os.path.abspath(args.video))
         if not output_dir:
             output_dir = "."
-    
-    output_filename = f"captioned_{combo['name']}.mp4"
-    output_path = os.path.join(output_dir, output_filename)
+        output_path = os.path.join(output_dir, f"captioned_{combo['name']}.mp4")
     
     # Print header
     print("="*60)
     print("GENERATING CAPTIONED VIDEO")
     print("="*60)
     print(f"Input video:  {args.video}")
-    print(f"Combination:  {combo['name']} - {combo['description']}")
+    print(f"Style:        {combo['name']} - {combo['description']}")
+    print(f"Alignment:    {alignment}")
     print(f"Output:       {output_path}")
     if args.transliterate:
         print(f"Transliterate: Enabled (Devanagari → English)")
@@ -1495,7 +2250,7 @@ Examples:
     
     # Transcribe audio
     print("\n[Step 1] Transcribing audio...")
-    styler = VideoCaptionStyler(args.video, output_path)
+    styler = VideoCaptionStyler(args.video, output_path, alignment=alignment)
     transcription = styler.transcribe_audio(language=args.language)
     
     if not transcription:
@@ -1505,18 +2260,21 @@ Examples:
     # Generate captions
     print(f"\n[Step 2] Generating captions with style '{combo['style']}' and effect '{combo['effect']}'...")
     
-    # For karaoke effect, use 3-4 words per phrase
-    # For boxed effects, use 1-2 words for maximum impact
+    # For karaoke with preset: use preset's max_words if set (e.g. reels_line=4), else 2; for karaoke (combination): 4; for boxed: 2 (wrap_1/wrap_2: 1)
     if combo['effect'] == 'karaoke':
-        max_words = 4  # Show shorter phrases for karaoke
+        max_words = combo.get('max_words', 2 if args.preset else 4)
     else:
-        max_words = 2  # Single/double words for boxed style
+        # wrap_1 and wrap_2: single words only; other boxed styles: up to 2 words
+        max_words = 1 if (args.preset and combo['style'] in ('wrap_1', 'wrap_2')) else 2
     
+    # Preset mode usually strips highlight box; reels_line keeps it and uses box_alpha_animation
+    no_highlight_box = bool(args.preset) and not combo.get("highlight_box", False)
     styler.auto_generate_captions(
         max_words_per_caption=max_words,
         style_preset=combo['style'],
         word_effect=combo['effect'],
-        transliterate=args.transliterate
+        transliterate=args.transliterate,
+        no_highlight_box=no_highlight_box
     )
     
     # Render

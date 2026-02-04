@@ -274,19 +274,16 @@ export const Home = () => {
   // NOTE: Onboarding generation check is now handled in the PRIORITY CHECK useEffect above
   // This prevents race conditions with OAuth flow checks
 
-  const handleViewChange = (view: string) => {
+  const handleViewChange = (view: string, subView?: string) => {
     setActiveView(view);
-    if (view === "calendar") {
-      router.push("/calendar");
-    } else if (view === "brand-kit") {
-      router.push("/brand-kit");
-    } else if (view === "content-library") {
-      router.push("/content-library");
-    } else if (view === "subscription") {
-      router.push("/subscription/manage");
-    } else if (view === "brand-plan") {
-      return; // Disabled
-    }
+    if (view === "discover") router.push("/discover");
+    else if (view === "brands") router.push("/brands");
+    else if (view === "calendar") router.push("/calendar");
+    else if (view === "content-library") router.push("/content-library");
+    else if (view === "brand-kit") router.push(subView ? `/brand-kit?tab=${subView}` : "/brand-kit");
+    else if (view === "subscription") router.push("/subscription/manage");
+    else if (view === "settings") router.push("/subscription/manage");
+    else if (view === "brand-plan") return;
   };
 
   // Handle clicks on highlighted onboarding items
@@ -461,7 +458,7 @@ export const Home = () => {
           <div className="w-10" />
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 md:p-8">
+        <div className="flex-1 overflow-y-auto px-2 md:px-3 lg:px-4 py-4 md:py-6">
           {/* Header with Logo - Desktop only */}
           <div className="hidden md:flex mb-4 md:mb-6 items-center justify-between">
             <div className="w-24 h-16 md:w-32 md:h-20 flex items-center">
@@ -1306,7 +1303,7 @@ export const Home = () => {
 
           {/* Chat Widget - Hidden for now, will be used in future */}
           <div className="hidden fixed bottom-6 right-6 flex items-center gap-3 bg-card border border-border rounded-full px-4 py-3 shadow-lg">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-500 to-purple-500 flex items-center justify-center text-white text-sm font-semibold">
+            <div className="w-8 h-8 rounded-full bg-[hsl(var(--landing-accent-orange))] flex items-center justify-center text-white text-sm font-semibold">
               M
             </div>
             <p className="text-sm text-foreground">Hey Melbin Integrating your social...</p>

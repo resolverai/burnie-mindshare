@@ -7,7 +7,7 @@ import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddl
 const router = Router();
 
 // Store OAuth states temporarily (in production, use Redis)
-const oauthStates = new Map<string, { codeVerifier: string; accountId?: number; timestamp: number }>();
+const oauthStates = new Map<string, { codeVerifier: string; accountId?: number; timestamp: number; signInOnly?: boolean }>();
 
 // Cleanup old states every 10 minutes
 setInterval(() => {
@@ -126,18 +126,21 @@ router.post('/twitter/callback', async (req: Request, res: Response) => {
 /**
  * GET /api/dvyb/auth/google/login
  * Initiate Google OAuth flow for authentication
+ * Query param: sign_in_only=true - only allow existing users, don't create new accounts
  */
 router.get('/google/login', async (req: Request, res: Response) => {
   try {
+    const signInOnly = req.query.sign_in_only === 'true';
     const { oauthUrl, state } = await DvybGoogleAuthService.generateGoogleOAuthUrl();
 
-    // Store state for validation
+    // Store state for validation (include signInOnly for callback)
     oauthStates.set(state, {
       codeVerifier: '', // Google doesn't use PKCE code verifier
       timestamp: Date.now(),
+      ...(signInOnly ? { signInOnly: true } : {}),
     });
 
-    logger.info('✅ DVYB Google login initiated');
+    logger.info(`✅ DVYB Google login initiated${signInOnly ? ' (sign-in only, existing users)' : ''}`);
 
     return res.json({
       success: true,
@@ -195,15 +198,36 @@ router.post('/google/callback', async (req: Request, res: Response) => {
     }
 
     logger.info('✅ State verified successfully');
+    const signInOnly = (stateData as any).signInOnly === true;
     oauthStates.delete(state); // Clean up
 
     // Handle callback
-    logger.info('🔄 Calling DvybGoogleAuthService.handleGoogleCallback...');
-    const { account, isNewAccount, onboardingComplete } = await DvybGoogleAuthService.handleGoogleCallback(
-      code,
-      state,
-      initial_acquisition_flow as 'website_analysis' | 'product_photoshot' | undefined
-    );
+    logger.info(`🔄 Calling DvybGoogleAuthService.handleGoogleCallback... (signInOnly: ${signInOnly})`);
+    let account;
+    let isNewAccount;
+    let onboardingComplete;
+    try {
+      const result = await DvybGoogleAuthService.handleGoogleCallback(
+        code,
+        state,
+        initial_acquisition_flow as 'website_analysis' | 'product_photoshot' | undefined,
+        signInOnly
+      );
+      account = result.account;
+      isNewAccount = result.isNewAccount;
+      onboardingComplete = result.onboardingComplete;
+    } catch (callbackError: any) {
+      if (callbackError?.code === 'ACCOUNT_NOT_FOUND') {
+        logger.info('⚠️ Sign-in-only: Account not found, returning 403');
+        return res.status(403).json({
+          success: false,
+          error: callbackError.message || 'Account not found. Please sign up first.',
+          error_code: 'ACCOUNT_NOT_FOUND',
+          timestamp: new Date().toISOString(),
+        });
+      }
+      throw callbackError;
+    }
     
     logger.info(`✅ Google callback handled - Account ID: ${account.id}, isNew: ${isNewAccount}`);
 

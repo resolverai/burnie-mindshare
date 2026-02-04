@@ -178,6 +178,13 @@ export class DvybContext {
     ctaLinks?: string[];
     ctaCopy?: string;
     ctaFrequency?: 'never' | 'sometimes' | 'always';
+
+    // Content Preferences (wander UI)
+    preferredContentTypes?: string[]; // e.g. ['Static Images', 'Video Ads', 'Carousels', 'Stories', 'Reels']
+    targetPlatforms?: string[]; // e.g. ['Instagram', 'Facebook', 'TikTok', 'LinkedIn', 'Twitter', 'YouTube']
+    postingFrequency?: string; // e.g. '3-5 times per week'
+    bestTimesToPost?: string; // e.g. 'Weekdays 9am-12pm, 6pm-9pm'
+    hashtagStrategy?: string; // Free text for hashtag strategy
   } | null;
 
   // Strategy preferences from onboarding questionnaire

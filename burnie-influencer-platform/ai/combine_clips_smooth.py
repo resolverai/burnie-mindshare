@@ -1,6 +1,7 @@
+import argparse
 from moviepy.editor import VideoFileClip, CompositeVideoClip, concatenate_videoclips
 
-def crossfade_videos(clip_paths, output_path, transition_duration=1.0, end_fade_duration=1.5, use_crossfade=True):
+def crossfade_videos(clip_paths, output_path, transition_duration=1.0, end_fade_duration=0, use_crossfade=True):
     """
     Combine multiple video clips with optional crossfade transitions or simple stitching.
     
@@ -8,7 +9,7 @@ def crossfade_videos(clip_paths, output_path, transition_duration=1.0, end_fade_
         clip_paths: List of paths to video files (in order)
         output_path: Path for output video file
         transition_duration: Duration of crossfade in seconds (default: 1.0) - only used if use_crossfade=True
-        end_fade_duration: Duration of fade-to-black ending in seconds (default: 1.5)
+        end_fade_duration: Duration of fade-to-black ending in seconds (default: 0)
         use_crossfade: If True, use crossfade transitions between clips. If False, simple concatenation (default: True)
     """
     
@@ -109,27 +110,47 @@ def crossfade_videos(clip_paths, output_path, transition_duration=1.0, end_fade_
     print(f"Video saved to: {output_path}")
 
 
-# Example usage
 if __name__ == "__main__":
-    # Specify your input files as a list (in order)
-    input_clips = [
-        "/Users/taran/Downloads/indian-garage-1.mp4",
-        "/Users/taran/Downloads/indian-garage-2.mp4",
-        "/Users/taran/Downloads/indian-garage-3.mp4",
-        "/Users/taran/Downloads/indian-garage-4.mp4",
-        "/Users/taran/Downloads/indian-garage-5.mp4"
-    ]
-    
-    output_file = "/Users/taran/Downloads/combined_output_final_indian-garage_simple.mp4"
-    
-    # Stitching mode: True for crossfade transitions, False for simple concatenation
-    USE_CROSSFADE = False  # Set to False for simple stitching without crossfade
-    
-    # Duration of crossfade transition in seconds (only used if USE_CROSSFADE=True)
-    fade_duration = 1.5  # Adjust as needed
-    
-    # Duration of fade-to-black ending in seconds
-    end_fade_duration = 1.5  # Adjust as needed
-    
-    # Combine all videos
-    crossfade_videos(input_clips, output_file, fade_duration, end_fade_duration, use_crossfade=USE_CROSSFADE)
+    parser = argparse.ArgumentParser(
+        description="Combine multiple video clips with optional crossfade or simple stitching."
+    )
+    parser.add_argument(
+        "clips",
+        nargs="+",
+        help="Paths to video files to combine (in order). At least 2 required.",
+    )
+    parser.add_argument(
+        "-o", "--output",
+        required=True,
+        help="Output video file path.",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["simple", "crossfade"],
+        default="simple",
+        help="Stitching mode: 'simple' = concatenate only; 'crossfade' = crossfade between clips (default: simple).",
+    )
+    parser.add_argument(
+        "--transition-duration",
+        type=float,
+        default=1.0,
+        metavar="SECONDS",
+        help="Duration of crossfade between clips in seconds (default: 1.0). Only used when --mode=crossfade.",
+    )
+    parser.add_argument(
+        "--end-fade",
+        type=float,
+        default=0,
+        metavar="SECONDS",
+        help="Duration of fade-to-black at end of video in seconds (default: 0).",
+    )
+    args = parser.parse_args()
+
+    use_crossfade = args.mode == "crossfade"
+    crossfade_videos(
+        args.clips,
+        args.output,
+        transition_duration=args.transition_duration,
+        end_fade_duration=args.end_fade,
+        use_crossfade=use_crossfade,
+    )

@@ -3654,6 +3654,17 @@ async def analyze_user_images(user_images: List[str], context: Dict, is_onboardi
         import json
         
         # Build comprehensive product/inspiration/model classification prompt
+        # CRITICAL: User images (first N) are ALWAYS product images - never inspiration
+        num_user_images = len(user_images)
+        user_images_note = f"""
+
+🛍️ **USER IMAGES = PRODUCT IMAGES** (CRITICAL - NON-NEGOTIABLE):
+Images 1 through {num_user_images} are the user's product images. They were explicitly uploaded as their PRODUCT.
+These images MUST ALWAYS be classified as PRODUCT IMAGES. They must NEVER be classified as inspiration images.
+- Add ALL of them to product_images with their indices [1, 2, ..., {num_user_images}]
+- Do NOT put any user image in inspiration_images
+- Even if an image looks like a style reference, it is the user's product — classify as PRODUCT"""
+
         brand_image_note = f"\n\n🎨 **BRAND IMAGE**: Image {brand_image_index} is a brand-provided inspirational image. It MUST be classified as INSPIRATION IMAGE." if brand_image_index else ""
         
         # Add category selection section if categories are available
@@ -3726,7 +3737,7 @@ BRAND CONTEXT:
 {f'''
 USER CONTEXT (PRIORITY - Follow these instructions):
 {user_context_str}
-''' if user_context_str else ''}{brand_image_note}{onboarding_product_note}{category_selection_note}
+''' if user_context_str else ''}{user_images_note}{brand_image_note}{onboarding_product_note}{category_selection_note}
 
 🎯 YOUR CRITICAL TASK:
 Classify each uploaded image into ONE of these 3 categories:
@@ -3903,6 +3914,35 @@ Analyze the {len(presigned_urls)} image(s) now.
             
             # Parse JSON
             inventory_analysis = json.loads(json_content)
+            
+            # ENFORCE: User images (1..num_user_images) must ALWAYS be product images, never inspiration
+            product_data = inventory_analysis.get('product_images', {})
+            inspiration_data = inventory_analysis.get('inspiration_images', {})
+            product_indices = set(product_data.get('indices', []))
+            inspiration_indices = set(inspiration_data.get('indices', []))
+            for i in range(1, num_user_images + 1):
+                if i in inspiration_indices and i not in product_indices:
+                    # Grok misclassified: move from inspiration to product
+                    img_key = f"image_{i}"
+                    if img_key in inspiration_data:
+                        insp_item = inspiration_data.pop(img_key)
+                        product_data[img_key] = {
+                            "category": insp_item.get("style", "Product") or "Product",
+                            "features": insp_item.get("colors", []) or [],
+                            "angle": "product shot",
+                            "showcases": insp_item.get("insights", "User product image") or "User product",
+                            "target_audience": "General",
+                            "best_use": "Product showcase",
+                        }
+                    inspiration_indices.discard(i)
+                    product_indices.add(i)
+                    print(f"  ⚠️ Corrected: Image {i} was misclassified as inspiration → moved to product_images")
+            product_data["indices"] = sorted(product_indices)
+            product_data["count"] = len(product_indices)
+            inspiration_data["indices"] = sorted(inspiration_indices)
+            inspiration_data["count"] = len(inspiration_indices)
+            inventory_analysis["product_images"] = product_data
+            inventory_analysis["inspiration_images"] = inspiration_data
             
             print(f"✅ Inventory analysis completed")
             print(f"📊 Analysis keys: {list(inventory_analysis.keys())}")

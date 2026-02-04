@@ -132,7 +132,7 @@ export const ProductShotLanding = ({ onGetStarted }: ProductShotLandingProps) =>
             <h1 className="text-5xl md:text-7xl lg:text-8xl font-bold tracking-tight leading-[1.05]">
               <span className="text-foreground">On-brand visuals.</span>
               <br />
-              <span className="bg-gradient-to-r from-purple-600 via-primary to-purple-600 bg-clip-text text-transparent">
+              <span className="bg-gradient-to-r from-orange-600 via-primary to-orange-600 bg-clip-text text-transparent">
                 Made by AI.
               </span>
             </h1>
@@ -543,7 +543,7 @@ export const ProductShotLanding = ({ onGetStarted }: ProductShotLandingProps) =>
             {/* Bento Grid Layout */}
             <div className="grid grid-cols-12 gap-4">
               {/* Solo Creators - Large Card */}
-              <div className="col-span-12 md:col-span-7 bg-gradient-to-br from-violet-50 to-purple-100 rounded-3xl p-8 relative overflow-hidden group">
+              <div className="col-span-12 md:col-span-7 bg-gradient-to-br from-orange-50 to-orange-100 rounded-3xl p-8 relative overflow-hidden group">
                 <div className="relative z-10">
                   <h3 className="text-2xl font-bold text-foreground mb-3">Solo Creators</h3>
                   <p className="text-foreground/60 max-w-sm leading-relaxed">
@@ -597,7 +597,7 @@ export const ProductShotLanding = ({ onGetStarted }: ProductShotLandingProps) =>
           <h2 className="text-4xl md:text-6xl font-bold text-foreground leading-tight">
             Start creating
             <br />
-            <span className="bg-gradient-to-r from-purple-600 via-primary to-purple-600 bg-clip-text text-transparent">in seconds</span>
+            <span className="bg-gradient-to-r from-orange-600 via-primary to-orange-600 bg-clip-text text-transparent">in seconds</span>
           </h2>
           <p className="text-foreground/60 text-lg max-w-md mx-auto">
             No credit card required. Generate your first product shots today.

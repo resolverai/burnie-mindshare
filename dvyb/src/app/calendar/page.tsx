@@ -43,10 +43,12 @@ export default function CalendarPage() {
     checkOnboardingStatus();
   }, [isAuthenticated, accountId, isLoading, router]);
 
-  const handleViewChange = (view: string) => {
-    if (view === "home") router.push("/home");
-    else if (view === "content-library") router.push("/content-library");
-    else if (view === "brand-kit") router.push("/brand-kit");
+  const handleViewChange = (view: string, subView?: string) => {
+    if (view === "discover") router.push("/discover");
+    else if (view === "brands") router.push("/brands");
+    else if (view === "content-library") router.push(subView ? `/content-library?tab=${subView}` : "/content-library");
+    else if (view === "brand-kit") router.push(subView ? `/brand-kit?tab=${subView}` : "/brand-kit");
+    else if (view === "settings") router.push("/subscription/manage");
     else if (view === "subscription") router.push("/subscription/manage");
     else if (view === "brand-plan") return; // Disabled
     // calendar is current page, no navigation needed

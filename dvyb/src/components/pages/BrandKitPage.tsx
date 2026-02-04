@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Edit, Trash2, Upload, HelpCircle, Image as ImageIcon, Loader2, Save, X, CloudUpload, Globe, Twitter, Instagram as InstagramIcon, Linkedin, Play } from "lucide-react";
+import { Plus, Edit, Trash2, Upload, HelpCircle, Image as ImageIcon, Loader2, Save, X, CloudUpload, Globe, Twitter, Instagram as InstagramIcon, Linkedin, Play, Palette, Type } from "lucide-react";
 import { contextApi, uploadApi, socialConnectionsApi, authApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
@@ -85,6 +85,16 @@ const FormattedText = ({ text }: { text: string }) => {
   );
 };
 
+// Helper: get file format from URL/S3 key for display (PNG, SVG, JPG, etc.)
+const getFileFormatFromUrl = (urlOrKey: string): string => {
+  if (!urlOrKey) return '';
+  const ext = urlOrKey.split('.').pop()?.toLowerCase() || '';
+  const formatMap: Record<string, string> = {
+    svg: 'SVG', png: 'PNG', jpg: 'JPG', jpeg: 'JPEG', webp: 'WEBP', gif: 'GIF'
+  };
+  return formatMap[ext] || ext.toUpperCase();
+};
+
 // Types
 interface LinkData {
   url: string;
@@ -117,8 +127,18 @@ interface ConnectionData {
   username?: string;
 }
 
-export const BrandKitPage = () => {
-  const [activeTab, setActiveTab] = useState("source-materials");
+interface BrandKitPageProps {
+  activeTab?: "style" | "source-materials";
+  onTabChange?: (tab: string) => void;
+}
+
+export const BrandKitPage = ({ activeTab: controlledTab, onTabChange }: BrandKitPageProps) => {
+  const [internalTab, setInternalTab] = useState<"style" | "source-materials">("style");
+  const activeTab = controlledTab ?? internalTab;
+  const setActiveTab = (tab: string) => {
+    if (onTabChange) onTabChange(tab);
+    else setInternalTab(tab as "style" | "source-materials");
+  };
   const [contextData, setContextData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -1037,6 +1057,9 @@ export const BrandKitPage = () => {
     }
   };
 
+  const btnEdit =
+    "rounded-full border border-[#e0ddd8] bg-[#ebe8e3] hover:bg-[#e88d44] hover:text-white hover:border-[#e88d44] text-[#374151] px-3 py-2 h-9 text-sm font-medium transition-colors";
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -1049,27 +1072,19 @@ export const BrandKitPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-[hsl(var(--app-content-bg))]">
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        {/* Sticky Header with Tabs and Save Button */}
-        <div className="sticky top-0 z-50 bg-background border-b border-border">
-          <div className="max-w-7xl mx-auto px-4 md:px-6 lg:px-8 py-3 md:py-4">
-            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 md:gap-4">
-              <div className="w-full md:w-auto overflow-x-auto">
-                <TabsList className="inline-flex w-max">
-                  <TabsTrigger value="source-materials" className="text-xs md:text-sm whitespace-nowrap">Source Materials</TabsTrigger>
-                  <TabsTrigger value="images-video" className="text-xs md:text-sm whitespace-nowrap">Images & Video</TabsTrigger>
-                  <TabsTrigger value="brand-profile" className="text-xs md:text-sm whitespace-nowrap">Brand Profile</TabsTrigger>
-                  <TabsTrigger value="styles-voice" className="text-xs md:text-sm whitespace-nowrap">Styles & Voice</TabsTrigger>
-                  <TabsTrigger value="content-preferences" className="text-xs md:text-sm whitespace-nowrap">Content Preferences</TabsTrigger>
-                </TabsList>
-              </div>
-              
+        {/* Sticky header - Brand Kit: heading + Save (row 1), subheading, tabs (row 2) */}
+        <div className="sticky top-0 z-50 bg-[hsl(var(--app-content-bg))] border-b border-[hsl(var(--landing-nav-bar-border))]">
+          <div className="px-2 md:px-3 lg:px-4 py-4 md:py-5">
+            {/* Row 1: Heading + Save Changes (black) - same horizontal row */}
+            <div className="flex flex-row items-center justify-between gap-4">
+              <h1 className="text-xl md:text-2xl font-bold text-foreground">Brand Kit</h1>
               <Button 
                 onClick={handleSaveAll}
                 disabled={isSaving || !hasUnsavedChanges}
                 size="sm"
-                className="w-full md:w-auto flex-shrink-0 btn-gradient-cta"
+                className="flex-shrink-0 rounded-full bg-black text-white hover:bg-black/90 border-0 px-4 py-2 h-9 text-sm font-medium"
               >
                 {isSaving ? (
                   <>
@@ -1084,14 +1099,23 @@ export const BrandKitPage = () => {
                 )}
               </Button>
             </div>
+            {/* Subheading */}
+            <p className="text-sm text-muted-foreground mt-1">Manage your brand assets and guidelines</p>
+            {/* Row 2: Tabs */}
+            <div className="mt-4 pt-2">
+              <TabsList className="inline-flex w-max h-auto p-0 bg-transparent gap-6 border-0 rounded-none">
+                <TabsTrigger value="style" className="text-xs md:text-sm whitespace-nowrap rounded-none border-b-2 border-transparent data-[state=active]:border-black data-[state=active]:bg-transparent data-[state=active]:shadow-none px-0 pb-2 -mb-px text-muted-foreground data-[state=active]:text-foreground data-[state=active]:font-semibold font-medium">Style</TabsTrigger>
+                <TabsTrigger value="source-materials" className="text-xs md:text-sm whitespace-nowrap rounded-none border-b-2 border-transparent data-[state=active]:border-black data-[state=active]:bg-transparent data-[state=active]:shadow-none px-0 pb-2 -mb-px text-muted-foreground data-[state=active]:text-foreground data-[state=active]:font-semibold font-medium">Source Materials</TabsTrigger>
+              </TabsList>
+            </div>
           </div>
         </div>
 
         {/* Content */}
-        <div className="max-w-7xl mx-auto px-4 md:px-6 lg:px-8 py-4 md:py-6 lg:py-8">
+        <div className="px-2 md:px-3 lg:px-4 py-4 md:py-6">
 
-          {/* Source Materials Tab */}
-          <TabsContent value="source-materials">
+          {/* Source Materials Tab - Webpages and Integrations only */}
+          <TabsContent value="source-materials" className="mt-0">
             <div className="space-y-6 md:space-y-8">
               {/* Webpages Section */}
               <Card className="p-4 md:p-6">
@@ -1180,7 +1204,7 @@ export const BrandKitPage = () => {
                       setLinks([...links, { url: '', timestamp: new Date().toISOString() }]);
                       setHasUnsavedChanges(true);
                     }}
-                    className="text-primary gap-2"
+                    className="text-neutral-900 hover:text-neutral-900 gap-2"
                   >
                     <Plus className="w-4 h-4" />
                     Add More
@@ -1225,6 +1249,7 @@ export const BrandKitPage = () => {
                         <Button 
                           variant="outline" 
                           size="sm"
+                          className="hover:bg-[#e88d44] hover:text-white hover:border-[#e88d44]"
                           onClick={async () => {
                             try {
                               await socialConnectionsApi.disconnectGoogle?.();
@@ -1247,11 +1272,11 @@ export const BrandKitPage = () => {
                           Disconnect
                         </Button>
                       ) : connections.google === 'expired' ? (
-                        <Button variant="default" size="sm" className="btn-gradient-cta" onClick={handleGoogleConnect}>
+                        <Button variant="default" size="sm" className="bg-black text-white hover:bg-black/90" onClick={handleGoogleConnect}>
                           Reconnect
                         </Button>
                       ) : (
-                        <Button variant="default" size="sm" className="btn-gradient-cta" onClick={handleGoogleConnect}>
+                        <Button variant="default" size="sm" className="bg-black text-white hover:bg-black/90" onClick={handleGoogleConnect}>
                           Connect
                         </Button>
                       )}
@@ -1291,11 +1316,11 @@ export const BrandKitPage = () => {
                           Disconnect
                         </Button>
                       ) : connections.twitter === 'expired' ? (
-                        <Button variant="default" size="sm" className="btn-gradient-cta" onClick={handleTwitterConnect}>
+                        <Button variant="default" size="sm" className="bg-black text-white hover:bg-black/90" onClick={handleTwitterConnect}>
                           Reconnect
                         </Button>
                       ) : (
-                        <Button variant="default" size="sm" className="btn-gradient-cta" onClick={handleTwitterConnect}>
+                        <Button variant="default" size="sm" className="bg-black text-white hover:bg-black/90" onClick={handleTwitterConnect}>
                           Connect
                         </Button>
                       )}
@@ -1312,7 +1337,7 @@ export const BrandKitPage = () => {
                   }`}>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-yellow-400 via-red-500 to-purple-500 flex items-center justify-center">
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-yellow-400 via-red-500 to-orange-500 flex items-center justify-center">
                           <InstagramIcon className="w-5 h-5 text-white" />
                         </div>
                         <div>
@@ -1326,6 +1351,7 @@ export const BrandKitPage = () => {
                         <Button 
                           variant="outline" 
                           size="sm"
+                          className="hover:bg-[#e88d44] hover:text-white hover:border-[#e88d44]"
                           onClick={async () => {
                             await socialConnectionsApi.disconnectInstagram();
                             fetchConnections();
@@ -1335,11 +1361,11 @@ export const BrandKitPage = () => {
                           Disconnect
                         </Button>
                       ) : connections.instagram === 'expired' ? (
-                        <Button variant="default" size="sm" className="btn-gradient-cta" onClick={handleInstagramConnect}>
+                        <Button variant="default" size="sm" className="bg-black text-white hover:bg-black/90" onClick={handleInstagramConnect}>
                           Reconnect
                         </Button>
                       ) : (
-                        <Button variant="default" size="sm" className="btn-gradient-cta" onClick={handleInstagramConnect}>
+                        <Button variant="default" size="sm" className="bg-black text-white hover:bg-black/90" onClick={handleInstagramConnect}>
                           Connect
                         </Button>
                       )}
@@ -1370,6 +1396,7 @@ export const BrandKitPage = () => {
                         <Button 
                           variant="outline" 
                           size="sm"
+                          className="hover:bg-[#e88d44] hover:text-white hover:border-[#e88d44]"
                           onClick={async () => {
                             await socialConnectionsApi.disconnectLinkedIn();
                             fetchConnections();
@@ -1379,11 +1406,11 @@ export const BrandKitPage = () => {
                           Disconnect
                         </Button>
                       ) : connections.linkedin === 'expired' ? (
-                        <Button variant="default" size="sm" className="btn-gradient-cta" onClick={handleLinkedInConnect}>
+                        <Button variant="default" size="sm" className="bg-black text-white hover:bg-black/90" onClick={handleLinkedInConnect}>
                           Reconnect
                         </Button>
                       ) : (
-                        <Button variant="default" size="sm" className="btn-gradient-cta" onClick={handleLinkedInConnect}>
+                        <Button variant="default" size="sm" className="bg-black text-white hover:bg-black/90" onClick={handleLinkedInConnect}>
                           Connect
                         </Button>
                       )}
@@ -1414,6 +1441,7 @@ export const BrandKitPage = () => {
                         <Button 
                           variant="outline" 
                           size="sm"
+                          className="hover:bg-[#e88d44] hover:text-white hover:border-[#e88d44]"
                           onClick={async () => {
                             await socialConnectionsApi.disconnectTikTok();
                             fetchConnections();
@@ -1423,11 +1451,11 @@ export const BrandKitPage = () => {
                           Disconnect
                         </Button>
                       ) : connections.tiktok === 'expired' ? (
-                        <Button variant="default" size="sm" className="btn-gradient-cta" onClick={handleTikTokConnect}>
+                        <Button variant="default" size="sm" className="bg-black text-white hover:bg-black/90" onClick={handleTikTokConnect}>
                           Reconnect
                         </Button>
                       ) : (
-                        <Button variant="default" size="sm" className="btn-gradient-cta" onClick={handleTikTokConnect}>
+                        <Button variant="default" size="sm" className="bg-black text-white hover:bg-black/90" onClick={handleTikTokConnect}>
                           Connect
                         </Button>
                       )}
@@ -1436,6 +1464,9 @@ export const BrandKitPage = () => {
                 </div>
               </Card>
 
+              {/* Hidden: Files, Images & Video - show only Webpages and Integrations */}
+              {false && (
+              <>
               {/* Files Section */}
               <Card className="p-4 md:p-6">
                 <div className="mb-4">
@@ -1587,13 +1618,8 @@ export const BrandKitPage = () => {
                   </div>
                 )}
               </Card>
-            </div>
-          </TabsContent>
 
-          {/* Images & Video Tab */}
-          <TabsContent value="images-video">
-            <div className="space-y-6 md:space-y-8">
-              {/* Upload Area */}
+              {/* Images & Video Section */}
               <Card className="p-4 md:p-6">
                 <h3 className="text-base md:text-lg font-semibold text-foreground mb-3 md:mb-4">Upload Media</h3>
                 
@@ -1768,27 +1794,259 @@ export const BrandKitPage = () => {
                   </div>
                 )}
               </Card>
+              </>
+              )}
             </div>
           </TabsContent>
 
-          {/* Brand Profile Tab */}
-          <TabsContent value="brand-profile">
-            <div className="space-y-6 md:space-y-8">
+          {/* Style Tab - Wanderlust: Logos & Assets, Brand Colors, Typography only */}
+          <TabsContent value="style" className="mt-0">
+            <div className="space-y-6 md:space-y-8 bg-[hsl(var(--landing-hero-bg))] min-h-[60vh]">
+              {/* Logos & Assets Section - with drag-and-drop dropzone */}
+              <Card className="p-4 md:p-6 bg-white border-[hsl(var(--landing-nav-bar-border))] shadow-sm rounded-xl">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-base md:text-lg font-semibold text-foreground flex items-center gap-2">
+                    <ImageIcon className="w-5 h-5 text-foreground" />
+                    Logos & Assets
+                  </h3>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-full border border-[#e0ddd8] bg-[#ebe8e3] hover:bg-[#e88d44] hover:text-white hover:border-[#e88d44] text-[#374151] px-4 py-2 h-9 text-sm font-medium transition-colors"
+                    onClick={() => document.getElementById('logo-upload-input')?.click()}
+                  >
+                    <Plus className="w-4 h-4 mr-1.5" />
+                    Upload
+                  </Button>
+                </div>
+                <div
+                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); if (!uploadingLogo && !uploadingAdditionalLogos) e.currentTarget.classList.add('ring-2', 'ring-[#e88d44]', 'ring-offset-2'); }}
+                  onDragLeave={(e) => { e.preventDefault(); e.currentTarget.classList.remove('ring-2', 'ring-[#e88d44]', 'ring-offset-2'); }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.currentTarget.classList.remove('ring-2', 'ring-[#e88d44]', 'ring-offset-2');
+                    if (uploadingLogo || uploadingAdditionalLogos) return;
+                    const files = Array.from(e.dataTransfer.files).filter(f => /^image\/(jpeg|jpg|png|webp|svg\+xml)$/.test(f.type) || f.name.match(/\.(jpe?g|png|webp|svg)$/i));
+                    if (files.length > 0) {
+                      if (files.length === 1 && !contextData?.logoPresignedUrl) handleLogoUpload(files);
+                      else handleAdditionalLogosUpload(files);
+                    }
+                  }}
+                  className="grid grid-cols-1 sm:grid-cols-3 gap-4 rounded-xl transition-all"
+                >
+                  <input type="file" id="logo-upload-input" className="hidden" accept="image/jpeg,image/jpg,image/png,image/webp,image/svg+xml,.svg,.png,.jpg,.jpeg,.webp" onChange={(e) => e.target.files?.[0] && handleLogoUpload([e.target.files[0]])} />
+                  <input type="file" id="additional-logos-input" className="hidden" accept="image/jpeg,image/jpg,image/png,image/webp,image/svg+xml,.svg,.png,.jpg,.jpeg,.webp" multiple onChange={(e) => { const f = Array.from(e.target.files || []); f.length && handleAdditionalLogosUpload(f); }} />
+                  {/* Primary Logo */}
+                  <div
+                    onClick={() => !uploadingLogo && document.getElementById('logo-upload-input')?.click()}
+                    className="aspect-square rounded-xl bg-[hsl(var(--landing-explore-pill-bg))] border border-[hsl(var(--landing-nav-bar-border))] flex flex-col items-center justify-center cursor-pointer hover:border-[hsl(var(--landing-accent-orange))]/50 transition-colors overflow-hidden"
+                  >
+                    {contextData?.logoPresignedUrl && !uploadingLogo ? (
+                      <>
+                        <div className="relative w-full flex-1 min-h-[80px] p-4">
+                          <Image src={contextData.logoPresignedUrl} alt="Primary Logo" fill className="object-contain p-2" unoptimized />
+                        </div>
+                        <p className="text-xs text-muted-foreground py-2">Primary Logo</p>
+                        <p className="text-xs text-muted-foreground/80">{getFileFormatFromUrl(contextData?.logoUrl || '') || '—'}</p>
+                      </>
+                    ) : uploadingLogo ? (
+                      <Loader2 className="w-10 h-10 animate-spin text-muted-foreground" />
+                    ) : (
+                      <>
+                        <ImageIcon className="w-12 h-12 text-muted-foreground mb-2" />
+                        <p className="text-sm font-medium text-foreground">Primary Logo</p>
+                        <p className="text-xs text-muted-foreground">Drag & drop or click</p>
+                      </>
+                    )}
+                  </div>
+                  {/* Icon Only */}
+                  <div
+                    onClick={() => !uploadingAdditionalLogos && document.getElementById('additional-logos-input')?.click()}
+                    className="aspect-square rounded-xl bg-[hsl(var(--landing-explore-pill-bg))] border border-[hsl(var(--landing-nav-bar-border))] flex flex-col items-center justify-center overflow-hidden cursor-pointer hover:border-[hsl(var(--landing-accent-orange))]/50 transition-colors"
+                  >
+                    {additionalLogos[0] ? (
+                      <>
+                        <div className="relative w-full flex-1 min-h-[80px] p-4">
+                          <Image src={additionalLogos[0].presignedUrl} alt="Icon" fill className="object-contain p-2" unoptimized />
+                        </div>
+                        <p className="text-xs text-muted-foreground py-2">Icon Only</p>
+                        <p className="text-xs text-muted-foreground/80">{getFileFormatFromUrl(additionalLogos[0]?.url || '') || '—'}</p>
+                      </>
+                    ) : (
+                      <>
+                        <ImageIcon className="w-12 h-12 text-muted-foreground mb-2" />
+                        <p className="text-sm font-medium text-foreground">Icon Only</p>
+                        <p className="text-xs text-muted-foreground">Drag & drop or click</p>
+                      </>
+                    )}
+                  </div>
+                  {/* Add Asset - dropzone */}
+                  <div
+                    onClick={() => document.getElementById('additional-logos-input')?.click()}
+                    onDragOver={(e) => e.stopPropagation()}
+                    onDrop={(e) => { e.stopPropagation(); e.preventDefault(); if (uploadingAdditionalLogos) return; const f = Array.from(e.dataTransfer.files).filter(file => /^image\//.test(file.type)); f.length && handleAdditionalLogosUpload(f); }}
+                    className="aspect-square rounded-xl bg-[hsl(var(--landing-explore-pill-bg))] border-2 border-dashed border-[hsl(var(--landing-nav-bar-border))] flex flex-col items-center justify-center cursor-pointer hover:border-[hsl(var(--landing-accent-orange))]/50 transition-colors"
+                  >
+                    <Plus className="w-10 h-10 text-muted-foreground mb-2" />
+                    <p className="text-sm font-medium text-foreground">Add Asset</p>
+                    <p className="text-xs text-muted-foreground">Drag & drop or click</p>
+                  </div>
+                </div>
+              </Card>
+
+              {/* Brand Colors + Typography - same row */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
+              {/* Brand Colors Section */}
+              <Card className="p-4 md:p-6 bg-white border-[hsl(var(--landing-nav-bar-border))] shadow-sm rounded-xl">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-base md:text-lg font-semibold text-foreground flex items-center gap-2">
+                    <Palette className="w-5 h-5 text-foreground" />
+                    Brand Colors
+                  </h3>
+                  {editingSection === 'colors' ? (
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={handleCancelEdit} disabled={isSaving} className="rounded-full border border-[#e0ddd8] bg-[#ebe8e3] hover:bg-[#e88d44] hover:text-white hover:border-[#e88d44] text-[#374151] px-4 py-2 h-9 text-sm font-medium">
+                        <X className="w-3 h-3 mr-1" />Cancel
+                      </Button>
+                      <Button size="sm" className="rounded-full bg-[#e88d44] text-white hover:bg-[#e88d44]/90 border-0 px-4 py-2 h-9 text-sm font-medium" onClick={async () => { await handleSave({ colorPalette: editData.colorPalette }); setEditingSection(null); }} disabled={isSaving}>
+                        {isSaving ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Save className="w-3 h-3 mr-1" />}Save
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="rounded-full border border-[#e0ddd8] bg-[#ebe8e3] hover:bg-[#e88d44] hover:text-white hover:border-[#e88d44] text-[#374151] px-4 py-2 h-9 text-sm font-medium transition-colors"
+                      onClick={() => {
+                        const palette = contextData?.colorPalette || { primary: '#e88d44', secondary: '#F59E0B', accent: '#10B981' };
+                        handleEdit('colors', { colorPalette: palette });
+                      }}
+                    >
+                      <Edit className="w-4 h-4 mr-1.5" />
+                      Edit Color
+                    </Button>
+                  )}
+                </div>
+                <div className="space-y-3">
+                  {['primary', 'secondary', 'accent'].map((colorType) => {
+                    const palette = editingSection === 'colors' ? editData.colorPalette : (contextData?.colorPalette || { primary: '#e88d44', secondary: '#F59E0B', accent: '#10B981' });
+                    const value = palette?.[colorType] || '#e88d44';
+                    return (
+                      <div key={colorType} className="flex items-center gap-4 p-3 rounded-xl bg-[hsl(var(--landing-explore-pill-bg))] border border-[hsl(var(--landing-nav-bar-border))]">
+                        {editingSection === 'colors' ? (
+                          <input
+                            type="color"
+                            value={value}
+                            onChange={(e) => setEditData({
+                              ...editData,
+                              colorPalette: { ...editData.colorPalette, [colorType]: e.target.value }
+                            })}
+                            className="w-10 h-10 rounded-lg border-2 border-[hsl(var(--landing-nav-bar-border))] cursor-pointer flex-shrink-0 p-0"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-lg flex-shrink-0" style={{ backgroundColor: value }} />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-foreground capitalize">{colorType}</p>
+                          <p className="text-xs text-muted-foreground">{(typeof value === 'string' ? value : '#000000').toUpperCase()}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+
+              {/* Typography Section */}
+              <Card className="p-4 md:p-6 bg-white border-[hsl(var(--landing-nav-bar-border))] shadow-sm rounded-xl">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-base md:text-lg font-semibold text-foreground flex items-center gap-2">
+                    <Type className="w-5 h-5 text-foreground" />
+                    Typography
+                  </h3>
+                  {editingSection === 'fonts' ? (
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={handleCancelEdit} disabled={isSaving} className="rounded-full border border-[#e0ddd8] bg-[#ebe8e3] hover:bg-[#e88d44] hover:text-white hover:border-[#e88d44] text-[#374151] px-4 py-2 h-9 text-sm font-medium">
+                        <X className="w-3 h-3 mr-1" />Cancel
+                      </Button>
+                      <Button size="sm" className="rounded-full bg-[#e88d44] text-white hover:bg-[#e88d44]/90 border-0 px-4 py-2 h-9 text-sm font-medium" onClick={async () => { await handleSave({ brandFonts: editData.brandFonts }); setEditingSection(null); }} disabled={isSaving}>
+                        {isSaving ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Save className="w-3 h-3 mr-1" />}Save
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="rounded-full border border-[#e0ddd8] bg-[#ebe8e3] hover:bg-[#e88d44] hover:text-white hover:border-[#e88d44] text-[#374151] px-4 py-2 h-9 text-sm font-medium transition-colors"
+                      onClick={() => {
+                        const fonts = contextData?.brandFonts || { title: 'Inter', body: 'Inter' };
+                        handleEdit('fonts', { brandFonts: fonts });
+                      }}
+                    >
+                      <Edit className="w-4 h-4 mr-1.5" />
+                      Edit Font
+                    </Button>
+                  )}
+                </div>
+                <div className="space-y-3">
+                  {[
+                    { key: 'title' as const, label: 'Title' },
+                    { key: 'body' as const, label: 'Body' },
+                  ].map(({ key, label }) => {
+                    const fonts = editingSection === 'fonts' ? editData.brandFonts : (contextData?.brandFonts || { title: 'Inter', body: 'Inter' });
+                    const value = fonts?.[key] || 'Inter';
+                    return (
+                      <div key={key} className="flex items-center gap-4 p-3 rounded-xl bg-[hsl(var(--landing-explore-pill-bg))] border border-[hsl(var(--landing-nav-bar-border))]">
+                        <span className="text-2xl font-medium text-foreground flex-shrink-0">Aa</span>
+                        {editingSection === 'fonts' ? (
+                          <div className="flex-1 min-w-0">
+                            <Select value={value} onValueChange={(v) => setEditData({ ...editData, brandFonts: { ...editData.brandFonts, [key]: v } })}>
+                              <SelectTrigger className="rounded-lg border border-[#e0ddd8] bg-[#ebe8e3] h-9 text-foreground focus:ring-0 focus:outline-none focus-visible:ring-0 focus-visible:outline-none"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Inter">Inter</SelectItem>
+                                <SelectItem value="Roboto">Roboto</SelectItem>
+                                <SelectItem value="Poppins">Poppins</SelectItem>
+                                <SelectItem value="Montserrat">Montserrat</SelectItem>
+                                <SelectItem value="Open Sans">Open Sans</SelectItem>
+                                <SelectItem value="Lato">Lato</SelectItem>
+                                <SelectItem value="Playfair Display">Playfair Display</SelectItem>
+                                <SelectItem value="Merriweather">Merriweather</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <p className="text-xs text-muted-foreground mt-1">{label}</p>
+                          </div>
+                        ) : (
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-foreground">{value}</p>
+                            <p className="text-xs text-muted-foreground">{label}</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+              </div>
+
+              {/* Hidden: Legacy sections - do not remove, just not shown in wanderlust UI */}
+              {false && (
+              <>
               {/* Business Overview & Positioning */}
               <Card className="p-4 md:p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg md:text-xl font-semibold text-foreground">Business Overview & Positioning</h3>
                   {editingSection !== 'business-overview' && (
                     <Button 
-                      variant="link" 
-                      className="gap-2"
+                      variant="outline" 
+                      size="sm"
+                      className={btnEdit}
                       onClick={() => handleEdit('business-overview', {
                         businessOverview: contextData?.businessOverview || '',
                         competitors: contextData?.competitors || '',
                         whyCustomersChoose: contextData?.whyCustomersChoose || ''
                       })}
                     >
-                      <Edit className="w-4 h-4" />
+                      <Edit className="w-4 h-4 mr-1" />
                       Edit
                     </Button>
                   )}
@@ -1835,13 +2093,14 @@ export const BrandKitPage = () => {
                     <h3 className="text-lg md:text-xl font-semibold text-foreground">Customer Demographics & Psychographics</h3>
                     {editingSection !== 'customer-demographics' && (
                       <Button 
-                        variant="link" 
-                        className="gap-2"
+                        variant="outline" 
+                        size="sm"
+                        className={btnEdit}
                         onClick={() => handleEdit('customer-demographics', {
                           customerDemographics: contextData?.customerDemographics || ''
                         })}
                       >
-                        <Edit className="w-4 h-4" />
+                        <Edit className="w-4 h-4 mr-1" />
                         Edit
                       </Button>
                     )}
@@ -1876,20 +2135,18 @@ export const BrandKitPage = () => {
                   )}
                 </Card>
               )}
-            </div>
-          </TabsContent>
 
-          {/* Styles & Voice Tab */}
-          <TabsContent value="styles-voice">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
+              {/* Styles & Voice Section */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
               {/* Brand Styles */}
               <Card className="p-4 md:p-6">
                 <div className="flex items-center justify-between mb-4 md:mb-6">
                   <h3 className="text-lg md:text-xl font-semibold text-foreground">Brand Styles</h3>
                   {editingSection !== 'brand-styles' && (
                     <Button
-                      variant="link"
-                      className="gap-2"
+                      variant="outline"
+                      size="sm"
+                      className={btnEdit}
                       onClick={() => handleEdit('brand-styles', {
                         brandStyles: {
                           visual_identity_description: brandStyles.visual_identity_description,
@@ -1897,7 +2154,7 @@ export const BrandKitPage = () => {
                         }
                       })}
                     >
-                      <Edit className="w-4 h-4" />
+                      <Edit className="w-4 h-4 mr-1" />
                       Edit
                     </Button>
                   )}
@@ -2017,14 +2274,15 @@ export const BrandKitPage = () => {
                       <h4 className="text-sm font-medium text-foreground">Colors</h4>
                       {editingSection !== 'colors' ? (
                         <Button 
-                          variant="link" 
-                          className="text-xs gap-1"
+                          variant="outline" 
+                          size="sm"
+                          className={btnEdit}
                           onClick={() => {
                             const palette = contextData?.colorPalette || { primary: '#220808', secondary: '#f97316', accent: '#368405' };
                             handleEdit('colors', { colorPalette: palette });
                           }}
                         >
-                          <Edit className="w-3 h-3" />
+                          <Edit className="w-3 h-3 mr-1" />
                           Edit
                         </Button>
                       ) : (
@@ -2106,14 +2364,15 @@ export const BrandKitPage = () => {
                       <h4 className="text-sm font-medium text-foreground">Fonts</h4>
                       {editingSection !== 'fonts' ? (
                         <Button 
-                          variant="link" 
-                          className="text-xs gap-1"
+                          variant="outline" 
+                          size="sm"
+                          className={btnEdit}
                           onClick={() => {
                             const fonts = contextData?.brandFonts || { title: 'Inter', body: 'Inter' };
                             handleEdit('fonts', { brandFonts: fonts });
                           }}
                         >
-                          <Edit className="w-3 h-3" />
+                          <Edit className="w-3 h-3 mr-1" />
                           Edit
                         </Button>
                       ) : (
@@ -2221,13 +2480,14 @@ export const BrandKitPage = () => {
                   <h3 className="text-lg md:text-xl font-semibold text-foreground">Brand Voice</h3>
                   {editingSection !== 'brand-voices' && (
                     <Button
-                      variant="link"
-                      className="gap-2"
+                      variant="outline"
+                      size="sm"
+                      className={btnEdit}
                       onClick={() => handleEdit('brand-voices', {
                         brandVoices: brandVoices
                       })}
                     >
-                      <Edit className="w-4 h-4" />
+                      <Edit className="w-4 h-4 mr-1" />
                       Edit
                     </Button>
                   )}
@@ -2489,11 +2749,9 @@ export const BrandKitPage = () => {
                 )}
               </Card>
             </div>
-          </TabsContent>
 
-          {/* Content Preferences Tab */}
-          <TabsContent value="content-preferences">
-            <div className="space-y-6 md:space-y-8">
+              {/* Content Preferences Section */}
+              <div className="space-y-6 md:space-y-8">
               {/* Design Preferences */}
               <Card className="p-4 md:p-6">
                 <h3 className="text-lg md:text-xl font-semibold text-foreground mb-4 md:mb-6">Design Preferences</h3>
@@ -2949,6 +3207,9 @@ export const BrandKitPage = () => {
                   </Button>
                 </div>
               </Card>
+            </div>
+            </>
+              )}
             </div>
           </TabsContent>
         </div>

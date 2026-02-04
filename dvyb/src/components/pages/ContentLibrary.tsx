@@ -1,19 +1,15 @@
 "use client";
 
-
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
-import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Search, Filter, Eye, Heart, MessageCircle, Share2, Loader2, Play, Calendar as CalendarIcon, Sparkles } from "lucide-react";
+import { Search, Eye, Heart, MessageCircle, Share2, Loader2, Play, Sparkles, Grid3X3, List } from "lucide-react";
 import { PostDetailDialog } from "@/components/calendar/PostDetailDialog";
 import { GenerateContentDialog } from "@/components/onboarding/GenerateContentDialog";
+import { CreateAdFlowModal } from "@/components/pages/CreateAdFlowModal";
 import { PricingModal } from "@/components/PricingModal";
 import { contentLibraryApi, accountApi } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -21,7 +17,6 @@ import { useOnboardingGuide } from "@/hooks/useOnboardingGuide";
 import { clearOAuthFlowState, getOAuthFlowState } from "@/lib/oauthFlowState";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
-import type { DateRange } from "react-day-picker";
 import { 
   trackContentLibraryViewed, 
   trackContentItemClicked, 
@@ -59,8 +54,14 @@ interface ContentItem {
   videoModel?: string | null; // Model used for video generation (for aspect ratio)
 }
 
+type ContentStateTab = "all" | "draft" | "scheduled" | "published";
+
 interface ContentLibraryProps {
   onEditDesignModeChange?: (isEditMode: boolean) => void;
+}
+
+export interface ContentLibraryRef {
+  openCreateNew: () => void;
 }
 
 // Helper function to check if content has a draft in localStorage
@@ -81,26 +82,28 @@ const hasEditedDraft = (contentId: number, postIndex: number): boolean => {
   }
 };
 
-export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) => {
+const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>(({ onEditDesignModeChange }, ref) => {
   const [searchQuery, setSearchQuery] = useState("");
+  const [contentStateTab, setContentStateTab] = useState<ContentStateTab>("all");
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [selectedPost, setSelectedPost] = useState<ContentItem | null>(null);
   const [showPostDetail, setShowPostDetail] = useState(false);
-  const [showPosted, setShowPosted] = useState(false);
   const [showAnalyticsDialog, setShowAnalyticsDialog] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [contentItems, setContentItems] = useState<ContentItem[]>([]);
-  const [scheduledItems, setScheduledItems] = useState<ContentItem[]>([]); // Separate state for all scheduled
-  const [selectedItems, setSelectedItems] = useState<ContentItem[]>([]); // Selected/accepted content
-  const [pendingReviewItems, setPendingReviewItems] = useState<ContentItem[]>([]); // Content pending review
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [scheduledItems, setScheduledItems] = useState<ContentItem[]>([]);
+  const [selectedItems, setSelectedItems] = useState<ContentItem[]>([]);
+  const [pendingReviewItems, setPendingReviewItems] = useState<ContentItem[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const { accountId } = useAuth();
   
-  // Generate Content Dialog state
+  // Generate Content Dialog state (for onboarding/OAuth flows only)
   const [showGenerateDialog, setShowGenerateDialog] = useState(false);
   const [onboardingJobId, setOnboardingJobId] = useState<string | null>(null);
+  // Create Ad Flow Modal (same as Discover "Create my own Ad" - replaces old Create New flow)
+  const [showCreateAdFlow, setShowCreateAdFlow] = useState(false);
   
   // Usage limit and pricing modal
   const [showPricingModal, setShowPricingModal] = useState(false);
@@ -250,9 +253,8 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
         page: pageNum,
         limit: 12,
         search: searchQuery,
-        dateFrom: dateRange?.from?.toISOString(),
-        dateTo: dateRange?.to?.toISOString(),
-        showPosted,
+        showAll: contentStateTab === "all",
+        showPosted: contentStateTab === "published",
       });
       
       if (response.success && response.data) {
@@ -417,7 +419,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
         setIsLoading(false);
         setIsLoadingMore(false);
       }
-    }, [accountId, searchQuery, dateRange, showPosted]);
+    }, [accountId, searchQuery, contentStateTab]);
 
   // Handler to refresh content after scheduling
   const handleRefreshAfterSchedule = useCallback(() => {
@@ -440,7 +442,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
     setPendingReviewItems([]);
     fetchContentLibrary(1, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountId, searchQuery, dateRange, showPosted]);
+  }, [accountId, searchQuery, contentStateTab]);
 
   // Track page view
   useEffect(() => {
@@ -498,22 +500,37 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
   const notSelectedContent = contentItems.filter(item => item.status === "not-selected");
   const postedContent = contentItems.filter(item => item.status === "published");
 
+  const formatStatusLabel = (status: string) => {
+    switch (status) {
+      case "pending-review":
+        return "Pending review";
+      case "not-selected":
+        return "Draft";
+      case "generated":
+        return "Draft";
+      default:
+        return status.charAt(0).toUpperCase() + status.slice(1).replace(/-/g, " ");
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "scheduled":
-        return "bg-primary";
+        return "bg-sky-100 text-sky-700";
       case "selected":
-        return "bg-emerald-500";
+        return "bg-emerald-100 text-emerald-700";
       case "pending-review":
-        return "bg-amber-500";
+        return "bg-amber-100 text-amber-800";
       case "generated":
-        return "bg-green-500";
+        return "bg-gray-200 text-gray-600";
       case "published":
-        return "bg-purple-500";
+        return "bg-emerald-100 text-emerald-800";
       case "not-selected":
-        return "bg-orange-500";
+        return "bg-gray-200 text-gray-600";
+      case "draft":
+        return "bg-gray-200 text-gray-600";
       default:
-        return "bg-gray-500";
+        return "bg-gray-200 text-gray-600";
     }
   };
 
@@ -535,184 +552,198 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
     fetchContentLibrary(1, false);
   };
 
+  const handleCreateNewClick = useCallback(async () => {
+    trackGenerateContentClicked('content_library');
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/usage`, {
+        credentials: 'include',
+        headers: {
+          ...(() => {
+            const accountId = localStorage.getItem('dvyb_account_id');
+            return accountId ? { 'X-DVYB-Account-ID': accountId } : {};
+          })(),
+        },
+      });
+      const data = await response.json();
+      if (data.success && data.data) {
+        setUsageData(data.data);
+        if (data.data.isAccountActive === false) {
+          setShowInactiveAccountDialog(true);
+          return;
+        }
+        if (data.data.mustSubscribeToFreemium) {
+          setMustSubscribeToFreemium(true);
+          setQuotaType('both');
+          setCanSkipPricingModal(false);
+          setShowPricingModal(true);
+          return;
+        }
+        setMustSubscribeToFreemium(false);
+        if (data.data.isTrialLimitExceeded) {
+          setShowTrialLimitDialog(true);
+          return;
+        }
+        const noImagesLeft = data.data.remainingImages === 0;
+        const noVideosLeft = data.data.remainingVideos === 0;
+        if (noImagesLeft && noVideosLeft) {
+          setQuotaType('both');
+          setCanSkipPricingModal(false);
+          setShowPricingModal(true);
+        } else if (noImagesLeft && !noVideosLeft) {
+          setQuotaType('image');
+          setCanSkipPricingModal(true);
+          setShowPricingModal(true);
+        } else if (noVideosLeft && !noImagesLeft) {
+          setQuotaType('video');
+          setCanSkipPricingModal(true);
+          setShowPricingModal(true);
+        } else {
+          setShowCreateAdFlow(true);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to check usage:', error);
+      setShowCreateAdFlow(true);
+    }
+  }, []);
+
+  useImperativeHandle(ref, () => ({
+    openCreateNew: handleCreateNewClick,
+  }), [handleCreateNewClick]);
+
+  // Flatten content by state tab for display
+  // Draft = Pending Review + Selected + Not Selected
+  const draftContent = [...pendingReviewItems, ...selectedContent, ...notSelectedContent].filter(Boolean);
+  const allContent =
+    contentStateTab === "all"
+      ? [...scheduledContent, ...selectedContent, ...draftContent, ...postedContent]
+      : contentStateTab === "draft"
+        ? draftContent
+        : contentStateTab === "scheduled"
+          ? scheduledContent
+          : contentStateTab === "published"
+            ? postedContent
+            : [];
+
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b bg-card">
-        <div className="max-w-7xl mx-auto px-4 md:px-6 py-4">
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-            <h1 className="text-xl font-bold text-foreground">Content Library</h1>
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 md:gap-4 w-full md:w-auto">
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-medium">Posted Content</span>
-                <Switch checked={showPosted} onCheckedChange={setShowPosted} />
+    <div className="min-h-screen bg-[hsl(var(--app-content-bg))]">
+      {/* Search + Content state tabs + View toggle - Discover style */}
+      <div className="border-b border-border bg-[hsl(var(--app-content-bg))] px-2 md:px-3 lg:px-4 py-4">
+        <div className="max-w-7xl mx-auto flex flex-col gap-4">
+          {/* Search bar - same style as Discover */}
+          <div className="w-full">
+            <div className="flex items-center gap-3 px-4 py-2.5 max-w-2xl h-10 border border-[hsl(var(--discover-input-border))] rounded-full bg-[hsl(var(--app-content-bg))]">
+              <Search className="w-4 h-4 flex-shrink-0 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Search content..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="flex-1 bg-[hsl(var(--app-content-bg))] outline-none text-sm min-w-0 text-foreground placeholder:text-muted-foreground"
+              />
+            </div>
+          </div>
+          {/* Content state tabs + grid/list toggle (toggle next to Published tab) */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center bg-secondary rounded-full p-1">
+              {(["all", "draft", "scheduled", "published"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setContentStateTab(tab)}
+                  className={`px-3 lg:px-4 py-2 rounded-full text-xs lg:text-sm font-medium transition-all capitalize ${
+                    contentStateTab === tab ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+              {/* Grid vs List toggle - right next to Published tab */}
+              <div className="flex items-center ml-1 pl-2 border-l border-border">
+                <button
+                  onClick={() => setViewMode("grid")}
+                  className={`p-2 rounded-md transition-colors ${viewMode === "grid" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                  aria-label="Grid view"
+                >
+                  <Grid3X3 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setViewMode("list")}
+                  className={`p-2 rounded-md transition-colors ${viewMode === "list" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                  aria-label="List view"
+                >
+                  <List className="w-4 h-4" />
+                </button>
               </div>
-              
-              {/* Date Range Picker */}
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="w-full sm:w-[240px] justify-start text-left font-normal"
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {dateRange?.from && dateRange?.to
-                      ? `${format(dateRange.from, "MMM d")} - ${format(dateRange.to, "MMM d, yyyy")}`
-                      : dateRange?.from
-                      ? `From ${format(dateRange.from, "MMM d, yyyy")}`
-                      : dateRange?.to
-                      ? `Until ${format(dateRange.to, "MMM d, yyyy")}`
-                      : "All dates"}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="end">
-                  <div className="p-3">
-                    <Calendar
-                      mode="range"
-                      selected={dateRange}
-                      onSelect={setDateRange}
-                      numberOfMonths={1}
-                      initialFocus
-                    />
-                    <div className="flex gap-2 pt-3 border-t mt-3">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1"
-                        onClick={() => {
-                          setDateRange(undefined);
-                        }}
-                      >
-                        Clear
-                      </Button>
-                    </div>
-                  </div>
-                </PopoverContent>
-              </Popover>
-              
-              <div className="relative w-full sm:w-64 md:w-80">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search content..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-              <Button variant="outline" className="hidden w-full sm:w-auto">
-                <Filter className="w-4 h-4 mr-2" />
-                Filters
-              </Button>
             </div>
           </div>
         </div>
-      </header>
+      </div>
 
       {/* Content Grid */}
-      <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6 pb-24">
-        {/* Hero Generate Content Button - Desktop/Tablet */}
-        <div className="hidden md:flex items-center justify-center mb-8 md:mb-10 min-h-[180px] bg-gradient-to-b from-background to-muted/20 rounded-2xl">
-          <Button 
-            onClick={async () => {
-              // Track event
-              trackGenerateContentClicked('content_library');
-              
-              // Check account status and usage limits
-              try {
-                const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/usage`, {
-                  credentials: 'include',
-                  headers: {
-                    ...(() => {
-                      const accountId = localStorage.getItem('dvyb_account_id');
-                      return accountId ? { 'X-DVYB-Account-ID': accountId } : {};
-                    })(),
-                  },
-                });
-                const data = await response.json();
-                
-                if (data.success && data.data) {
-                  setUsageData(data.data);
-                  
-                  // First check if account is active
-                  if (data.data.isAccountActive === false) {
-                    setShowInactiveAccountDialog(true);
-                    return;
-                  }
-                  
-                  // Check if user MUST subscribe to opt-out trial first
-                  if (data.data.mustSubscribeToFreemium) {
-                    console.log('🚫 [ContentLibrary] User must subscribe to opt-out plan before generating');
-                    setMustSubscribeToFreemium(true);
-                    setQuotaType('both');
-                    setCanSkipPricingModal(false);
-                    setShowPricingModal(true);
-                    return;
-                  } else {
-                    setMustSubscribeToFreemium(false);
-                  }
-                  
-                  // Check if user is in trial and has exceeded trial limits
-                  // Offer them the option to pay immediately or wait
-                  if (data.data.isTrialLimitExceeded) {
-                    console.log('⚠️ [ContentLibrary] User is in trial and exceeded limits - showing charge dialog');
-                    setShowTrialLimitDialog(true);
-                    return;
-                  }
-                  
-                  // Check quota limits
-                  const noImagesLeft = data.data.remainingImages === 0;
-                  const noVideosLeft = data.data.remainingVideos === 0;
-                  
-                  if (noImagesLeft && noVideosLeft) {
-                    // BOTH quotas exhausted - must upgrade, cannot skip
-                    setQuotaType('both');
-                    setCanSkipPricingModal(false);
-                    setShowPricingModal(true);
-                  } else if (noImagesLeft && !noVideosLeft) {
-                    // Only image quota exhausted - can skip and generate videos
-                    setQuotaType('image');
-                    setCanSkipPricingModal(true);
-                    setShowPricingModal(true);
-                  } else if (noVideosLeft && !noImagesLeft) {
-                    // Only video quota exhausted - can skip and generate images
-                    setQuotaType('video');
-                    setCanSkipPricingModal(true);
-                    setShowPricingModal(true);
-                  } else {
-                    setShowGenerateDialog(true);
-                  }
-                }
-              } catch (error) {
-                console.error('Failed to check usage:', error);
-                setShowGenerateDialog(true);
-              }
-            }}
-            className="btn-gradient-cta px-16 py-10 text-2xl font-bold shadow-xl hover:shadow-2xl transition-all hover:scale-105 rounded-xl"
-          >
-            <Sparkles className="w-7 h-7 mr-3" />
-            Generate Content
-          </Button>
-        </div>
-
-        {showPosted ? (
-          // Posted Content as Cards
-          <>
-            {postedContent.length === 0 && !isLoading ? (
-              <div className="text-center py-16">
-                <p className="text-muted-foreground">No posted content found</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-                {postedContent.map((item) => (
-                  <Card
+      <div className="max-w-7xl mx-auto px-2 md:px-3 lg:px-4 py-4 md:py-6 pb-24">
+        {allContent.length === 0 && !isLoading ? (
+          <div className="text-center py-16">
+            <p className="text-muted-foreground">No content found</p>
+          </div>
+        ) : viewMode === "list" ? (
+          <div className="bg-background border border-border rounded-xl overflow-hidden">
+            <table className="w-full">
+              <thead className="bg-secondary/50 text-left text-sm text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Content</th>
+                  <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium">Created</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {allContent.map((item) => (
+                  <tr
                     key={item.id}
-                    className="overflow-hidden hover:shadow-lg transition-all cursor-pointer group"
+                    className="hover:bg-secondary/30 transition-colors cursor-pointer"
                     onClick={() => {
-                      trackContentItemClicked(item.contentId, item.image?.includes('.mp4') ? 'video' : 'image', 'posted');
+                      const isPosted = item.status === "published" || item.status === "posted";
+                      trackContentItemClicked(item.contentId, item.image?.includes('.mp4') ? 'video' : 'image', isPosted ? 'posted' : 'scheduled');
                       setSelectedPost(item);
-                      setShowAnalyticsDialog(true);
+                      if (isPosted) setShowAnalyticsDialog(true);
+                      else setShowPostDetail(true);
                     }}
                   >
+                    <td className="px-4 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
+                          {item.image && (item.image.includes('video') || item.image.includes('.mp4')) ? (
+                            <video src={item.image} className="w-full h-full object-cover" muted />
+                          ) : (
+                            <img src={item.image} alt={item.title} className="w-full h-full object-cover" />
+                          )}
+                        </div>
+                        <span className="font-medium">{item.title}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-4">
+                      <Badge className={getStatusColor(item.status)}>{formatStatusLabel(item.status)}</Badge>
+                    </td>
+                    <td className="px-4 py-4 text-sm text-muted-foreground">{item.date} {item.time}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+            {allContent.map((item) => {
+              const isPosted = item.status === "published" || item.status === "posted";
+              return (
+                <Card
+                  key={item.id}
+                  className="overflow-hidden hover:shadow-lg transition-all cursor-pointer group"
+                  onClick={() => {
+                    trackContentItemClicked(item.contentId, item.image?.includes('.mp4') ? 'video' : 'image', isPosted ? 'posted' : 'scheduled');
+                    setSelectedPost(item);
+                    if (isPosted) setShowAnalyticsDialog(true);
+                    else setShowPostDetail(true);
+                  }}
+                >
                     <div className="relative">
                       {item.image && (item.image.includes('video') || item.image.includes('.mp4')) ? (
                         <>
@@ -735,7 +766,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                       <Badge
                         className={`absolute top-2 right-2 ${getStatusColor(item.status)}`}
                       >
-                        {item.status}
+                        {formatStatusLabel(item.status)}
                       </Badge>
                       {/* Edited badge for content with unsaved edits */}
                       {hasEditedDraft(item.contentId, item.postIndex) && (
@@ -750,7 +781,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                       <div className="flex items-center gap-2">
                         <div className="flex items-center gap-1">
                           {item.platforms.includes("instagram") && (
-                            <div className="w-5 h-5 rounded bg-gradient-to-br from-purple-500 to-pink-500" />
+                            <div className="w-5 h-5 rounded bg-[#E1306C]" />
                           )}
                           {item.platforms.includes("twitter") && (
                             <div className="w-5 h-5 rounded bg-black" />
@@ -769,344 +800,17 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                         {item.description}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {item.date} at {item.time}
+                        {item.date} {item.time}
                       </p>
                     </div>
                   </Card>
-                ))}
-              </div>
-            )}
-          </>
-        ) : (
-          // Scheduled and Not Selected Content
-          <>
-            {/* Scheduled Section - Only show if has items */}
-            {scheduledContent.length > 0 && (
-              <div className="mb-6 md:mb-8">
-                <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">
-                  Scheduled {isLoading ? '' : `(${scheduledContent.length})`}
-                </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-                  {scheduledContent.map((item) => (
-                    <Card
-                      key={item.id}
-                      className="overflow-hidden hover:shadow-lg transition-all cursor-pointer group"
-                      onClick={() => {
-                        trackContentItemClicked(item.contentId, item.image?.includes('.mp4') ? 'video' : 'image', 'scheduled');
-                        setSelectedPost(item);
-                        setShowPostDetail(true);
-                      }}
-                    >
-                      <div className="relative">
-                        {item.image && (item.image.includes('video') || item.image.includes('.mp4')) ? (
-                          <>
-                            <video
-                              src={item.image}
-                              className="w-full aspect-square object-cover"
-                              muted
-                            />
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                              <Play className="h-12 w-12 text-white" fill="white" />
-                            </div>
-                          </>
-                        ) : (
-                        <img
-                          src={item.image}
-                          alt={item.title}
-                          className="w-full aspect-square object-cover group-hover:scale-105 transition-transform"
-                        />
-                        )}
-                        <Badge
-                          className={`absolute top-2 right-2 ${getStatusColor(item.status)}`}
-                        >
-                          {item.status}
-                        </Badge>
-                        {/* Edited badge for content with unsaved edits */}
-                        {hasEditedDraft(item.contentId, item.postIndex) && (
-                          <Badge
-                            className="absolute top-2 left-2 bg-amber-500 hover:bg-amber-600 text-white"
-                          >
-                            Edited
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="p-3 md:p-4 space-y-2 md:space-y-3">
-                        <div className="flex items-center gap-2">
-                          <div className="flex items-center gap-1">
-                            {item.platforms.includes("instagram") && (
-                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-gradient-to-br from-purple-500 to-pink-500" />
-                            )}
-                            {item.platforms.includes("twitter") && (
-                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-black" />
-                            )}
-                            {item.platforms.includes("linkedin") && (
-                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-blue-600" />
-                            )}
-                            {item.platforms.includes("tiktok") && (
-                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-black" />
-                            )}
-                          </div>
-                          <span className="text-xs font-medium">{item.type}</span>
-                        </div>
-                        <h3 className="font-semibold text-sm md:text-base line-clamp-2">{item.title}</h3>
-                        <p className="text-xs text-muted-foreground line-clamp-2">
-                          {item.description}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {item.date} at {item.time}
-                        </p>
-                      </div>
-                    </Card>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Selected Section */}
-            {selectedContent.length > 0 && (
-              <div className="mb-6 md:mb-8">
-                <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">
-                  Selected {isLoading ? '' : `(${selectedContent.length})`}
-                </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-                  {selectedContent.map((item) => (
-                    <Card
-                      key={item.id}
-                      className="overflow-hidden hover:shadow-lg transition-all cursor-pointer group"
-                      onClick={() => {
-                        trackContentItemClicked(item.contentId, item.image?.includes('.mp4') ? 'video' : 'image', 'selected');
-                        setSelectedPost(item);
-                        setShowPostDetail(true);
-                      }}
-                    >
-                      <div className="relative">
-                        {item.image && (item.image.includes('video') || item.image.includes('.mp4')) ? (
-                          <>
-                            <video
-                              src={item.image}
-                              className="w-full aspect-square object-cover"
-                              muted
-                            />
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                              <Play className="h-12 w-12 text-white" fill="white" />
-                            </div>
-                          </>
-                        ) : (
-                          <img
-                            src={item.image}
-                            alt={item.title}
-                            className="w-full aspect-square object-cover group-hover:scale-105 transition-transform"
-                          />
-                        )}
-                        <Badge
-                          className={`absolute top-2 right-2 ${getStatusColor(item.status)}`}
-                        >
-                          selected
-                        </Badge>
-                        {/* Edited badge for content with unsaved edits */}
-                        {hasEditedDraft(item.contentId, item.postIndex) && (
-                          <Badge
-                            className="absolute top-2 left-2 bg-amber-500 hover:bg-amber-600 text-white"
-                          >
-                            Edited
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="p-3 md:p-4 space-y-2 md:space-y-3">
-                        <div className="flex items-center gap-2">
-                          <div className="flex items-center gap-1">
-                            {item.platforms.includes("instagram") && (
-                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-gradient-to-br from-purple-500 to-pink-500" />
-                            )}
-                            {item.platforms.includes("twitter") && (
-                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-black" />
-                            )}
-                            {item.platforms.includes("linkedin") && (
-                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-blue-600" />
-                            )}
-                            {item.platforms.includes("tiktok") && (
-                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-black" />
-                            )}
-                          </div>
-                          <span className="text-xs font-medium">{item.type}</span>
-                        </div>
-                        <h3 className="font-semibold text-sm md:text-base line-clamp-2">{item.title}</h3>
-                        <p className="text-xs text-muted-foreground line-clamp-2">
-                          {item.description}
-                        </p>
-                      </div>
-                    </Card>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Pending Review Section */}
-            {pendingReviewContent.length > 0 && (
-              <div className="mb-6 md:mb-8">
-                <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">
-                  Pending Review {isLoading ? '' : `(${pendingReviewContent.length})`}
-                </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-                  {pendingReviewContent.map((item) => (
-                    <Card
-                      key={item.id}
-                      className="overflow-hidden hover:shadow-lg transition-all cursor-pointer group"
-                      onClick={() => {
-                        trackContentItemClicked(item.contentId, item.image?.includes('.mp4') ? 'video' : 'image', 'pending-review');
-                        setSelectedPost(item);
-                        setShowPostDetail(true);
-                      }}
-                    >
-                      <div className="relative">
-                        {item.image && (item.image.includes('video') || item.image.includes('.mp4')) ? (
-                          <>
-                            <video
-                              src={item.image}
-                              className="w-full aspect-square object-cover"
-                              muted
-                            />
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                              <Play className="h-12 w-12 text-white" fill="white" />
-                            </div>
-                          </>
-                        ) : (
-                          <img
-                            src={item.image}
-                            alt={item.title}
-                            className="w-full aspect-square object-cover group-hover:scale-105 transition-transform"
-                          />
-                        )}
-                        <Badge
-                          className={`absolute top-2 right-2 ${getStatusColor(item.status)}`}
-                        >
-                          pending review
-                        </Badge>
-                        {/* Edited badge for content with unsaved edits */}
-                        {hasEditedDraft(item.contentId, item.postIndex) && (
-                          <Badge
-                            className="absolute top-2 left-2 bg-amber-500 hover:bg-amber-600 text-white"
-                          >
-                            Edited
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="p-3 md:p-4 space-y-2 md:space-y-3">
-                        <div className="flex items-center gap-2">
-                          <div className="flex items-center gap-1">
-                            {item.platforms.includes("instagram") && (
-                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-gradient-to-br from-purple-500 to-pink-500" />
-                            )}
-                            {item.platforms.includes("twitter") && (
-                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-black" />
-                            )}
-                            {item.platforms.includes("linkedin") && (
-                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-blue-600" />
-                            )}
-                            {item.platforms.includes("tiktok") && (
-                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-black" />
-                            )}
-                          </div>
-                          <span className="text-xs font-medium">{item.type}</span>
-                        </div>
-                        <h3 className="font-semibold text-sm md:text-base line-clamp-2">{item.title}</h3>
-                        <p className="text-xs text-muted-foreground line-clamp-2">
-                          {item.description}
-                        </p>
-                      </div>
-                    </Card>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Not Selected Section */}
-            {notSelectedContent.length > 0 && (
-              <div className="mb-6 md:mb-8">
-                <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">
-                  Not Selected {isLoading ? '' : `(${notSelectedContent.length})`}
-                </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-                  {notSelectedContent.map((item) => (
-                    <Card
-                      key={item.id}
-                      className="overflow-hidden hover:shadow-lg transition-all cursor-pointer group"
-                      onClick={() => {
-                        trackContentItemClicked(item.contentId, item.image?.includes('.mp4') ? 'video' : 'image', 'not-selected');
-                        setSelectedPost(item);
-                        setShowPostDetail(true);
-                      }}
-                    >
-                      <div className="relative">
-                        {item.image && (item.image.includes('video') || item.image.includes('.mp4')) ? (
-                          <>
-                            <video
-                              src={item.image}
-                              className="w-full aspect-square object-cover"
-                              muted
-                            />
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                              <Play className="h-12 w-12 text-white" fill="white" />
-                            </div>
-                          </>
-                        ) : (
-                        <img
-                          src={item.image}
-                          alt={item.title}
-                          className="w-full aspect-square object-cover group-hover:scale-105 transition-transform"
-                        />
-                        )}
-                        <Badge
-                          className={`absolute top-2 right-2 ${getStatusColor(item.status)}`}
-                        >
-                          not selected
-                        </Badge>
-                        {/* Edited badge for content with unsaved edits */}
-                        {hasEditedDraft(item.contentId, item.postIndex) && (
-                          <Badge
-                            className="absolute top-2 left-2 bg-amber-500 hover:bg-amber-600 text-white"
-                          >
-                            Edited
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="p-3 md:p-4 space-y-2 md:space-y-3">
-                        <div className="flex items-center gap-2">
-                          <div className="flex items-center gap-1">
-                            {item.platforms.includes("instagram") && (
-                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-gradient-to-br from-purple-500 to-pink-500" />
-                            )}
-                            {item.platforms.includes("twitter") && (
-                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-black" />
-                            )}
-                            {item.platforms.includes("linkedin") && (
-                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-blue-600" />
-                            )}
-                            {item.platforms.includes("tiktok") && (
-                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-black" />
-                            )}
-                          </div>
-                          <span className="text-xs font-medium">{item.type}</span>
-                        </div>
-                        <h3 className="font-semibold text-sm md:text-base line-clamp-2">{item.title}</h3>
-                        <p className="text-xs text-muted-foreground line-clamp-2">
-                          {item.description}
-                        </p>
-                      </div>
-                    </Card>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {(scheduledContent.length === 0 && selectedContent.length === 0 && pendingReviewContent.length === 0 && notSelectedContent.length === 0) && !isLoading && (
-              <div className="text-center py-16">
-                <p className="text-muted-foreground">No content found</p>
-                <p className="text-muted-foreground text-sm mt-2">Generate some content to get started</p>
-              </div>
-            )}
-          </>
+                );
+              })}
+            </div>
         )}
+
+
+
         
         {/* Infinite Scroll Trigger - Always at bottom */}
         <div ref={loadMoreRef} className="flex justify-center py-8 min-h-[60px]">
@@ -1194,7 +898,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                   <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
                     <div className="flex items-center gap-1">
                       {selectedPost.platforms.includes("instagram") && (
-                        <div className="w-5 h-5 rounded bg-gradient-to-br from-purple-500 to-pink-500" />
+                        <div className="w-5 h-5 rounded bg-[#E1306C]" />
                       )}
                       {selectedPost.platforms.includes("twitter") && (
                         <div className="w-5 h-5 rounded bg-black" />
@@ -1220,7 +924,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                     <div key={analytics.platform} className="space-y-2 md:space-y-3">
                       <div className="flex items-center gap-2">
                         {analytics.platform === "instagram" && (
-                          <div className="w-5 h-5 md:w-6 md:h-6 rounded bg-gradient-to-br from-purple-500 to-pink-500" />
+                          <div className="w-5 h-5 md:w-6 md:h-6 rounded bg-[hsl(var(--landing-accent-orange))]" />
                         )}
                         {analytics.platform === "twitter" && (
                           <div className="w-5 h-5 md:w-6 md:h-6 rounded bg-black" />
@@ -1272,7 +976,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
         </DialogContent>
       </Dialog>
 
-      {/* Generate Content Dialog */}
+      {/* Generate Content Dialog - only for onboarding/OAuth flows, NOT for Create New button */}
       <GenerateContentDialog 
         open={showGenerateDialog} 
         onOpenChange={(open) => {
@@ -1295,83 +999,22 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
         }}
       />
 
-      {/* Mobile: Floating Generate Content Button - Bottom right (unchanged) */}
+      {/* Create Ad Flow Modal - same flow as Discover "Create my own Ad" (replaces old Create New flow) */}
+      <CreateAdFlowModal
+        open={showCreateAdFlow}
+        onOpenChange={(open) => {
+          setShowCreateAdFlow(open);
+          if (!open) {
+            handleGenerationComplete();
+          }
+        }}
+      />
+
+      {/* Mobile: Floating Create button - Bottom right */}
       <div className="fixed bottom-6 right-6 z-50 md:hidden">
-        <Button 
-          onClick={async () => {
-            // Track event
-            trackGenerateContentClicked('content_library');
-            
-            // Check account status and usage limits
-            try {
-              const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/usage`, {
-                credentials: 'include',
-                headers: {
-                  ...(() => {
-                    const accountId = localStorage.getItem('dvyb_account_id');
-                    return accountId ? { 'X-DVYB-Account-ID': accountId } : {};
-                  })(),
-                },
-              });
-              const data = await response.json();
-              
-              if (data.success && data.data) {
-                setUsageData(data.data);
-                
-                // First check if account is active
-                if (data.data.isAccountActive === false) {
-                  setShowInactiveAccountDialog(true);
-                  return;
-                }
-                
-                // Check if user MUST subscribe to opt-out trial first
-                if (data.data.mustSubscribeToFreemium) {
-                  console.log('🚫 [ContentLibrary Mobile] User must subscribe to opt-out plan before generating');
-                  setMustSubscribeToFreemium(true);
-                  setQuotaType('both');
-                  setCanSkipPricingModal(false);
-                  setShowPricingModal(true);
-                  return;
-                } else {
-                  setMustSubscribeToFreemium(false);
-                }
-                
-                // Check if user is in trial and has exceeded trial limits
-                if (data.data.isTrialLimitExceeded) {
-                  console.log('⚠️ [ContentLibrary Mobile] User is in trial and exceeded limits - showing charge dialog');
-                  setShowTrialLimitDialog(true);
-                  return;
-                }
-                
-                // Check quota limits
-                const noImagesLeft = data.data.remainingImages === 0;
-                const noVideosLeft = data.data.remainingVideos === 0;
-                
-                if (noImagesLeft && noVideosLeft) {
-                  // BOTH quotas exhausted - must upgrade, cannot skip
-                  setQuotaType('both');
-                  setCanSkipPricingModal(false);
-                  setShowPricingModal(true);
-                } else if (noImagesLeft && !noVideosLeft) {
-                  // Only image quota exhausted - can skip and generate videos
-                  setQuotaType('image');
-                  setCanSkipPricingModal(true);
-                  setShowPricingModal(true);
-                } else if (noVideosLeft && !noImagesLeft) {
-                  // Only video quota exhausted - can skip and generate images
-                  setQuotaType('video');
-                  setCanSkipPricingModal(true);
-                  setShowPricingModal(true);
-                } else {
-                  setShowGenerateDialog(true);
-                }
-              }
-            } catch (error) {
-              console.error('Failed to check usage:', error);
-              setShowGenerateDialog(true);
-            }
-          }}
-          className="btn-gradient-cta rounded-full h-14 w-14 p-0"
+        <Button
+          onClick={handleCreateNewClick}
+          className="bg-foreground text-background hover:bg-foreground/90 rounded-full h-14 w-14 p-0"
           size="icon"
         >
           <Sparkles className="w-6 h-6" />
@@ -1383,10 +1026,10 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
         open={showPricingModal}
         onClose={() => {
           setShowPricingModal(false);
-          // If user can skip (only one quota exhausted), proceed to generate
-          // Note: When mustSubscribeToFreemium is true, we don't auto-open GenerateContentDialog
+          // If user can skip (only one quota exhausted), proceed to Create Ad flow
+          // Note: When mustSubscribeToFreemium is true, we don't auto-open
           if (canSkipPricingModal && !mustSubscribeToFreemium) {
-            setShowGenerateDialog(true);
+            setShowCreateAdFlow(true);
           }
         }}
         currentPlanInfo={usageData ? {
@@ -1496,8 +1139,8 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                       description: "Your subscription is now active. You can continue generating content.",
                     });
                     setShowTrialLimitDialog(false);
-                    // Refresh usage data and open generate dialog
-                    setShowGenerateDialog(true);
+                    // Open Create Ad flow (same as Discover)
+                    setShowCreateAdFlow(true);
                   } else {
                     toast({
                       variant: "destructive",
@@ -1530,4 +1173,6 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
       </AlertDialog>
     </div>
   );
-};
+});
+
+export const ContentLibrary = ContentLibraryInner;

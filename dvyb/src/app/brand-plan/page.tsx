@@ -21,12 +21,12 @@ export default function BrandPlanPage() {
     }
   }, [isAuthenticated, isLoading, router]);
 
-  const handleViewChange = (view: string) => {
-    if (view === "home") router.push("/home");
-    else if (view === "calendar") router.push("/calendar");
-    else if (view === "content-library") router.push("/content-library");
-    else if (view === "brand-kit") router.push("/brand-kit");
-    else if (view === "subscription") router.push("/subscription/manage");
+  const handleViewChange = (view: string, subView?: string) => {
+    if (view === "discover") router.push("/discover");
+    else if (view === "brands") router.push("/brands");
+    else if (view === "content-library") router.push(subView ? `/content-library?tab=${subView}` : "/content-library");
+    else if (view === "brand-kit") router.push(subView ? `/brand-kit?tab=${subView}` : "/brand-kit");
+    else if (view === "settings") router.push("/subscription/manage");
   };
 
   if (isLoading || !isAuthenticated) {
@@ -83,7 +83,7 @@ export default function BrandPlanPage() {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-7xl mx-auto p-4 md:p-8">
+          <div className="max-w-7xl mx-auto px-2 md:px-3 lg:px-4 py-4 md:py-6">
             <div className="text-center py-20">
               <h1 className="text-3xl font-bold text-foreground mb-4">Brand Plan</h1>
               <p className="text-muted-foreground">Coming soon...</p>

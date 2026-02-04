@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
-import { WebsiteAnalysis } from "@/components/onboarding/WebsiteAnalysis";
+import { LandingPageNew } from "@/components/landing/LandingPageNew";
 import { ProductShotFlow } from "@/components/onboarding/ProductShotFlow";
 import { Loader2 } from "lucide-react";
 import { trackLandingPageViewed } from "@/lib/mixpanel";
@@ -11,7 +11,7 @@ import { trackLandingPageViewed } from "@/lib/mixpanel";
 function HomePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { isAuthenticated, accountId, onboardingComplete, isLoading } = useAuth();
+  const { isAuthenticated, accountId, isLoading } = useAuth();
   const [isMounted, setIsMounted] = useState(false);
   const [shouldShowLanding, setShouldShowLanding] = useState(false);
   const [flowType, setFlowType] = useState<"website" | "product">("website");
@@ -79,56 +79,52 @@ function HomePageContent() {
     if (!isMounted || isLoading) return;
 
     const checkAndRedirect = async () => {
-      // PRIORITY 0: Check if user is in product flow (Flow 2)
-      // Product flow users should ALWAYS see the product flow, even if authenticated
-      if (flowType === "product") {
-        console.log("📦 Product flow detected - showing product shot flow");
-        setShouldShowLanding(true);
-        return;
-      }
-      
-      // PRIORITY 1: Authenticated user
-      if (isAuthenticated && accountId) {
-        console.log("📍 User is authenticated, checking onboarding status...", { 
-          onboardingComplete,
-          accountId 
-        });
-        
-        if (onboardingComplete) {
-          // User has completed onboarding - ALWAYS go to home
-          console.log("✅ Onboarding complete - redirecting to /home");
-          // Clear old analysis data to prevent confusion
-          localStorage.removeItem('dvyb_website_analysis');
-          router.replace("/home");
-          return;
-        }
-        
-        // Onboarding NOT complete - check if we have analysis to continue
-        const hasAnalysis = localStorage.getItem('dvyb_website_analysis');
-        console.log("⚠️ Onboarding incomplete, hasAnalysis:", !!hasAnalysis);
-        
-        if (hasAnalysis) {
-          // Continue onboarding from analysis details
-          console.log("→ Has analysis - redirecting to analysis-details");
-          router.replace("/onboarding/analysis-details");
-          return;
-        }
-        
-        // No analysis - show landing page to start/continue onboarding
-        console.log("→ No analysis - showing website analysis form");
+      const openModalParam = searchParams.get("openModal");
+
+      // PRIORITY 0: OAuth return flows - must show landing/product (user just completed signup)
+      const onboardingJobId = localStorage.getItem("dvyb_onboarding_generation_job_id");
+      const pendingGeneration = localStorage.getItem("dvyb_product_flow_pending_generation");
+      const productS3Key = localStorage.getItem("dvyb_product_shot_s3_key");
+      const isProductOAuthReturn = pendingGeneration === "true" && !!productS3Key;
+
+      if (onboardingJobId) {
+        console.log("🎉 Onboarding generation job detected - showing landing with content modal");
         setShouldShowLanding(true);
         return;
       }
 
-      // PRIORITY 2: Not authenticated - show landing page
-      if (!isAuthenticated) {
-        console.log("👤 User not authenticated - showing landing page");
-        setShouldShowLanding(true);
+      // User closed modal or reloaded during onboarding content generation → redirect to discover
+      if (openModalParam === "contentGeneration" && isAuthenticated && accountId) {
+        console.log("🔄 Content generation flow closed/reloaded - redirecting to discover");
+        router.replace("/discover");
+        return;
       }
+      if (isProductOAuthReturn) {
+        console.log("📦 Product flow OAuth return - showing product shot flow");
+        setShouldShowLanding(true);
+        return;
+      }
+
+      // PRIORITY 1: Logged-in user visiting landing directly → redirect to discover
+      if (isAuthenticated && accountId) {
+        console.log("✅ User already logged in - redirecting to /discover");
+        localStorage.removeItem("dvyb_website_analysis");
+        router.replace("/discover");
+        return;
+      }
+
+      // PRIORITY 2: Not authenticated or no account - show landing
+      if (flowType === "product") {
+        console.log("📦 Product flow (ref param) - showing product shot flow");
+        setShouldShowLanding(true);
+        return;
+      }
+      console.log("👤 User not authenticated - showing landing page");
+      setShouldShowLanding(true);
     };
 
     checkAndRedirect();
-  }, [isAuthenticated, accountId, onboardingComplete, isLoading, isMounted, router, flowType]);
+  }, [isAuthenticated, accountId, isLoading, isMounted, router, flowType, searchParams]);
 
   const handleAnalysisComplete = (url: string) => {
     // User will be redirected to /onboarding/analysis-details from WebsiteAnalysis component
@@ -161,11 +157,13 @@ function HomePageContent() {
 
   // Landing page - for logged out users OR logged in users without website analysis
   // Show different flow based on ref parameter
+  // New landing (website flow): LandingPageNew. Old landing kept in @/components/onboarding/WebsiteAnalysis.tsx for reference.
   if (flowType === "product") {
     return <ProductShotFlow />;
   }
-  
-  return <WebsiteAnalysis onComplete={handleAnalysisComplete} />;
+
+  const openModal = searchParams.get("openModal") === "website";
+  return <LandingPageNew onAnalysisComplete={handleAnalysisComplete} initialOpenWebsiteModal={openModal} />;
 }
 
 // Wrap in Suspense boundary for useSearchParams

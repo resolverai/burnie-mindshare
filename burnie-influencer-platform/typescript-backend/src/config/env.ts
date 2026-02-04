@@ -153,6 +153,13 @@ const envSchema = Joi.object({
 
   // DVYB Frontend URL
   DVYB_FRONTEND_URL: Joi.string().uri().allow('').default('http://localhost:3005'),
+
+  // DVYB Onboarding - API key for unauthenticated discover ads (onboarding modal)
+  DVYB_ONBOARDING_API_KEY: Joi.string().allow('').default(''),
+
+  // DVYB Brands - Meta Ads fetch (for Discover screen)
+  // Tokens (GEMINI_API_KEY, META_AD_LIBRARY_ACCESS_TOKEN, APIFY_TOKEN) live in python-ai-backend .env
+  TYPESCRIPT_BACKEND_URL: Joi.string().uri().allow('').default('http://localhost:3001'),
 }).unknown();
 
 // Validate environment variables
@@ -357,5 +364,11 @@ export const env = {
       callbackUrl: envVars.DVYB_TIKTOK_CALLBACK_URL,
     },
     frontendUrl: envVars.DVYB_FRONTEND_URL,
+    onboardingApiKey: envVars.DVYB_ONBOARDING_API_KEY,
+  },
+
+  // DVYB Brands - Meta Ads fetch (tokens in python-ai-backend .env)
+  dvybBrands: {
+    backendUrl: envVars.TYPESCRIPT_BACKEND_URL || 'http://localhost:3001',
   },
 } as const; 

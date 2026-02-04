@@ -2,22 +2,16 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { 
   Check, 
-  Sparkles, 
-  Image as ImageIcon, 
-  Video, 
-  Zap,
-  Crown,
   Loader2,
-  ArrowLeft,
   Gift,
+  Zap,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
 } from "lucide-react";
-import Image from "next/image";
-import dvybLogo from "@/assets/dvyb-logo.png";
+import { NavigationLanding } from "@/components/landing/NavigationLanding";
+import { FooterLanding } from "@/components/landing/FooterLanding";
 
 interface PricingPlan {
   id: number;
@@ -35,7 +29,7 @@ interface PricingPlan {
   planFlow?: 'website_analysis' | 'product_photoshot';
 }
 
-// Animated Toggle Switch Component
+// Billing toggle — aligned with new frontend pill style (landing)
 const BillingToggle = ({ 
   billingCycle, 
   onChange 
@@ -44,33 +38,30 @@ const BillingToggle = ({
   onChange: (cycle: 'monthly' | 'annual') => void;
 }) => {
   return (
-    <div className="inline-flex items-center p-1 rounded-full bg-primary/10 border border-primary/20">
-      {/* Monthly button */}
+    <div className="inline-flex items-center gap-1 rounded-full p-1 bg-[hsl(var(--landing-explore-pill-bg))] border border-[hsl(var(--landing-nav-bar-border))]">
       <button
+        type="button"
         onClick={() => onChange('monthly')}
-        className={`relative px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-300 ${
+        className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
           billingCycle === 'monthly'
-            ? 'bg-primary text-primary-foreground shadow-md'
-            : 'text-foreground hover:text-foreground/80'
+            ? "bg-[hsl(var(--landing-cta-bg))] text-white shadow-soft"
+            : "text-foreground hover:bg-[hsl(var(--landing-explore-pill-hover))]"
         }`}
       >
         Monthly
       </button>
-      
-      {/* Annual button */}
       <button
+        type="button"
         onClick={() => onChange('annual')}
-        className={`relative px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-300 flex items-center gap-2 ${
+        className={`px-4 py-2 rounded-full text-sm font-medium transition-all flex items-center gap-2 ${
           billingCycle === 'annual'
-            ? 'bg-primary text-primary-foreground shadow-md'
-            : 'text-foreground hover:text-foreground/80'
+            ? "bg-[hsl(var(--landing-cta-bg))] text-white shadow-soft"
+            : "text-foreground hover:bg-[hsl(var(--landing-explore-pill-hover))]"
         }`}
       >
         Annual
-        <span className={`px-2 py-0.5 text-xs rounded-full font-semibold transition-colors duration-300 ${
-          billingCycle === 'annual' 
-            ? 'bg-white/20 text-primary-foreground' 
-            : 'bg-green-500 text-white'
+        <span className={`px-2 py-0.5 text-xs rounded-full font-semibold ${
+          billingCycle === 'annual' ? "bg-white/20 text-white" : "bg-[hsl(var(--landing-accent-orange))] text-white"
         }`}>
           Save 20%
         </span>
@@ -79,36 +70,47 @@ const BillingToggle = ({
   );
 };
 
-// Plan Card Component
+// Build feature list for card (new frontend style: simple list with Check)
+function getPlanFeatures(plan: PricingPlan, billingCycle: 'monthly' | 'annual'): string[] {
+  const isFree = plan.isFreeTrialPlan;
+  const isProductFlow = plan.planFlow === 'product_photoshot';
+  const imageLabel = isProductFlow ? "images" : "image posts";
+  const videoLabel = isProductFlow ? "videos" : "video posts";
+  const imageLimit = isFree ? plan.monthlyImageLimit : (billingCycle === 'monthly' ? plan.monthlyImageLimit : plan.annualImageLimit);
+  const videoLimit = isFree ? plan.monthlyVideoLimit : (billingCycle === 'monthly' ? plan.monthlyVideoLimit : plan.annualVideoLimit);
+  const period = isFree ? "during trial" : (billingCycle === 'monthly' ? "per month" : "per year");
+  const features: string[] = [
+    `${imageLimit} ${imageLabel} ${period}`,
+    `${videoLimit} ${videoLabel} ${period}`,
+    "AI-powered content generation",
+    "Multi-platform scheduling",
+    "Brand kit & content library",
+    "Analytics dashboard",
+  ];
+  if (!isFree) features.push("Priority support");
+  return features;
+}
+
+// Plan Card — aligned with new frontend (rounded-3xl, popular = dark card, accent badge, list + CTA)
 const PlanCard = ({
   plan,
   displayPlans,
   billingCycle,
   onGetStarted,
-  isSelected,
+  index,
 }: {
   plan: PricingPlan;
   displayPlans: PricingPlan[];
   billingCycle: 'monthly' | 'annual';
   onGetStarted: () => void;
-  isSelected?: boolean;
+  index: number;
 }) => {
   const paidPlans = displayPlans.filter(p => !p.isFreeTrialPlan);
   const isPopular = !plan.isFreeTrialPlan && paidPlans.length > 1 && paidPlans[Math.floor(paidPlans.length / 2)]?.id === plan.id;
   const isFree = plan.isFreeTrialPlan;
 
-  // Determine labels based on plan flow
-  // Product Shots flow: "Images" / "Videos"
-  // Website Analysis flow: "Image Posts" / "Video Posts"
-  const isProductFlow = plan.planFlow === 'product_photoshot';
-  const imageLabel = isProductFlow ? 'Images' : 'Image Posts';
-  const videoLabel = isProductFlow ? 'Videos' : 'Video Posts';
-
-  // Free plan always uses monthly values
   const getPrice = () => isFree ? 0 : (billingCycle === 'monthly' ? plan.monthlyPrice : plan.annualPrice);
-  const getImageLimit = () => isFree ? plan.monthlyImageLimit : (billingCycle === 'monthly' ? plan.monthlyImageLimit : plan.annualImageLimit);
-  const getVideoLimit = () => isFree ? plan.monthlyVideoLimit : (billingCycle === 'monthly' ? plan.monthlyVideoLimit : plan.annualVideoLimit);
-  
+  const getPeriod = () => (isFree ? "" : billingCycle === 'monthly' ? "/month" : "/year");
   const getAnnualSavings = () => {
     if (isFree) return 0;
     const monthlyCost = plan.monthlyPrice * 12;
@@ -117,198 +119,113 @@ const PlanCard = ({
     return savings > 0 ? savings : 0;
   };
 
+  const features = getPlanFeatures(plan, billingCycle);
+  const popular = isPopular;
+
   return (
     <div
-      className={`relative rounded-2xl p-6 md:p-8 transition-all duration-200 h-full ${
-        isSelected
-          ? 'bg-green-50 border-2 border-green-500 shadow-xl ring-2 ring-green-200'
-          : isPopular
-          ? 'bg-primary/5 border-2 border-primary shadow-xl ring-1 ring-primary/20'
-          : isFree
-          ? 'bg-green-50 border-2 border-green-200'
-          : 'bg-card border border-border hover:border-primary/30 hover:shadow-lg'
+      className={`relative rounded-3xl p-8 animate-fade-up h-full flex flex-col ${
+        popular
+          ? "bg-[hsl(var(--landing-cta-bg))] text-white shadow-card scale-105"
+          : "bg-card border border-border shadow-soft"
       }`}
+      style={{ animationDelay: `${index * 0.1}s` }}
     >
-      {/* Selected Badge (for free plan) */}
-      {isSelected && (
-        <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-          <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-green-500 text-white text-sm font-semibold shadow-lg">
-            <Check className="h-4 w-4" />
-            Recommended
-          </div>
-        </div>
-      )}
-
-      {/* Popular Badge */}
-      {isPopular && !isSelected && (
-        <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-          <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-primary text-primary-foreground text-sm font-semibold shadow-lg">
-            <Crown className="h-4 w-4" />
+      {popular && (
+        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+          <span className="px-4 py-1 bg-[hsl(var(--landing-accent-orange))] text-white rounded-full text-xs font-semibold">
             Most Popular
-          </div>
-        </div>
-      )}
-
-      {/* Free Badge */}
-      {isFree && !isSelected && (
-        <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-          <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-green-500 text-white text-sm font-semibold shadow-lg">
-            <Gift className="h-4 w-4" />
-            Free Trial
-          </div>
-        </div>
-      )}
-
-      {/* Plan Name */}
-      <h3 className="text-2xl font-bold text-foreground mb-2 mt-2">
-        {plan.planName}
-      </h3>
-      
-      {plan.description && (
-        <p className="text-muted-foreground text-sm mb-5">
-          {plan.description}
-        </p>
-      )}
-
-      {/* Price */}
-      <div className="mb-6">
-        <div className="flex items-baseline gap-1">
-          <span className="text-5xl font-bold text-foreground">
-            {isFree ? 'Free' : `$${getPrice()}`}
           </span>
+        </div>
+      )}
+      {isFree && !popular && (
+        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+          <span className="px-4 py-1 bg-[hsl(var(--landing-accent-orange))] text-white rounded-full text-xs font-semibold">
+            Free Trial
+          </span>
+        </div>
+      )}
+
+      <div className="mb-6">
+        <h3 className="text-xl font-semibold mb-2">{plan.planName}</h3>
+        <div className="flex items-baseline gap-1">
+          <span className="text-4xl font-bold">{isFree ? "Free" : `$${getPrice()}`}</span>
           {!isFree && (
-            <span className="text-muted-foreground">
-              /{billingCycle === 'monthly' ? 'mo' : 'yr'}
+            <span className={popular ? "text-white/70" : "text-muted-foreground"}>
+              {getPeriod()}
             </span>
           )}
         </div>
-        {!isFree && billingCycle === 'annual' && getAnnualSavings() > 0 && (
-          <p className="text-green-600 text-sm mt-2 font-medium">
+        {plan.description && (
+          <p className={`mt-2 text-sm ${popular ? "text-white/80" : "text-muted-foreground"}`}>
+            {plan.description}
+          </p>
+        )}
+        {!isFree && billingCycle === "annual" && getAnnualSavings() > 0 && (
+          <p className={`mt-1 text-sm font-medium ${popular ? "text-white/90" : "text-[hsl(var(--landing-accent-orange))]"}`}>
             Save {getAnnualSavings()}% vs monthly
           </p>
         )}
-        {isFree && (
-          <p className="text-green-600 text-sm mt-2 font-medium">
-            7-day trial, no credit card required
-          </p>
-        )}
       </div>
+      {isFree && (
+        <p className={`text-sm -mt-2 mb-2 ${popular ? "text-white/90" : "text-muted-foreground"}`}>
+          7-day trial, no credit card required
+        </p>
+      )}
 
-      {/* Features */}
-      <div className="space-y-4 mb-8">
-        <div className="flex items-center gap-3">
-          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-            <ImageIcon className="h-5 w-5 text-primary" />
-          </div>
-          <div>
-            <p className="text-foreground font-semibold">
-              {getImageLimit()} {imageLabel}
-            </p>
-            <p className="text-muted-foreground text-sm">
-              {isFree ? 'during trial' : `per ${billingCycle === 'monthly' ? 'month' : 'year'}`}
-            </p>
-          </div>
-        </div>
+      <ul className="space-y-3 mb-8 flex-1">
+        {features.map((feature) => (
+          <li key={feature} className="flex items-start gap-3">
+            <Check className={`w-5 h-5 flex-shrink-0 ${popular ? "text-[hsl(var(--landing-accent-orange))]" : "text-[hsl(var(--landing-accent-orange))]"}`} />
+            <span className={`text-sm ${popular ? "text-white/90" : ""}`}>{feature}</span>
+          </li>
+        ))}
+      </ul>
 
-        <div className="flex items-center gap-3">
-          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-pink-500/10 flex items-center justify-center">
-            <Video className="h-5 w-5 text-pink-500" />
-          </div>
-          <div>
-            <p className="text-foreground font-semibold">
-              {getVideoLimit()} {videoLabel}
-            </p>
-            <p className="text-muted-foreground text-sm">
-              {isFree ? 'during trial' : `per ${billingCycle === 'monthly' ? 'month' : 'year'}`}
-            </p>
-          </div>
-        </div>
-
-        {/* Additional Features */}
-        <div className="pt-4 border-t border-border space-y-3">
-          <div className="flex items-center gap-2">
-            <Check className="h-5 w-5 text-green-500 flex-shrink-0" />
-            <span className="text-foreground">AI-powered content generation</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Check className="h-5 w-5 text-green-500 flex-shrink-0" />
-            <span className="text-foreground">Multi-platform scheduling</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Check className="h-5 w-5 text-green-500 flex-shrink-0" />
-            <span className="text-foreground">Brand kit & content library</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Check className="h-5 w-5 text-green-500 flex-shrink-0" />
-            <span className="text-foreground">Analytics dashboard</span>
-          </div>
-          {!isFree && (
-            <div className="flex items-center gap-2">
-              <Check className="h-5 w-5 text-green-500 flex-shrink-0" />
-              <span className="text-foreground">Priority support</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* CTA Button */}
-      <Button
+      <button
+        type="button"
         onClick={onGetStarted}
-        className={`w-full py-6 text-base font-semibold transition-all ${
-          isFree || isSelected
-            ? 'bg-green-500 hover:bg-green-600 text-white shadow-lg'
-            : isPopular
-            ? 'bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg'
-            : 'bg-foreground hover:bg-foreground/90 text-background'
+        className={`w-full py-3 rounded-full font-medium transition-all ${
+          popular
+            ? "bg-card text-foreground hover:shadow-soft"
+            : "bg-[hsl(var(--landing-cta-bg))] text-white hover:opacity-90"
         }`}
       >
         {isFree ? (
-          <>
-            <Gift className="h-5 w-5 mr-2" />
+          <span className="inline-flex items-center gap-2">
+            <Gift className="w-4 h-4" />
             Start Free Trial
-          </>
+          </span>
         ) : (
-          <>
-            <Zap className="h-5 w-5 mr-2" />
+          <span className="inline-flex items-center gap-2">
+            <Zap className="w-4 h-4" />
             Get Started
-          </>
+          </span>
         )}
-      </Button>
+      </button>
 
-      {/* Extra post pricing */}
       {!isFree && (plan.extraImagePostPrice > 0 || plan.extraVideoPostPrice > 0) && (
-        <p className="text-center text-muted-foreground text-sm mt-4">
-          Extra posts: ${plan.extraImagePostPrice}/image, ${plan.extraVideoPostPrice}/video
+        <p className={`text-center text-sm mt-4 ${popular ? "text-white/70" : "text-muted-foreground"}`}>
+          Extra: ${plan.extraImagePostPrice}/image, ${plan.extraVideoPostPrice}/video
         </p>
       )}
     </div>
   );
 };
 
-// Plan Carousel Component with Arrow Navigation
+// Arrow-based carousel for desktop/tablet when there are more plans than fit in one row (2 on tablet, 3 on desktop)
 const PlanCarousel = ({
   plans,
   billingCycle,
   onGetStarted,
-  selectedPlanId,
 }: {
   plans: PricingPlan[];
   billingCycle: 'monthly' | 'annual';
   onGetStarted: () => void;
-  selectedPlanId: number | null;
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
-  
-  // Tablet: 2 visible, Desktop: 3 visible
-  const getVisibleCount = () => {
-    if (typeof window !== 'undefined') {
-      return window.innerWidth >= 1024 ? 3 : 2;
-    }
-    return 3;
-  };
-  
   const [visibleCount, setVisibleCount] = useState(3);
-  
+
   useEffect(() => {
     const updateVisibleCount = () => {
       setVisibleCount(window.innerWidth >= 1024 ? 3 : 2);
@@ -319,120 +236,107 @@ const PlanCarousel = ({
   }, []);
 
   const maxIndex = Math.max(0, plans.length - visibleCount);
-  
   const canGoLeft = currentIndex > 0;
   const canGoRight = currentIndex < maxIndex;
-  
-  const goLeft = () => {
-    if (canGoLeft) {
-      setCurrentIndex(prev => prev - 1);
-    }
-  };
-  
-  const goRight = () => {
-    if (canGoRight) {
-      setCurrentIndex(prev => prev + 1);
-    }
-  };
+  const gapPx = visibleCount === 3 ? 32 : 24; // gap-8 = 32px, gap-6 = 24px
 
-  // Gap sizes in pixels
-  const gapSize = visibleCount === 3 ? 24 : 16; // lg:gap-6 = 24px, gap-4 = 16px
-
-  // If all plans fit, just show grid
+  // All plans fit in one row — show simple grid, no arrows
   if (plans.length <= visibleCount) {
     return (
-      <div className="hidden md:block pt-5">
-        <div className={`grid gap-4 lg:gap-6 ${
-          plans.length === 1 ? 'grid-cols-1 max-w-md mx-auto' :
-          plans.length === 2 ? 'grid-cols-2 max-w-3xl mx-auto' :
-          'grid-cols-3'
-        }`}>
-          {plans.map((plan) => (
-            <PlanCard 
-              key={plan.id} 
-              plan={plan} 
-              displayPlans={plans}
-              billingCycle={billingCycle}
-              onGetStarted={onGetStarted}
-              isSelected={plan.id === selectedPlanId}
-            />
-          ))}
-        </div>
+      <div className={`grid gap-6 md:gap-8 max-w-5xl mx-auto ${
+        plans.length === 1 ? 'grid-cols-1 max-w-md mx-auto' :
+        plans.length === 2 ? 'grid-cols-1 md:grid-cols-2 max-w-3xl mx-auto' :
+        'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'
+      }`}>
+        {plans.map((plan, index) => (
+          <PlanCard
+            key={plan.id}
+            plan={plan}
+            displayPlans={plans}
+            billingCycle={billingCycle}
+            onGetStarted={onGetStarted}
+            index={index}
+          />
+        ))}
       </div>
     );
   }
 
-  // Carousel view with arrows
+  const cardWidthPercent = (100 - (visibleCount - 1) * (gapPx / 16)) / visibleCount; // approximate
+
   return (
-    <div className="hidden md:block relative pt-5">
-      {/* Left Arrow */}
+    <div className="relative max-w-5xl mx-auto">
       <button
-        onClick={goLeft}
+        type="button"
+        onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))}
         disabled={!canGoLeft}
-        className={`absolute left-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 lg:w-12 lg:h-12 rounded-full bg-background border border-border shadow-lg flex items-center justify-center transition-all ${
-          canGoLeft 
-            ? 'hover:bg-muted cursor-pointer opacity-100' 
-            : 'opacity-30 cursor-not-allowed'
+        aria-label="Previous plans"
+        className={`absolute left-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 lg:w-12 lg:h-12 rounded-full border shadow-soft flex items-center justify-center transition-all ${
+          canGoLeft
+            ? 'bg-card border-[hsl(var(--landing-nav-bar-border))] text-foreground hover:bg-[hsl(var(--landing-explore-pill-hover))]'
+            : 'bg-[hsl(var(--landing-explore-pill-bg))] border-[hsl(var(--landing-nav-bar-border))] text-muted-foreground opacity-50 cursor-not-allowed'
         }`}
-        style={{ left: '-16px' }}
+        style={{ left: '-12px' }}
       >
-        <ChevronLeft className="h-5 w-5 lg:h-6 lg:w-6 text-foreground" />
+        <ChevronLeft className="w-5 h-5 lg:w-6 lg:h-6" />
       </button>
 
-      {/* Right Arrow */}
       <button
-        onClick={goRight}
+        type="button"
+        onClick={() => setCurrentIndex((i) => Math.min(maxIndex, i + 1))}
         disabled={!canGoRight}
-        className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 lg:w-12 lg:h-12 rounded-full bg-background border border-border shadow-lg flex items-center justify-center transition-all ${
-          canGoRight 
-            ? 'hover:bg-muted cursor-pointer opacity-100' 
-            : 'opacity-30 cursor-not-allowed'
+        aria-label="Next plans"
+        className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 lg:w-12 lg:h-12 rounded-full border shadow-soft flex items-center justify-center transition-all ${
+          canGoRight
+            ? 'bg-card border-[hsl(var(--landing-nav-bar-border))] text-foreground hover:bg-[hsl(var(--landing-explore-pill-hover))]'
+            : 'bg-[hsl(var(--landing-explore-pill-bg))] border-[hsl(var(--landing-nav-bar-border))] text-muted-foreground opacity-50 cursor-not-allowed'
         }`}
-        style={{ right: '-16px' }}
+        style={{ right: '-12px' }}
       >
-        <ChevronRight className="h-5 w-5 lg:h-6 lg:w-6 text-foreground" />
+        <ChevronRight className="w-5 h-5 lg:w-6 lg:h-6" />
       </button>
 
-      {/* Carousel Container */}
-      <div className="overflow-hidden pt-5">
-        <div 
+      <div className="overflow-hidden px-1 pt-8 pb-2">
+        <div
           className="flex transition-transform duration-300 ease-out"
-          style={{ 
-            gap: `${gapSize}px`,
-            transform: `translateX(calc(-${currentIndex} * (${100 / visibleCount}% + ${gapSize / visibleCount}px)))`,
+          style={{
+            gap: `${gapPx}px`,
+            transform: `translateX(calc(-${currentIndex} * ( (100% - ${(visibleCount - 1) * gapPx}px) / ${visibleCount} + ${gapPx}px ) ))`,
           }}
         >
-          {plans.map((plan) => (
-            <div 
-              key={plan.id} 
+          {plans.map((plan, index) => (
+            <div
+              key={plan.id}
               className="flex-shrink-0"
-              style={{ 
-                width: `calc((100% - ${(visibleCount - 1) * gapSize}px) / ${visibleCount})` 
+              style={{
+                width: `calc((100% - ${(visibleCount - 1) * gapPx}px) / ${visibleCount})`,
+                minWidth: `calc((100% - ${(visibleCount - 1) * gapPx}px) / ${visibleCount})`,
               }}
             >
-              <PlanCard 
-                plan={plan} 
+              <PlanCard
+                plan={plan}
                 displayPlans={plans}
                 billingCycle={billingCycle}
                 onGetStarted={onGetStarted}
-                isSelected={plan.id === selectedPlanId}
+                index={index}
               />
             </div>
           ))}
         </div>
       </div>
 
-      {/* Dots indicator */}
       {maxIndex > 0 && (
         <div className="flex justify-center gap-2 mt-6">
           {Array.from({ length: maxIndex + 1 }).map((_, idx) => (
             <button
               key={idx}
+              type="button"
               onClick={() => setCurrentIndex(idx)}
-              className={`w-2.5 h-2.5 rounded-full transition-all ${
-                idx === currentIndex 
-                  ? 'bg-primary w-6' 
-                  : 'bg-muted-foreground/30 hover:bg-muted-foreground/50'
+              aria-label={`Go to page ${idx + 1}`}
+              className={`h-2.5 rounded-full transition-all ${
+                idx === currentIndex
+                  ? 'bg-[hsl(var(--landing-cta-bg))] w-6'
+                  : 'w-2.5 bg-[hsl(var(--landing-nav-bar-border))] hover:bg-muted-foreground/50'
               }`}
             />
           ))}
@@ -449,9 +353,6 @@ function PricingPageContent() {
   const [plans, setPlans] = useState<PricingPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
-  const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
-
-  // Get flow from URL parameter, default to 'website_analysis'
   const flowParam = searchParams.get('flow');
   const planFlow = (flowParam === 'website_analysis' || flowParam === 'product_photoshot') 
     ? flowParam 
@@ -468,15 +369,7 @@ function PricingPageContent() {
         `${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/pricing-plans?includeFree=true&flow=${planFlow}`
       );
       const data = await response.json();
-      
-      if (data.success) {
-        setPlans(data.data);
-        // Select free plan by default
-        const freePlan = data.data.find((p: PricingPlan) => p.isFreeTrialPlan);
-        if (freePlan) {
-          setSelectedPlanId(freePlan.id);
-        }
-      }
+      if (data.success) setPlans(data.data);
     } catch (error) {
       console.error('Error fetching pricing plans:', error);
     } finally {
@@ -484,11 +377,8 @@ function PricingPageContent() {
     }
   };
 
-  const handleGetStarted = () => {
-    router.push('/');
-  };
+  const handleGetStarted = () => router.push('/');
 
-  // Sort plans: Free first, then by price
   const displayPlans = [...plans].sort((a, b) => {
     if (a.isFreeTrialPlan && !b.isFreeTrialPlan) return -1;
     if (!a.isFreeTrialPlan && b.isFreeTrialPlan) return 1;
@@ -496,44 +386,16 @@ function PricingPageContent() {
   });
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => router.push('/')}
-              className="p-2 rounded-lg hover:bg-muted transition-colors"
-            >
-              <ArrowLeft className="h-5 w-5 text-foreground" />
-            </button>
-            <Image src={dvybLogo} alt="Dvyb Logo" width={80} height={32} className="object-contain" priority />
-          </div>
-          <Button
-            onClick={handleGetStarted}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground"
-          >
-            Get Started Free
-          </Button>
-        </div>
-      </header>
-
-      <div className="py-12 md:py-20 px-4">
-        <div className="max-w-6xl mx-auto">
-          {/* Header */}
-          <div className="text-center mb-10 md:mb-16">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 mb-4">
-              <Sparkles className="h-4 w-4 text-primary" />
-              <span className="text-primary text-sm font-medium">
-                Simple, transparent pricing
-              </span>
-            </div>
-            
-            <h1 className="text-3xl md:text-5xl font-bold text-foreground mb-4">
-              Choose Your Plan
+    <div className="min-h-screen bg-[hsl(var(--landing-hero-bg))]">
+      <NavigationLanding onGetStarted={handleGetStarted} hideExplore />
+      <main className="pt-20 sm:pt-28 pb-20 px-4 sm:px-6">
+        <div className="container mx-auto">
+          <div className="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
+            <h1 className="text-4xl md:text-5xl font-semibold mb-4 animate-fade-up text-foreground">
+              Simple, transparent pricing
             </h1>
-            <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto">
-              Start with a free trial, upgrade when you&apos;re ready. All plans include our core AI-powered features.
+            <p className="text-lg text-muted-foreground animate-fade-up" style={{ animationDelay: "0.1s" }}>
+              Choose the plan that&apos;s right for your team. All plans include a 14-day free trial.
             </p>
           </div>
 
@@ -547,56 +409,46 @@ function PricingPageContent() {
 
           {/* Plans Grid */}
           {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 className="h-10 w-10 animate-spin text-primary" />
+            <div className="flex justify-center py-20">
+              <Loader2 className="h-10 w-10 animate-spin text-foreground" />
             </div>
           ) : (
             <>
-              {/* Mobile: Vertical stack */}
-              <div className="md:hidden flex flex-col gap-6">
-                {displayPlans.map((plan) => (
-                  <PlanCard 
-                    key={plan.id} 
-                    plan={plan} 
+              {/* Mobile: vertical stack */}
+              <div className="md:hidden flex flex-col gap-6 max-w-md mx-auto">
+                {displayPlans.map((plan, index) => (
+                  <PlanCard
+                    key={plan.id}
+                    plan={plan}
                     displayPlans={displayPlans}
                     billingCycle={billingCycle}
                     onGetStarted={handleGetStarted}
-                    isSelected={plan.id === selectedPlanId}
+                    index={index}
                   />
                 ))}
               </div>
-              
-              {/* Tablet/Desktop Carousel */}
-              <PlanCarousel 
-                plans={displayPlans}
-                billingCycle={billingCycle}
-                onGetStarted={handleGetStarted}
-                selectedPlanId={selectedPlanId}
-              />
+              {/* Desktop/tablet: arrow carousel when many plans, grid when 1–3 */}
+              <div className="hidden md:block pt-2">
+                <PlanCarousel
+                  plans={displayPlans}
+                  billingCycle={billingCycle}
+                  onGetStarted={handleGetStarted}
+                />
+              </div>
             </>
           )}
 
-          {/* Footer CTA */}
-          <div className="mt-16 text-center">
-            <div className="bg-muted rounded-2xl p-8 md:p-12 max-w-3xl mx-auto">
-              <h2 className="text-2xl md:text-3xl font-bold text-foreground mb-3">
-                Ready to Get Started?
-              </h2>
-              <p className="text-muted-foreground mb-6 max-w-xl mx-auto">
-                Join thousands of businesses using Dvyb to create AI-powered content in minutes.
-              </p>
-              <Button
-                onClick={handleGetStarted}
-                size="lg"
-                className="bg-primary hover:bg-primary/90 text-primary-foreground px-8 py-6 text-lg"
-              >
-                <Sparkles className="h-5 w-5 mr-2" />
-                Start Free Trial
-              </Button>
-            </div>
+          <div className="text-center mt-12 sm:mt-16">
+            <p className="text-muted-foreground">
+              Have questions?{" "}
+              <a href="#" className="text-foreground font-medium underline underline-offset-4 hover:text-[hsl(var(--landing-accent-orange))] transition-colors">
+                Check our FAQ
+              </a>
+            </p>
           </div>
         </div>
-      </div>
+      </main>
+      <FooterLanding />
     </div>
   );
 }
@@ -604,8 +456,8 @@ function PricingPageContent() {
 // Loading fallback component
 function PricingPageLoading() {
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center">
-      <Loader2 className="h-10 w-10 animate-spin text-primary" />
+    <div className="min-h-screen bg-[hsl(var(--landing-hero-bg))] flex items-center justify-center">
+      <Loader2 className="h-10 w-10 animate-spin text-foreground" />
     </div>
   );
 }

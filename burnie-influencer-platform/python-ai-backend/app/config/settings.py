@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     fallback_llm_provider: str = Field(default="anthropic", env="FALLBACK_LLM_PROVIDER")
     google_api_key: Optional[str] = Field(default=None, env="GOOGLE_API_KEY")
     google_gemini_api_key: Optional[str] = Field(default=None, env="GOOGLE_GEMINI_API_KEY")
+    gemini_api_key: Optional[str] = Field(default=None, env="GEMINI_API_KEY")
+
+    # DVYB Brands - Meta Ads fetch (gemini_competitor_analysis.py)
+    meta_ad_library_access_token: Optional[str] = Field(default=None, env="META_AD_LIBRARY_ACCESS_TOKEN")
+    apify_token: Optional[str] = Field(default=None, env="APIFY_TOKEN")
     
     # CrewAI Configuration
     crewai_model: str = Field(default="gpt-4o", env="CREWAI_MODEL")

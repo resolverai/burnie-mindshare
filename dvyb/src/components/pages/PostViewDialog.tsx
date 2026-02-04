@@ -142,7 +142,7 @@ export const PostViewDialog = ({ post, platform, open, onOpenChange }: PostViewD
                     className="w-6 h-6 md:w-8 md:h-8 rounded-full object-cover"
                   />
                 ) : (
-                  <div className="w-6 h-6 md:w-8 md:h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500" />
+                  <div className="w-6 h-6 md:w-8 md:h-8 rounded-full bg-[hsl(var(--landing-accent-orange))]" />
                 )}
                 <span className="font-semibold text-xs md:text-sm text-gray-900">
                   {platformConnections.instagram?.name || platformConnections.instagram?.username || 'instagram_account'}

@@ -13,6 +13,9 @@ export default {
       },
     },
     extend: {
+      fontFamily: {
+        display: ["var(--font-space-grotesk)", "Space Grotesk", "system-ui", "sans-serif"],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -38,6 +41,10 @@ export default {
         accent: {
           DEFAULT: "hsl(var(--accent))",
           foreground: "hsl(var(--accent-foreground))",
+        },
+        cta: {
+          DEFAULT: "hsl(var(--cta))",
+          foreground: "hsl(var(--cta-foreground))",
         },
         popover: {
           DEFAULT: "hsl(var(--popover))",
@@ -92,6 +99,36 @@ export default {
           "0%, 100%": { opacity: "1" },
           "50%": { opacity: "0.5" },
         },
+        "fade-up": {
+          from: { opacity: "0", transform: "translateY(20px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+        "slide-in": {
+          from: { opacity: "0", transform: "translateX(-10px)" },
+          to: { opacity: "1", transform: "translateX(0)" },
+        },
+        "pulse-subtle": {
+          "0%, 100%": {
+            boxShadow: "0 0 0 0 hsl(var(--accent) / 0.4)",
+            transform: "scale(1)",
+          },
+          "50%": {
+            boxShadow: "0 0 20px 8px hsl(var(--accent) / 0.2)",
+            transform: "scale(1.02)",
+          },
+        },
+        "scale-in": {
+          from: { opacity: "0", transform: "scale(0.95)" },
+          to: { opacity: "1", transform: "scale(1)" },
+        },
+        "cube-rotate-in": {
+          "0%": { transform: "translateY(100%) rotateX(-90deg)" },
+          "100%": { transform: "translateY(0) rotateX(0deg)" },
+        },
+        "cube-rotate-out": {
+          "0%": { transform: "translateY(0) rotateX(0deg)" },
+          "100%": { transform: "translateY(-100%) rotateX(90deg)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -99,10 +136,17 @@ export default {
         "fade-in": "fade-in 0.5s ease-out",
         "slide-up": "slide-up 0.5s ease-out",
         "pulse-slow": "pulse-slow 2s ease-in-out infinite",
+        "fade-up": "fade-up 0.5s ease-out forwards",
+        "slide-in": "slide-in 0.3s ease-out forwards",
+        "pulse-subtle": "pulse-subtle 1.5s ease-in-out infinite",
+        "scale-in": "scale-in 0.3s ease-out forwards",
+        "cube-rotate-in": "cube-rotate-in 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards",
+        "cube-rotate-out": "cube-rotate-out 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards",
       },
       boxShadow: {
         card: "var(--shadow-card)",
         "card-hover": "var(--shadow-card-hover)",
+        soft: "var(--shadow-soft)",
       },
     },
   },

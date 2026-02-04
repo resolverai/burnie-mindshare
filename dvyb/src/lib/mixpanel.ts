@@ -355,7 +355,7 @@ export const trackWebsiteAnalysisCompleted = (websiteUrl: string, durationMs: nu
 };
 
 // --- USER ACTIONS ---
-export const trackSignInClicked = (method: 'google', source: 'landing_page' | 'login_page') => {
+export const trackSignInClicked = (method: 'google', source: 'landing_page' | 'login_page' | 'onboarding_modal') => {
   trackEvent('Sign In Clicked', { method, source });
 };
 
