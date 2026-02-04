@@ -11,7 +11,6 @@ import mimetypes
 import os
 import re
 import shutil
-import sys
 import tempfile
 from pathlib import Path
 
@@ -21,11 +20,6 @@ import requests
 
 from app.config.settings import settings
 from app.services.s3_storage_service import S3StorageService
-
-# Add parent dir so we can import ai.gemini_competitor_analysis
-_ai_parent = Path(__file__).resolve().parent.parent.parent.parent
-if str(_ai_parent) not in sys.path:
-    sys.path.insert(0, str(_ai_parent))
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +175,7 @@ def _run_brands_fetch_task(
     enrichment: dict | None = None
 
     try:
-        from ai.gemini_competitor_analysis import fetch_and_enrich_ads
+        from app.services.gemini_competitor_analysis import fetch_and_enrich_ads
     except ImportError as e:
         logger.error(f"Failed to import fetch_and_enrich_ads: {e}")
         _callback_failed(callback_url, brand_id, "Fetch module not available")
