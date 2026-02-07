@@ -79,7 +79,7 @@ async def process_regeneration_and_callback(request: RegenerateImageRequest):
                 "prompt": request.prompt,
                 "num_images": 1,
                 "output_format": "png",
-                "aspect_ratio": "1:1",  # Same as adhoc generation
+                "aspect_ratio": "9:16",
                 "resolution": "1K",  # Higher quality resolution
                 "image_urls": image_urls,
                 "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic proportions, unrealistic features, hashtags, double logos, extra text"

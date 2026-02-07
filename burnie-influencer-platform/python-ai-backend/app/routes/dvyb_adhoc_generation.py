@@ -8545,7 +8545,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                         "prompt": prompt,
                         "num_images": 1,
                         "output_format": "png",
-                        "aspect_ratio": "1:1",
+                        "aspect_ratio": "9:16",
                         "resolution": "1K",
                         "image_urls": image_urls,
                         "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic features, hashtags, double logos, extra text, cropped head, cut off head, forehead cropped, head out of frame, top of head missing, hairline cropped, extreme close-up, zoomed in too close, tight framing cutting off head"
@@ -8790,7 +8790,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                             "prompt": image_prompt,
                             "num_images": 1,
                             "output_format": "png",
-                            "aspect_ratio": "1:1",
+                            "aspect_ratio": "9:16",
                             "resolution": "1K",
                             "image_urls": image_urls,
                             "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic features, hashtags, double logos, extra text, cropped head, cut off head, forehead cropped, head out of frame, top of head missing, hairline cropped, extreme close-up, zoomed in too close, tight framing cutting off head"
