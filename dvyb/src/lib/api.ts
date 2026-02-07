@@ -958,6 +958,27 @@ export const contentLibraryApi = {
     );
   },
 
+  /**
+   * Download content media (image/video) via backend proxy to avoid CORS.
+   * Triggers file download in the browser.
+   */
+  async downloadContentMedia(contentId: number, postIndex: number, filename: string): Promise<void> {
+    const base = API_URL.replace(/\/api\/?$/, '') || API_URL;
+    const url = `${base}/api/dvyb/content-library/download?contentId=${contentId}&postIndex=${postIndex}`;
+    const res = await fetch(url, { credentials: 'include' });
+    if (!res.ok) throw new Error('Download failed');
+    const blob = await res.blob();
+    const ext = res.headers.get('content-type')?.includes('video') ? '.mp4' : '.png';
+    const name = (filename || `content_${contentId}_${postIndex}`).replace(/[^a-z0-9]/gi, '_').slice(0, 40) + ext;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+  },
+
   // Bulk accept content
   async bulkAcceptContent(items: Array<{ generatedContentId: number; postIndex: number }>) {
     return apiRequest<{ success: boolean; message: string; acceptedCount: number }>(
@@ -2084,6 +2105,7 @@ export const brandsApi = {
     media?: string;
     status?: string;
     category?: string;
+    websiteCategory?: string;
     runtime?: string;
     adCount?: string;
     country?: string;
@@ -2097,6 +2119,7 @@ export const brandsApi = {
     if (params?.media && params.media !== 'All') sp.set('media', params.media);
     if (params?.status && params.status !== 'All') sp.set('status', params.status);
     if (params?.category && params.category !== 'All') sp.set('category', params.category);
+    if (params?.websiteCategory) sp.set('websiteCategory', params.websiteCategory);
     if (params?.runtime && params.runtime !== 'All') sp.set('runtime', params.runtime);
     if (params?.adCount && params.adCount !== 'All') sp.set('adCount', params.adCount);
     if (params?.country && params.country !== 'All') sp.set('country', params.country);
@@ -2134,6 +2157,7 @@ export const brandsApi = {
   /**
    * Get discover ads (paginated, with filters and sort).
    * Requires user authentication - use for Discover screen.
+   * Pass websiteCategory (industry from dvyb_context) to show relevant ads via GPT-4o matching.
    */
   async getDiscoverAds(params?: {
     page?: number;
@@ -2142,6 +2166,7 @@ export const brandsApi = {
     media?: string;
     status?: string;
     category?: string;
+    websiteCategory?: string;
     runtime?: string;
     adCount?: string;
     country?: string;
@@ -2155,6 +2180,7 @@ export const brandsApi = {
     if (params?.media && params.media !== 'All') sp.set('media', params.media);
     if (params?.status && params.status !== 'All') sp.set('status', params.status);
     if (params?.category && params.category !== 'All') sp.set('category', params.category);
+    if (params?.websiteCategory) sp.set('websiteCategory', params.websiteCategory);
     if (params?.runtime && params.runtime !== 'All') sp.set('runtime', params.runtime);
     if (params?.adCount && params.adCount !== 'All') sp.set('adCount', params.adCount);
     if (params?.country && params.country !== 'All') sp.set('country', params.country);
@@ -2255,6 +2281,23 @@ export const productsApi = {
     }>('/dvyb/products', {
       method: 'POST',
       body: JSON.stringify({ name, image_s3_key: imageS3Key }),
+    });
+  },
+
+  async update(id: number, name: string) {
+    return apiRequest<{
+      success: boolean;
+      data: {
+        id: number;
+        name: string;
+        imageS3Key: string;
+        imageUrl: string;
+        createdAt: string;
+      };
+      error?: string;
+    }>(`/dvyb/products/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
     });
   },
 

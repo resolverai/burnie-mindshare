@@ -216,6 +216,35 @@ const COUNTRY_MAP: Record<string, string> = {
   Germany: 'Germany',
 };
 
+/** Match website category to brand ad categories via GPT-4o (Python backend) */
+async function matchWebsiteCategoryToAdCategories(
+  websiteCategory: string,
+  availableCategories: string[]
+): Promise<string[]> {
+  if (!websiteCategory?.trim() || availableCategories.length === 0) return [];
+  const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
+  try {
+    const response = await fetch(`${pythonBackendUrl}/api/dvyb/inspirations/match-website-category`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        website_category: websiteCategory.trim(),
+        available_categories: availableCategories,
+      }),
+    });
+    if (!response.ok) {
+      logger.warn(`match-website-category failed: ${response.status}`);
+      return [];
+    }
+    const result = (await response.json()) as { success?: boolean; matched_categories?: string[] };
+    if (!result.success || !Array.isArray(result.matched_categories)) return [];
+    return result.matched_categories.filter((c): c is string => typeof c === 'string');
+  } catch (err) {
+    logger.warn('match-website-category error:', err);
+    return [];
+  }
+}
+
 /** Shared handler for discover ads - used by both auth and API-key routes */
 async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
   const page = parseInt(req.query.page as string) || 1;
@@ -225,6 +254,7 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
   const media = ((req.query.media as string) || '').trim();
   const status = ((req.query.status as string) || '').trim();
   const category = ((req.query.category as string) || '').trim();
+  const websiteCategory = ((req.query.websiteCategory as string) || '').trim();
   const runtime = ((req.query.runtime as string) || '').trim();
   const adCount = ((req.query.adCount as string) || '').trim();
   const country = ((req.query.country as string) || '').trim();
@@ -232,6 +262,30 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
   const sort = ((req.query.sort as string) || 'latest').trim().toLowerCase();
 
   const adRepo = AppDataSource.getRepository(DvybBrandAd);
+
+  // When websiteCategory is passed (onboarding): use GPT-4o to match to brand ad categories
+  let categoriesToFilter: string[] = [];
+  if (websiteCategory) {
+    const distinctResult = await adRepo
+      .createQueryBuilder('ad')
+      .select('DISTINCT ad.category')
+      .where("ad.approvalStatus = 'approved'")
+      .andWhere('ad.category IS NOT NULL')
+      .andWhere("ad.category != ''")
+      .getRawMany();
+    const availableCategories = distinctResult
+      .map((r) => r.category as string)
+      .filter((c): c is string => !!c && typeof c === 'string');
+    if (availableCategories.length > 0) {
+      categoriesToFilter = await matchWebsiteCategoryToAdCategories(websiteCategory, availableCategories);
+      if (categoriesToFilter.length > 0) {
+        logger.info(`GPT-4o matched website category "${websiteCategory}" to ad categories: ${categoriesToFilter.join(', ')}`);
+      }
+    }
+  } else if (category && category !== 'All') {
+    categoriesToFilter = [category];
+  }
+
   let qb = adRepo
     .createQueryBuilder('ad')
     .leftJoinAndSelect('ad.brand', 'brand')
@@ -259,8 +313,14 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
     const statusVal = status === 'Active' ? 'active' : status === 'Paused' ? 'inactive' : status.toLowerCase();
     qb = qb.andWhere('LOWER(ad.status) = :statusVal', { statusVal });
   }
-  if (category && category !== 'All') {
-    qb = qb.andWhere('LOWER(ad.category) LIKE :category', { category: `%${category.toLowerCase()}%` });
+  if (categoriesToFilter.length > 0) {
+    const orConditions = categoriesToFilter
+      .map((_, i) => `LOWER(COALESCE(ad.category, '')) LIKE :wcCat${i}`)
+      .join(' OR ');
+    qb = qb.andWhere(`(${orConditions})`);
+    categoriesToFilter.forEach((cat, i) => {
+      qb = qb.setParameter(`wcCat${i}`, `%${cat.toLowerCase()}%`);
+    });
   }
   if (runtime && runtime !== 'All') {
     const minDays = parseInt(runtime.replace(/\D/g, ''), 10) || 0;

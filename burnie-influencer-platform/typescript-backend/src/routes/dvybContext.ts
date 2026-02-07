@@ -555,15 +555,15 @@ router.get('/domain-product-images', async (req, res) => {
       order: { id: 'ASC' },
       take: 20,
     });
-    // Prefer website images; only include Instagram if website has fewer than 4
+    // Prefer website images; only include Instagram if website has fewer than 10
     const sorted = rows.sort((a, b) => {
       const aFirst = a.sourceLabel === 'website' ? 0 : 1;
       const bFirst = b.sourceLabel === 'website' ? 0 : 1;
       return aFirst - bFirst;
     });
-    const top4 = sorted.slice(0, 4);
+    const top10 = sorted.slice(0, 10);
     const imagesWithUrls: Array<{ id: number; s3Key: string; image: string }> = await Promise.all(
-      top4.map(async (row) => {
+      top10.map(async (row) => {
         const presignedUrl = await s3Service.generatePresignedUrl(row.s3Key, 3600);
         return {
           id: row.id,

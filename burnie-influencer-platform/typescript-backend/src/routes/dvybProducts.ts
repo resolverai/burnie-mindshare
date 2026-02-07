@@ -200,6 +200,76 @@ router.post('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response)
 });
 
 /**
+ * PATCH /api/dvyb/products/:id
+ * Update product name
+ */
+router.patch('/:id', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+  try {
+    const accountId = req.dvybAccountId!;
+    const id = parseInt(req.params.id ?? '', 10);
+    const { name } = req.body || {};
+
+    if (isNaN(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid product ID',
+        timestamp: new Date().toISOString(),
+      });
+    }
+    if (!name || typeof name !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'name is required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const trimmedName = name.trim().slice(0, 500);
+    if (!trimmedName) {
+      return res.status(400).json({
+        success: false,
+        error: 'name cannot be empty',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const repo = AppDataSource.getRepository(DvybAccountProduct);
+    const product = await repo.findOne({ where: { id, accountId } });
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        error: 'Product not found',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    product.name = trimmedName;
+    await repo.save(product);
+
+    const presignedUrl = await s3Service.generatePresignedUrl(product.imageS3Key, 3600, true);
+
+    return res.json({
+      success: true,
+      data: {
+        id: product.id,
+        name: product.name,
+        imageS3Key: product.imageS3Key,
+        imageUrl: presignedUrl || product.imageS3Key,
+        createdAt: product.createdAt,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error('❌ DVYB product update error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to update product',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
  * DELETE /api/dvyb/products/:id
  * Delete product (DB only, not S3)
  */

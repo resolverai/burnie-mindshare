@@ -45,11 +45,12 @@ interface DiscoverCard {
   category?: string | null;
 }
 
+/** Vertical items (9:16) stay tall; shorter/landscape items (16:9, 1:1) display as square. */
 const getAspectRatioClass = (ratio: AspectRatio) => {
   switch (ratio) {
     case "9:16": return "aspect-[9/16]";
-    case "16:9": return "aspect-[16/9]";
-    case "1:1": return "aspect-square";
+    case "16:9":
+    case "1:1":
     default: return "aspect-square";
   }
 };

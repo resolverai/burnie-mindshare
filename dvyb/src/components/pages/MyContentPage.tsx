@@ -1,13 +1,19 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Plus, Bookmark, Loader2, Video, ImageIcon, Trash2, X } from "lucide-react";
+import { Plus, Bookmark, Loader2, Video, ImageIcon, Trash2, X, MoreVertical, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ContentLibrary, ContentLibraryRef } from "./ContentLibrary";
 import { AdDetailModal } from "./AdDetailModal";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { brandsApi, productsApi } from "@/lib/api";
@@ -91,12 +97,12 @@ export function MyContentPage({
   const [products, setProducts] = useState<Product[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
-  const [productNameDialog, setProductNameDialog] = useState<{ open: boolean; s3Key: string | null; name: string }>({
+  const [renameProductDialog, setRenameProductDialog] = useState<{ open: boolean; product: Product | null; name: string }>({
     open: false,
-    s3Key: null,
+    product: null,
     name: "",
   });
-  const [isCreatingProduct, setIsCreatingProduct] = useState(false);
+  const [isUpdatingProduct, setIsUpdatingProduct] = useState(false);
   const [isDeletingId, setIsDeletingId] = useState<number | null>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [previewProduct, setPreviewProduct] = useState<Product | null>(null);
@@ -126,7 +132,13 @@ export function MyContentPage({
       const res = await productsApi.uploadImage(file, (p) => setUploadProgress(p));
       setUploadProgress(null);
       if (res.success && res.data?.s3_key) {
-        setProductNameDialog({ open: true, s3Key: res.data.s3_key, name: "" });
+        const defaultName = file.name.replace(/\.[^/.]+$/, "") || "Untitled";
+        const createRes = await productsApi.create(defaultName, res.data.s3_key);
+        if (createRes.success && createRes.data) {
+          setProducts((prev) => [createRes.data!, ...prev]);
+        } else {
+          console.error("Create product failed:", createRes.error);
+        }
       } else {
         console.error("Upload failed:", res.error);
       }
@@ -147,22 +159,24 @@ export function MyContentPage({
     [processFile]
   );
 
-  const handleProductNameSubmit = useCallback(async () => {
-    const { s3Key, name } = productNameDialog;
-    if (!s3Key || !name.trim()) return;
-    setIsCreatingProduct(true);
+  const handleRenameSubmit = useCallback(async () => {
+    const { product, name } = renameProductDialog;
+    if (!product || !name.trim()) return;
+    setIsUpdatingProduct(true);
     try {
-      const res = await productsApi.create(name.trim(), s3Key);
+      const res = await productsApi.update(product.id, name.trim());
       if (res.success && res.data) {
-        setProducts((prev) => [res.data!, ...prev]);
-        setProductNameDialog({ open: false, s3Key: null, name: "" });
+        setProducts((prev) =>
+          prev.map((p) => (p.id === product.id ? res.data! : p))
+        );
+        setRenameProductDialog({ open: false, product: null, name: "" });
       }
     } catch (e) {
-      console.error("Failed to create product:", e);
+      console.error("Failed to rename product:", e);
     } finally {
-      setIsCreatingProduct(false);
+      setIsUpdatingProduct(false);
     }
-  }, [productNameDialog]);
+  }, [renameProductDialog]);
 
   const handleDeleteProduct = useCallback(async (id: number) => {
     setDeleteConfirmProduct(null);
@@ -357,21 +371,43 @@ export function MyContentPage({
                         alt={product.name}
                         className="w-full h-full object-cover"
                       />
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeleteConfirmProduct(product);
-                        }}
-                        disabled={isDeletingId === product.id}
-                        className="absolute top-2 right-2 p-2 rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 hover:bg-black/80 transition-opacity disabled:opacity-50"
-                        aria-label="Delete product"
-                      >
-                        {isDeletingId === product.id ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="w-4 h-4" />
-                        )}
-                      </button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            onClick={(e) => e.stopPropagation()}
+                            className="absolute top-2 right-2 p-2 rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 hover:bg-black/80 transition-opacity"
+                            aria-label="Product options"
+                          >
+                            <MoreVertical className="w-4 h-4" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRenameProductDialog({ open: true, product, name: product.name });
+                            }}
+                          >
+                            <Pencil className="w-4 h-4 mr-2" />
+                            Rename
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteConfirmProduct(product);
+                            }}
+                            disabled={isDeletingId === product.id}
+                            className="text-destructive focus:text-destructive"
+                          >
+                            {isDeletingId === product.id ? (
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-4 h-4 mr-2" />
+                            )}
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                     <div className="p-3 flex items-center justify-between gap-2">
                       {product.name.length > 12 ? (
@@ -573,47 +609,47 @@ export function MyContentPage({
         </>
       )}
 
-      {/* Product name dialog - after upload */}
+      {/* Rename product dialog */}
       <Dialog
-        open={productNameDialog.open}
-        onOpenChange={(open) => !open && setProductNameDialog({ open: false, s3Key: null, name: "" })}
+        open={renameProductDialog.open}
+        onOpenChange={(open) => !open && setRenameProductDialog({ open: false, product: null, name: "" })}
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Name your product</DialogTitle>
+            <DialogTitle>Rename product</DialogTitle>
           </DialogHeader>
           <div className="py-4">
             <Input
               placeholder="Enter product name"
-              value={productNameDialog.name}
-              onChange={(e) => setProductNameDialog((p) => ({ ...p, name: e.target.value }))}
-              onKeyDown={(e) => e.key === "Enter" && handleProductNameSubmit()}
+              value={renameProductDialog.name}
+              onChange={(e) => setRenameProductDialog((p) => ({ ...p, name: e.target.value }))}
+              onKeyDown={(e) => e.key === "Enter" && handleRenameSubmit()}
               maxLength={500}
               className="w-full"
             />
             <p className="text-xs text-muted-foreground mt-1">
-              {productNameDialog.name.length}/500 characters
+              {renameProductDialog.name.length}/500 characters
             </p>
           </div>
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setProductNameDialog({ open: false, s3Key: null, name: "" })}
+              onClick={() => setRenameProductDialog({ open: false, product: null, name: "" })}
             >
               Cancel
             </Button>
             <Button
-              onClick={handleProductNameSubmit}
-              disabled={!productNameDialog.name.trim() || isCreatingProduct}
+              onClick={handleRenameSubmit}
+              disabled={!renameProductDialog.name.trim() || isUpdatingProduct}
               className="bg-foreground text-background hover:bg-foreground/90"
             >
-              {isCreatingProduct ? (
+              {isUpdatingProduct ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Saving...
                 </>
               ) : (
-                "Save Product"
+                "Save"
               )}
             </Button>
           </DialogFooter>

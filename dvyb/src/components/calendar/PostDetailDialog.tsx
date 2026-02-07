@@ -103,6 +103,8 @@ interface PostDetailDialogProps {
   onOpenChange: (open: boolean) => void;
   onEditDesignModeChange?: (isEditMode: boolean) => void;
   onScheduleComplete?: () => void;
+  /** When true, open directly in Edit Design mode (used from My Ads card Edit button) */
+  initialEditDesignMode?: boolean;
   // For pending review functionality
   pendingReviewItems?: Post[];
   onAcceptReject?: (accepted: boolean, post: Post) => void;
@@ -117,6 +119,7 @@ export const PostDetailDialog = ({
   onOpenChange, 
   onEditDesignModeChange, 
   onScheduleComplete,
+  initialEditDesignMode = false,
   pendingReviewItems = [],
   onAcceptReject,
   onAllReviewed,
@@ -1362,6 +1365,14 @@ export const PostDetailDialog = ({
     }
   };
 
+  // Open directly in Edit Design mode when initialEditDesignMode is true (from My Ads card Edit button)
+  useEffect(() => {
+    if (open && initialEditDesignMode && post && !(post.image && (post.image.includes('video') || post.image.includes('.mp4')))) {
+      handleEditDesignToggle(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleEditDesignToggle is stable enough, we only want to run on open/initialEditDesignMode/post change
+  }, [open, initialEditDesignMode, post?.id]);
+
   // Save design (text overlays, emojis, stickers) to backend
   const handleSaveDesign = async () => {
     if (!post?.generatedContentId || !canSaveDesign) {
@@ -2164,7 +2175,7 @@ export const PostDetailDialog = ({
     switch (selectedPlatform) {
       case "instagram":
         return (
-          <div className="bg-white rounded-lg overflow-hidden shadow-lg w-full max-w-sm md:max-w-md mx-auto">
+          <div className="bg-white rounded-lg overflow-hidden shadow-lg w-full max-w-[280px] md:max-w-[320px] mx-auto shrink-0">
             {/* Instagram Header */}
             <div className="flex items-center justify-between p-2 md:p-3 border-b">
               <div className="flex items-center gap-2">
@@ -2175,7 +2186,7 @@ export const PostDetailDialog = ({
                     className="w-6 h-6 md:w-8 md:h-8 rounded-full object-cover"
                   />
                 ) : (
-                  <div className="w-6 h-6 md:w-8 md:h-8 rounded-full bg-[hsl(var(--landing-accent-orange))]" />
+                  <div className="w-6 h-6 md:w-8 md:h-8 rounded-full bg-gradient-to-br from-[#833AB4] via-[#E1306C] to-[#F77737]" />
                 )}
                 <span className="font-semibold text-xs md:text-sm text-gray-900">
                   {platformConnections.instagram?.name || platformConnections.instagram?.username || getWebsiteDomainDisplay('instagram_account')}
@@ -2188,7 +2199,7 @@ export const PostDetailDialog = ({
             {isVideoContent ? (
               renderVideo()
             ) : (
-              <div className="w-full aspect-square">
+              <div className="w-full aspect-[9/16]">
                 <img 
                   src={post.image} 
                   alt={post.title}
@@ -2208,7 +2219,7 @@ export const PostDetailDialog = ({
                 <Bookmark className="w-5 h-5 md:w-6 md:h-6 text-gray-900" />
               </div>
               <div className="font-semibold text-xs md:text-sm text-gray-900 mb-1">50,024 likes</div>
-              <div className="text-xs md:text-sm text-gray-900 line-clamp-3">
+              <div className="text-xs md:text-sm text-gray-900 line-clamp-5">
                 <span className="font-semibold">{platformConnections.instagram?.name || platformConnections.instagram?.username || getWebsiteDomainDisplay('instagram_account')}</span> {getPlatformCaption('instagram')}
               </div>
             </div>
@@ -2247,7 +2258,7 @@ export const PostDetailDialog = ({
                   {isVideoContent ? (
                     renderVideo()
                   ) : (
-                    <div className="w-full aspect-square">
+                    <div className="w-full aspect-[9/16]">
                       <img 
                         src={post.image} 
                         alt={post.title}
@@ -2304,7 +2315,7 @@ export const PostDetailDialog = ({
             {isVideoContent ? (
               renderVideo()
             ) : (
-              <div className="w-full aspect-square">
+              <div className="w-full aspect-[9/16]">
                 <img 
                   src={post.image} 
                   alt={post.title}

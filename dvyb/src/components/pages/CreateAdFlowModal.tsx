@@ -4,11 +4,10 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Search, Check, ArrowRight, Plus, Upload, Link as LinkIcon, FileText, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, Check, ArrowRight, Plus, Upload, Link as LinkIcon, FileText, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { useRouter } from "next/navigation";
-import { productsApi, brandsApi, adhocGenerationApi } from "@/lib/api";
+import { productsApi, brandsApi, adhocGenerationApi, contextApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { GenerateContentDialog } from "@/components/onboarding/GenerateContentDialog";
 
@@ -34,6 +33,8 @@ interface DiscoverAd {
   creativeVideoUrl: string | null;
 }
 
+const ALLOWED_PRODUCT_IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+
 // Choose Product modal: dimensions for 2 rows × 3 columns grid (6 products visible), carousel if more
 const PRODUCTS_PER_PAGE = 6;
 const productModalClass =
@@ -58,7 +59,6 @@ interface CreateAdFlowModalProps {
 }
 
 export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedInspiration }: CreateAdFlowModalProps) {
-  const router = useRouter();
   const { toast } = useToast();
   const [step, setStep] = useState<Step>("product");
 
@@ -68,6 +68,9 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [productSearchQuery, setProductSearchQuery] = useState("");
   const [productPage, setProductPage] = useState(0);
+  const [isProductUploading, setIsProductUploading] = useState(false);
+  const [isProductDraggingOver, setIsProductDraggingOver] = useState(false);
+  const productFileInputRef = useRef<HTMLInputElement>(null);
 
   // Ad step
   const [discoverAds, setDiscoverAds] = useState<DiscoverAd[]>([]);
@@ -105,10 +108,20 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
   const fetchDiscoverAds = useCallback(async () => {
     setAdsLoading(true);
     try {
+      let websiteCategory: string | undefined;
+      try {
+        const ctxRes = await contextApi.getContext();
+        if (ctxRes.success && ctxRes.data?.industry) {
+          websiteCategory = String(ctxRes.data.industry).trim() || undefined;
+        }
+      } catch {
+        /* ignore */
+      }
       const res = await brandsApi.getDiscoverAds({
         page: 1,
         limit: 24,
         sort: "latest",
+        ...(websiteCategory && { websiteCategory }),
       });
       if (res.success && res.data) {
         const ads = (res.data as Array<Record<string, unknown>>).map((ad) => ({
@@ -146,6 +159,8 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
     setSearchQuery("");
     setProductSearchQuery("");
     setProductPage(0);
+    setIsProductUploading(false);
+    setIsProductDraggingOver(false);
     fetchProducts();
   }, [open, fetchProducts]);
 
@@ -220,6 +235,69 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
       setIsUploading(false);
     }
   }, [toast]);
+
+  const processProductFile = useCallback(
+    async (file: File) => {
+      if (!ALLOWED_PRODUCT_IMAGE_TYPES.includes(file.type)) {
+        toast({
+          title: "Invalid file",
+          description: "Please upload JPEG, PNG, or WebP image",
+          variant: "destructive",
+        });
+        return;
+      }
+      setIsProductUploading(true);
+      try {
+        const uploadRes = await productsApi.uploadImage(file, () => {});
+        if (uploadRes.success && uploadRes.data?.s3_key) {
+          const defaultName = file.name.replace(/\.[^/.]+$/, "") || "Untitled";
+          const createRes = await productsApi.create(defaultName, uploadRes.data.s3_key);
+          if (createRes.success && createRes.data) {
+            setProducts((prev) => [createRes.data!, ...prev]);
+            setSelectedProductId(createRes.data!.id);
+            setProductSearchQuery("");
+            setProductPage(0);
+          }
+        } else {
+          toast({ title: "Upload failed", description: uploadRes.error || "Could not upload", variant: "destructive" });
+        }
+      } catch (e) {
+        console.error("Failed to add product:", e);
+        toast({ title: "Failed to add product", variant: "destructive" });
+      } finally {
+        setIsProductUploading(false);
+      }
+    },
+    [toast]
+  );
+
+  const handleProductFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processProductFile(file);
+    e.target.value = "";
+  };
+
+  const handleProductDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsProductDraggingOver(true);
+  };
+
+  const handleProductDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsProductDraggingOver(false);
+    }
+  };
+
+  const handleProductDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsProductDraggingOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) processProductFile(file);
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -332,6 +410,13 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
           {/* Step 1: Choose Product */}
           {step === "product" && (
             <>
+              <input
+                ref={productFileInputRef}
+                type="file"
+                accept="image/jpeg,image/jpg,image/png,image/webp"
+                className="hidden"
+                onChange={handleProductFileSelect}
+              />
               <div className="px-6 py-4 border-b border-border shrink-0">
                 <h2 className="text-xl font-bold mb-2 text-center text-neutral-900">
                   Choose a product
@@ -350,23 +435,31 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
                   />
                 </div>
               </div>
-              <div className="flex-1 min-h-0 overflow-hidden p-6 flex flex-col">
-                {productsLoading ? (
+              <div
+                className={`flex-1 min-h-0 overflow-hidden p-6 flex flex-col transition-colors ${
+                  isProductDraggingOver ? "bg-primary/5 border-2 border-dashed border-primary rounded-lg" : ""
+                }`}
+                onDragOver={handleProductDragOver}
+                onDragLeave={handleProductDragLeave}
+                onDrop={handleProductDrop}
+              >
+                {isProductUploading ? (
+                  <div className="flex flex-col items-center justify-center flex-1 gap-3 text-muted-foreground">
+                    <Loader2 className="w-10 h-10 animate-spin" />
+                    <p>Adding product...</p>
+                  </div>
+                ) : productsLoading ? (
                   <div className="flex justify-center items-center flex-1">
                     <p className="text-muted-foreground">Loading products...</p>
                   </div>
                 ) : products.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground text-center">
-                    <p className="mb-4">No products yet. Add products in My Content → Products.</p>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        onOpenChange(false);
-                        router.push("/content-library?tab=my-products");
-                      }}
-                    >
-                      Go to My Products
-                    </Button>
+                  <div
+                    className="flex flex-col items-center justify-center flex-1 text-muted-foreground text-center cursor-pointer border-2 border-dashed border-border rounded-xl hover:border-primary hover:bg-primary/5 transition-colors"
+                    onClick={() => productFileInputRef.current?.click()}
+                  >
+                    <Upload className="w-12 h-12 mb-4 opacity-60" />
+                    <p className="mb-1 font-medium text-foreground">Drop a product image here</p>
+                    <p className="text-sm">or click to browse</p>
                   </div>
                 ) : filteredProducts.length === 0 ? (
                   <div className="flex justify-center items-center flex-1 text-muted-foreground">
@@ -436,13 +529,15 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
               <div className="px-6 py-4 border-t border-border flex items-center justify-between">
                 <button
                   type="button"
-                  onClick={() => {
-                    onOpenChange(false);
-                    router.push("/content-library?tab=my-products");
-                  }}
-                  className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => productFileInputRef.current?.click()}
+                  disabled={isProductUploading}
+                  className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
                 >
-                  <Plus className="w-4 h-4" />
+                  {isProductUploading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Plus className="w-4 h-4" />
+                  )}
                   Add new product
                 </button>
                 <div className="flex gap-2">

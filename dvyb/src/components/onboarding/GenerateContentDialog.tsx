@@ -2657,16 +2657,20 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                 ).map((post, index) => {
                   const isLoading = post.isGenerating || post.isFailed;
                   const caption = post.platformTexts?.instagram || post.description || sampleCaptions[index % sampleCaptions.length];
+                  /* Until user attaches card, Edit/Download open pricing modal (same as Download All) */
+                  const handleEditOrDownload = (e: React.MouseEvent) => {
+                    e.stopPropagation();
+                    setShowDownloadPricingModal(true);
+                  };
                   return (
                     <div
                       key={post.id}
-                      className={`relative rounded-lg overflow-hidden border border-neutral-200/80 bg-white shadow-sm flex flex-col min-h-0 ${
+                      className={`relative rounded-lg overflow-hidden border border-neutral-200/80 bg-white shadow-sm flex flex-col min-h-0 group ${
                         adFlowMode ? "w-64 shrink-0" : ""
                       } ${post.image && !post.isFailed ? "cursor-pointer hover:shadow-lg transition-shadow" : ""}`}
                       onClick={() => {
                         if (post.image && !post.isFailed) {
-                          setSelectedPost(post);
-                          setShowPostDetail(true);
+                          setShowDownloadPricingModal(true);
                         }
                       }}
                     >
@@ -2687,6 +2691,27 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                               alt={post.title}
                               className="w-full h-full object-cover min-h-[120px] md:min-h-[160px]"
                             />
+                            {/* Edit/Download - until user attaches card, opens pricing modal (same as Download All) */}
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3 gap-2">
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                className="w-full gap-2"
+                                onClick={handleEditOrDownload}
+                              >
+                                <Pencil className="w-4 h-4" />
+                                Edit
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="w-full gap-2 bg-background/80 backdrop-blur-sm"
+                                onClick={handleEditOrDownload}
+                              >
+                                <Download className="w-4 h-4" />
+                                Download
+                              </Button>
+                            </div>
                           </div>
                           {/* Instagram CTA Section */}
                           <div className="flex items-center justify-between px-3 py-2 border-t border-neutral-100 bg-neutral-50/50 shrink-0">

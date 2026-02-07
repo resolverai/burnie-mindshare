@@ -46,7 +46,7 @@ export const CaptionEditDialog = ({ open, onOpenChange, initialCaption, onSave, 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] max-w-[95vw] sm:max-w-lg md:max-w-xl lg:max-w-2xl z-[110] p-4 sm:p-6">
+      <DialogContent className="w-[95vw] max-w-[95vw] sm:max-w-lg md:max-w-xl lg:max-w-2xl z-[300] p-4 sm:p-6">
         <DialogHeader className="space-y-1 sm:space-y-2">
           <DialogTitle className="flex items-center gap-2 text-base sm:text-lg md:text-xl">
             <span className="text-lg sm:text-xl">{platformIcon}</span>

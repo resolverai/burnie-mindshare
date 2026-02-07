@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
-import { Search, Eye, Heart, MessageCircle, Share2, Loader2, Play, Sparkles, Grid3X3, List } from "lucide-react";
+import { Search, Eye, Heart, MessageCircle, Share2, Loader2, Play, Sparkles, Grid3X3, List, Pencil, Download } from "lucide-react";
 import { PostDetailDialog } from "@/components/calendar/PostDetailDialog";
 import { GenerateContentDialog } from "@/components/onboarding/GenerateContentDialog";
 import { CreateAdFlowModal } from "@/components/pages/CreateAdFlowModal";
@@ -82,12 +82,46 @@ const hasEditedDraft = (contentId: number, postIndex: number): boolean => {
   }
 };
 
+/** Download content media - uses backend proxy to avoid CORS (like AdDetailModal download) */
+const downloadMedia = async (item: {
+  image: string;
+  title: string;
+  contentId: number;
+  postIndex: number;
+}): Promise<void> => {
+  try {
+    await contentLibraryApi.downloadContentMedia(item.contentId, item.postIndex, item.title);
+  } catch {
+    // Fallback: try direct fetch (may fail on CORS)
+    const url = item.image;
+    if (!url) return;
+    try {
+      const res = await fetch(url, { mode: "cors" });
+      if (!res.ok) throw new Error("Fetch failed");
+      const blob = await res.blob();
+      const isVideo = url.includes(".mp4") || url.includes("video");
+      const ext = isVideo ? ".mp4" : "." + (url.match(/\.(jpg|jpeg|png|gif|webp)/i)?.[1]?.toLowerCase() || "png");
+      const filename = (item.title || "content").replace(/[^a-z0-9]/gi, "_").slice(0, 40) + ext;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    } catch {
+      window.open(url, "_blank");
+    }
+  }
+};
+
 const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>(({ onEditDesignModeChange }, ref) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [contentStateTab, setContentStateTab] = useState<ContentStateTab>("all");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [selectedPost, setSelectedPost] = useState<ContentItem | null>(null);
   const [showPostDetail, setShowPostDetail] = useState(false);
+  const [openInEditDesignMode, setOpenInEditDesignMode] = useState(false);
   const [showAnalyticsDialog, setShowAnalyticsDialog] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [contentItems, setContentItems] = useState<ContentItem[]>([]);
@@ -733,26 +767,31 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
             {allContent.map((item) => {
               const isPosted = item.status === "published" || item.status === "posted";
+              const isVideo = item.image?.includes('.mp4') || item.image?.includes('video');
+              const handleEdit = (e: React.MouseEvent) => {
+                e.stopPropagation();
+                trackContentItemClicked(item.contentId, isVideo ? 'video' : 'image', isPosted ? 'posted' : 'scheduled');
+                setSelectedPost(item);
+                if (isPosted) setShowAnalyticsDialog(true);
+                else {
+                  setOpenInEditDesignMode(!isVideo);
+                  setShowPostDetail(true);
+                }
+              };
               return (
                 <Card
                   key={item.id}
-                  className="overflow-hidden hover:shadow-lg transition-all cursor-pointer group"
-                  onClick={() => {
-                    trackContentItemClicked(item.contentId, item.image?.includes('.mp4') ? 'video' : 'image', isPosted ? 'posted' : 'scheduled');
-                    setSelectedPost(item);
-                    if (isPosted) setShowAnalyticsDialog(true);
-                    else setShowPostDetail(true);
-                  }}
+                  className="overflow-hidden hover:shadow-lg transition-all group"
                 >
-                    <div className="relative">
+                    <div className="relative aspect-[9/16] bg-muted">
                       {item.image && (item.image.includes('video') || item.image.includes('.mp4')) ? (
                         <>
                           <video
                             src={item.image}
-                            className="w-full aspect-square object-cover"
+                            className="w-full h-full object-contain"
                             muted
                           />
-                          <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/20 pointer-events-none">
                             <Play className="h-12 w-12 text-white" fill="white" />
                           </div>
                         </>
@@ -760,24 +799,45 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
                       <img
                         src={item.image}
                         alt={item.title}
-                        className="w-full aspect-square object-cover group-hover:scale-105 transition-transform"
+                        className="w-full h-full object-contain group-hover:scale-[1.02] transition-transform"
                       />
                       )}
                       <Badge
-                        className={`absolute top-2 right-2 ${getStatusColor(item.status)}`}
+                        className={`absolute top-2 right-2 z-10 shadow-sm ${getStatusColor(item.status)}`}
                       >
                         {formatStatusLabel(item.status)}
                       </Badge>
-                      {/* Edited badge for content with unsaved edits */}
                       {hasEditedDraft(item.contentId, item.postIndex) && (
-                        <Badge
-                          className="absolute top-2 left-2 bg-amber-500 hover:bg-amber-600 text-white"
-                        >
+                        <Badge className="absolute top-2 left-2 z-10 shadow-sm bg-amber-500 hover:bg-amber-600 text-white">
                           Edited
                         </Badge>
                       )}
+                      {/* Hover overlay with Edit/Download buttons (like wander-discover-connect) - always visible on touch devices */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3 gap-2">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="w-full gap-2"
+                          onClick={handleEdit}
+                        >
+                          <Pencil className="w-4 h-4" />
+                          Edit
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full gap-2 bg-background/80 backdrop-blur-sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (item.image) downloadMedia(item);
+                          }}
+                        >
+                          <Download className="w-4 h-4" />
+                          Download
+                        </Button>
+                      </div>
                     </div>
-                    <div className="p-4 space-y-3">
+                    <div className="px-3 py-2 space-y-1">
                       <div className="flex items-center gap-2">
                         <div className="flex items-center gap-1">
                           {item.platforms.includes("instagram") && (
@@ -836,7 +896,11 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
           generatedContentId: selectedPost.contentId, // Map contentId to generatedContentId
         } : null}
         open={showPostDetail}
-        onOpenChange={setShowPostDetail}
+        onOpenChange={(open) => {
+          setShowPostDetail(open);
+          if (!open) setOpenInEditDesignMode(false);
+        }}
+        initialEditDesignMode={openInEditDesignMode}
         onEditDesignModeChange={onEditDesignModeChange}
         onScheduleComplete={handleRefreshAfterSchedule}
         // Pending review functionality

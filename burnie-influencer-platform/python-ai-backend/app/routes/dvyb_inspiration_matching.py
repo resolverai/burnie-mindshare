@@ -57,6 +57,20 @@ class InspirationMatchResponse(BaseModel):
     error: Optional[str] = None
 
 
+class MatchWebsiteCategoryRequest(BaseModel):
+    """Request for matching website/domain category to brand ad categories"""
+    website_category: str
+    available_categories: List[str]
+
+
+class MatchWebsiteCategoryResponse(BaseModel):
+    """Response from website category matching (for discover ads onboarding)"""
+    success: bool
+    matched_categories: List[str] = []
+    reasoning: Optional[str] = None
+    error: Optional[str] = None
+
+
 # ============================================
 # JSON PARSING UTILITIES
 # ============================================
@@ -260,6 +274,49 @@ async def match_inspirations(request: InspirationMatchRequest):
         return InspirationMatchResponse(
             success=False,
             error=str(e)
+        )
+
+
+@router.post("/match-website-category", response_model=MatchWebsiteCategoryResponse)
+async def match_website_category(request: MatchWebsiteCategoryRequest):
+    """
+    Match website/domain category from website analysis to available brand ad categories.
+    Uses GPT-4o to pick the best-matching category from dvyb_brand_ads.
+    Used by discover ads onboarding to serve relevant ads based on user's website industry.
+    """
+    try:
+        if not openai_client:
+            return MatchWebsiteCategoryResponse(
+                success=False,
+                error="OpenAI client not initialized"
+            )
+        if not request.website_category or not request.website_category.strip():
+            return MatchWebsiteCategoryResponse(success=True, matched_categories=[])
+        if not request.available_categories:
+            return MatchWebsiteCategoryResponse(success=True, matched_categories=[])
+
+        logger.info(
+            f"🎯 Matching website category '{request.website_category}' to "
+            f"{len(request.available_categories)} brand ad categories"
+        )
+        result = await match_industry_to_categories(
+            request.website_category.strip(),
+            request.available_categories,
+        )
+        matched = result.get("matched_categories", []) or []
+        reasoning = result.get("reasoning")
+        logger.info(f"✅ GPT-4o matched categories: {matched}")
+        return MatchWebsiteCategoryResponse(
+            success=True,
+            matched_categories=matched,
+            reasoning=reasoning,
+        )
+    except Exception as e:
+        logger.error(f"❌ match_website_category error: {e}", exc_info=True)
+        return MatchWebsiteCategoryResponse(
+            success=False,
+            matched_categories=[],
+            error=str(e),
         )
 
 

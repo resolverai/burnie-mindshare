@@ -1,4 +1,5 @@
 import { Router, Response } from 'express';
+import AWS from 'aws-sdk';
 import { AppDataSource } from '../config/database';
 import { DvybGeneratedContent } from '../models/DvybGeneratedContent';
 import { DvybSchedule } from '../models/DvybSchedule';
@@ -16,6 +17,26 @@ import { logger } from '../config/logger';
 import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
 
 const router = Router();
+const S3_BUCKET = (process.env.S3_BUCKET_NAME || 'burnie-mindshare-content-staging') as string;
+const s3 = new AWS.S3({
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? '',
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? '',
+  region: process.env.AWS_REGION || 'us-east-1',
+});
+
+/** Extract S3 key from URL or key string */
+function extractS3KeyFromUrl(url: string): string {
+  if (url.startsWith('s3://')) {
+    const parts = url.replace('s3://', '').split('/');
+    return parts.slice(1).join('/');
+  }
+  if (url.includes('.amazonaws.com')) {
+    const idx = url.lastIndexOf('.com/');
+    return idx >= 0 ? url.substring(idx + 5).split('?')[0] || url : url;
+  }
+  if (url.includes('?')) return url.split('?')[0] || url;
+  return url;
+}
 
 /**
  * GET /api/dvyb/content-library
@@ -752,6 +773,87 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
       error: 'Failed to fetch content library',
       timestamp: new Date().toISOString(),
     });
+  }
+});
+
+/**
+ * GET /api/dvyb/content-library/download
+ * Download image or video by contentId and postIndex (avoids CORS with presigned URLs)
+ */
+router.get('/download', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+  try {
+    const accountId = req.dvybAccountId;
+    const contentId = parseInt(req.query.contentId as string, 10);
+    const postIndex = parseInt(req.query.postIndex as string, 10);
+
+    if (!accountId || !contentId || isNaN(contentId) || isNaN(postIndex)) {
+      return res.status(400).json({ success: false, error: 'contentId and postIndex are required' });
+    }
+
+    const contentRepo = AppDataSource.getRepository(DvybGeneratedContent);
+    const content = await contentRepo.findOne({
+      where: { id: contentId, accountId },
+    });
+    if (!content) {
+      return res.status(404).json({ success: false, error: 'Content not found' });
+    }
+
+    const platformTexts = (content.platformTexts as any[]) || [];
+    const imageUrls = content.generatedImageUrls || [];
+    const videoUrls = content.generatedVideoUrls || [];
+    const platformText = platformTexts[postIndex];
+    if (!platformText) {
+      return res.status(404).json({ success: false, error: 'Post not found' });
+    }
+
+    const contentType = platformText.content_type;
+    let s3Key = '';
+
+    if (contentType === 'image') {
+      let imageIdx = 0;
+      for (let i = 0; i < postIndex; i++) {
+        const pt = platformTexts[i];
+        if (pt?.content_type === 'image') imageIdx++;
+      }
+      s3Key = imageUrls[imageIdx] || '';
+    } else if (contentType === 'video') {
+      let videoIdx = 0;
+      for (let i = 0; i < postIndex; i++) {
+        const pt = platformTexts[i];
+        if (pt?.content_type === 'video') videoIdx++;
+      }
+      s3Key = videoUrls[videoIdx] || '';
+    }
+
+    if (!s3Key) {
+      return res.status(404).json({ success: false, error: 'Media not found' });
+    }
+
+    // Check for edited image
+    const imageEditRepo = AppDataSource.getRepository(DvybImageEdit);
+    const editedImage = await imageEditRepo.findOne({
+      where: { generatedContentId: contentId, postIndex },
+    });
+    if (editedImage?.editedImageUrl) {
+      s3Key = editedImage.editedImageUrl;
+    }
+
+    const cleanKey = extractS3KeyFromUrl(s3Key);
+    const s3Object = await s3.getObject({ Bucket: S3_BUCKET, Key: cleanKey }).promise();
+    const ext = cleanKey.match(/\.(jpg|jpeg|png|gif|webp|mp4|webm)$/i)?.[1]?.toLowerCase() || (contentType === 'video' ? 'mp4' : 'png');
+    const filename = `content_${contentId}_${postIndex}.${ext}`;
+
+    res.setHeader('Content-Type', s3Object.ContentType || (contentType === 'video' ? 'video/mp4' : 'image/png'));
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', s3Object.ContentLength || 0);
+    res.setHeader('Cache-Control', 'no-cache');
+    return res.send(s3Object.Body);
+  } catch (error: any) {
+    logger.error(`Content library download error: ${error.message}`);
+    if (!res.headersSent) {
+      return res.status(500).json({ success: false, error: 'Failed to download' });
+    }
+    return;
   }
 });
 

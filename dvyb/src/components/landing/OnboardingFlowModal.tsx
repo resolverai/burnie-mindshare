@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Search, Check, ArrowRight, Loader2 } from "lucide-react";
@@ -73,10 +73,21 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
       hasFetchedAds.current = true;
       setAdsLoading(true);
       try {
+        let websiteCategory: string | undefined;
+        try {
+          const analysisStr = localStorage.getItem("dvyb_website_analysis");
+          if (analysisStr) {
+            const analysis = JSON.parse(analysisStr) as { industry?: string };
+            websiteCategory = analysis?.industry?.trim() || undefined;
+          }
+        } catch {
+          /* ignore */
+        }
         const response = await brandsApi.getDiscoverAdsOnboarding({
           page: 1,
           limit: 24,
           sort: "latest",
+          ...(websiteCategory && { websiteCategory }),
         });
         if (response.success && response.data) {
           const ads = (response.data as Array<Record<string, unknown>>).map((ad) => ({
@@ -159,7 +170,12 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
     });
   };
 
-  // Fetch domain product images when entering product step - poll every 3s until images arrive or user moves forward
+  // Fetch domain product images when entering product step - poll every 3s until we have 10 images or max polls
+  const MAX_FETCH_IMAGES = 10;
+  const DISPLAY_IMAGES_COUNT = 4; // Show 4 random from fetched
+  const POLL_INTERVAL_MS = 3000;
+  const MAX_POLLS = 40; // ~2 min total
+
   useEffect(() => {
     if (!open || step !== "product") return;
     const url =
@@ -182,25 +198,53 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
       return;
     }
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let pollCount = 0;
+    let cancelled = false;
+
     const poll = async () => {
+      if (cancelled) return;
+      pollCount += 1;
       try {
         const res = await contextApi.getDomainProductImages(url);
+        if (cancelled) return;
         if (res.success && res.data?.images?.length > 0) {
-          setDomainProducts(res.data.images.slice(0, 4));
+          const images = res.data.images.slice(0, MAX_FETCH_IMAGES);
+          setDomainProducts(images);
           setDomainProductsLoading(false);
-          setDomainProductsDone(true);
-          return;
+          // Stop polling only when we have max images or hit max polls
+          if (images.length >= MAX_FETCH_IMAGES || pollCount >= MAX_POLLS) {
+            setDomainProductsDone(true);
+            return;
+          }
         }
       } catch {
-        // ignore
+        // ignore, continue polling
       }
-      timeoutId = setTimeout(poll, 3000);
+      if (pollCount >= MAX_POLLS) {
+        setDomainProductsDone(true);
+        return;
+      }
+      timeoutId = setTimeout(poll, POLL_INTERVAL_MS);
     };
     poll();
     return () => {
+      cancelled = true;
       if (timeoutId) clearTimeout(timeoutId);
     };
   }, [open, step]);
+
+  // Show 4 random images from fetched domain products (only re-pick when the set of ids changes)
+  const productIdsKey = useMemo(
+    () => domainProducts.map((p) => p.id).sort((a, b) => a - b).join(","),
+    [domainProducts]
+  );
+  const displayProducts = useMemo(() => {
+    if (domainProducts.length === 0) return [];
+    if (domainProducts.length <= DISPLAY_IMAGES_COUNT) return domainProducts;
+    const shuffled = [...domainProducts].sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, DISPLAY_IMAGES_COUNT);
+    // Only re-pick when productIdsKey changes (avoids re-shuffling on every poll with same data)
+  }, [productIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
   const handleGoogleLogin = async () => {
@@ -266,7 +310,7 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
                 </div>
               ) : domainProducts.length > 0 ? (
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {domainProducts.map((product) => {
+                  {displayProducts.map((product) => {
                     const isSelected = selectedProductIds.has(product.id);
                     return (
                       <button
