@@ -783,12 +783,12 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
                   key={item.id}
                   className="overflow-hidden hover:shadow-lg transition-all group"
                 >
-                    <div className="relative aspect-[9/16] bg-muted">
+                    <div className="relative aspect-[9/16] bg-muted overflow-hidden">
                       {item.image && (item.image.includes('video') || item.image.includes('.mp4')) ? (
                         <>
                           <video
                             src={item.image}
-                            className="w-full h-full object-contain"
+                            className="w-full h-full object-cover"
                             muted
                           />
                           <div className="absolute inset-0 flex items-center justify-center bg-black/20 pointer-events-none">
@@ -799,7 +799,7 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
                       <img
                         src={item.image}
                         alt={item.title}
-                        className="w-full h-full object-contain group-hover:scale-[1.02] transition-transform"
+                        className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform"
                       />
                       )}
                       <Badge
