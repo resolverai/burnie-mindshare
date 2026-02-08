@@ -1,13 +1,26 @@
 import { Router, Response } from 'express';
+import crypto from 'crypto';
+import multer from 'multer';
 import { logger } from '../config/logger';
 import { DvybContextService } from '../services/DvybContextService';
 import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddleware';
+import { dvybApiKeyMiddleware } from '../middleware/dvybApiKeyMiddleware';
 import { s3Service } from '../services/S3Service';
 import { UrlCacheService } from '../services/UrlCacheService';
 import { AppDataSource } from '../config/database';
 import { DvybDomainProductImage } from '../models/DvybDomainProductImage';
 
 const router = Router();
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Invalid file type. Only JPEG, PNG, and WebP are allowed.'));
+  },
+});
 
 /** Normalize URL to domain for cache key (e.g. example.com) */
 function normalizeDomain(url: string): string {
@@ -586,6 +599,79 @@ router.get('/domain-product-images', async (req, res) => {
     });
   }
 });
+
+/**
+ * POST /api/dvyb/context/upload-domain-product-image
+ * Upload product image during onboarding when no images were fetched from website/Instagram.
+ * Protected by X-DVYB-API-Key (unauthenticated onboarding).
+ * Saves to S3 and dvyb_domain_product_images for use in content generation.
+ */
+router.post(
+  '/upload-domain-product-image',
+  dvybApiKeyMiddleware,
+  upload.single('file'),
+  async (req, res) => {
+    try {
+      const domainParam = (req.body?.domain as string)?.trim();
+      const domain = domainParam ? normalizeDomain(domainParam) : 'onboarding';
+      const file = req.file;
+
+      if (!file) {
+        return res.status(400).json({
+          success: false,
+          error: 'No file uploaded',
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      const domainHash = crypto.createHash('md5').update(domain).digest('hex').slice(0, 12);
+      const ext = file.originalname.split('.').pop() || 'jpg';
+      const safeExt = ['jpg', 'jpeg', 'png', 'webp'].includes(ext.toLowerCase()) ? ext.toLowerCase() : 'jpg';
+      const folder = `dvyb/domain-products/${domainHash}`;
+
+      const { s3Key } = await s3Service.uploadFile(
+        file.buffer,
+        `upload_${Date.now()}.${safeExt}`,
+        file.mimetype,
+        folder
+      );
+
+      if (!AppDataSource.isInitialized) {
+        return res.status(503).json({
+          success: false,
+          error: 'Database not ready',
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      const repo = AppDataSource.getRepository(DvybDomainProductImage);
+      const row = await repo.save({
+        domain,
+        s3Key,
+        sourceLabel: 'upload',
+      });
+
+      const presignedUrl = await s3Service.generatePresignedUrl(s3Key, 3600);
+
+      return res.json({
+        success: true,
+        data: {
+          id: row.id,
+          s3Key: row.s3Key,
+          image: presignedUrl || row.s3Key,
+        },
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      logger.error('❌ Upload domain product image error:', error);
+      return res.status(500).json({
+        success: false,
+        error: error.message || 'Upload failed',
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
+);
 
 /**
  * POST /api/dvyb/context/extract-documents

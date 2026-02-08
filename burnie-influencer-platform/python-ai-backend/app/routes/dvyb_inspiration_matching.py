@@ -42,12 +42,21 @@ class InspirationLink(BaseModel):
     mediaUrl: Optional[str] = None
 
 
+class BrandContextOptional(BaseModel):
+    """Optional brand context from localStorage (business overview, etc.)"""
+    business_overview: Optional[str] = None
+    popular_products: Optional[List[str]] = None
+    customer_demographics: Optional[str] = None
+    brand_story: Optional[str] = None
+
+
 class InspirationMatchRequest(BaseModel):
     """Request for matching industry to categories"""
     industry: str
     categories: List[str]
     inspiration_links: List[InspirationLink]
     count: int = 6  # Number of videos to return
+    brand_context: Optional[BrandContextOptional] = None  # From localStorage for better matching
 
 
 class InspirationMatchResponse(BaseModel):
@@ -61,6 +70,7 @@ class MatchWebsiteCategoryRequest(BaseModel):
     """Request for matching website/domain category to brand ad categories"""
     website_category: str
     available_categories: List[str]
+    brand_context: Optional[BrandContextOptional] = None  # From dvyb_context for better matching
 
 
 class MatchWebsiteCategoryResponse(BaseModel):
@@ -226,10 +236,19 @@ async def match_inspirations(request: InspirationMatchRequest):
         
         logger.info(f"🎯 Matching industry '{request.industry}' to categories: {request.categories}")
         
-        # Step 1: Use OpenAI to match industry to categories
+        # Step 1: Use OpenAI to match industry + brand context to categories
+        brand_ctx = None
+        if request.brand_context:
+            brand_ctx = {
+                "business_overview": request.brand_context.business_overview,
+                "popular_products": request.brand_context.popular_products,
+                "customer_demographics": request.brand_context.customer_demographics,
+                "brand_story": request.brand_context.brand_story,
+            }
         match_result = await match_industry_to_categories(
             request.industry, 
-            request.categories
+            request.categories,
+            brand_context=brand_ctx
         )
         
         matched_categories = match_result.get("matched_categories", [])
@@ -285,6 +304,9 @@ async def match_website_category(request: MatchWebsiteCategoryRequest):
     Used by discover ads onboarding to serve relevant ads based on user's website industry.
     """
     try:
+        print(f"\n[match-website-category] REQUEST: website_category={request.website_category!r}, "
+              f"available_categories={len(request.available_categories)}, brand_context={request.brand_context is not None}")
+
         if not openai_client:
             return MatchWebsiteCategoryResponse(
                 success=False,
@@ -298,13 +320,25 @@ async def match_website_category(request: MatchWebsiteCategoryRequest):
         logger.info(
             f"🎯 Matching website category '{request.website_category}' to "
             f"{len(request.available_categories)} brand ad categories"
+            + (" (with brand context)" if request.brand_context else "")
         )
+        brand_ctx = None
+        if request.brand_context:
+            brand_ctx = {
+                "business_overview": request.brand_context.business_overview,
+                "popular_products": request.brand_context.popular_products,
+                "customer_demographics": request.brand_context.customer_demographics,
+                "brand_story": request.brand_context.brand_story,
+            }
         result = await match_industry_to_categories(
             request.website_category.strip(),
             request.available_categories,
+            brand_context=brand_ctx,
         )
         matched = result.get("matched_categories", []) or []
         reasoning = result.get("reasoning")
+        reasoning_preview = (reasoning[:100] + "...") if reasoning else None
+        print(f"[match-website-category] RESPONSE: matched_categories={matched}, reasoning={reasoning_preview}\n")
         logger.info(f"✅ GPT-4o matched categories: {matched}")
         return MatchWebsiteCategoryResponse(
             success=True,
@@ -320,39 +354,62 @@ async def match_website_category(request: MatchWebsiteCategoryRequest):
         )
 
 
-async def match_industry_to_categories(industry: str, categories: List[str]) -> Dict[str, Any]:
+async def match_industry_to_categories(
+    industry: str, 
+    categories: List[str],
+    brand_context: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     """
-    Use OpenAI GPT-4o to match an industry to the most relevant categories.
+    Use OpenAI GPT-4o to match industry + brand context to the most relevant inspiration categories.
     Returns a dict with matched_categories and reasoning.
     
-    Response format (JSON):
-    {
-        "matched_categories": ["Category1", "Category2"],
-        "reasoning": "Why these categories were selected"
-    }
-    
-    If no categories match:
-    {
-        "matched_categories": [],
-        "reasoning": "No matching category - explanation"
-    }
+    When brand_context is provided (business overview, popular products, customer demographics, brand story),
+    GPT uses it to pick the best-matching category for more relevant ad inspirations.
     """
     try:
+        print(f"\n[GPT-4o match_industry_to_categories] INPUT:")
+        print(f"  industry: {industry!r}")
+        print(f"  categories ({len(categories)}): {categories}")
+        print(f"  brand_context: {brand_context}")
+
         categories_str = ", ".join(categories)
+
+        brand_context_section = ""
+        if brand_context:
+            parts = []
+            if brand_context.get("business_overview") and str(brand_context["business_overview"]).strip():
+                parts.append(f"- **Business Overview**: {str(brand_context['business_overview'])[:800]}")
+            if brand_context.get("popular_products"):
+                prods = brand_context["popular_products"]
+                if isinstance(prods, list):
+                    prods_str = ", ".join(str(p)[:100] for p in prods[:10])
+                else:
+                    prods_str = str(prods)[:500]
+                if prods_str:
+                    parts.append(f"- **Popular Products/Services**: {prods_str}")
+            if brand_context.get("customer_demographics") and str(brand_context["customer_demographics"]).strip():
+                parts.append(f"- **Customer Demographics**: {str(brand_context['customer_demographics'])[:600]}")
+            if brand_context.get("brand_story") and str(brand_context["brand_story"]).strip():
+                parts.append(f"- **Brand Story**: {str(brand_context['brand_story'])[:500]}")
+            if parts:
+                brand_context_section = "\n\n## Brand Context (from website analysis)\n" + "\n".join(parts)
         
-        prompt = f"""You are an AI assistant that matches business industries to content inspiration categories.
+        prompt = f"""You are an AI assistant that matches businesses to content inspiration categories for ad creatives.
 
 ## Input
 - **Industry/Business Type**: {industry}
 - **Available Categories**: {categories_str}
+{brand_context_section}
 
 ## Task
-Analyze the given industry and determine which of the available categories would be MOST RELEVANT for creating content inspiration for a business in this industry.
+Determine which of the available categories would be MOST RELEVANT for showing ad inspiration to this business.
+Use the industry and any brand context (business overview, products, demographics, brand story) to pick the best-matching category.
 
 Consider:
-1. What types of content styles would resonate with this industry's audience?
-2. What content topics are commonly used in this industry?
-3. Which categories have the most overlap with this industry's content needs?
+1. What content styles would resonate with this brand's audience?
+2. What products/services does the brand offer?
+3. Who are their target customers?
+4. Which category has the most overlap with their content needs?
 
 ## Rules
 - ONLY select categories from the available list above
@@ -380,6 +437,9 @@ If no categories are relevant:
 
 Now analyze and respond with JSON only:"""
 
+        prompt_preview = prompt[:800] + ("..." if len(prompt) > 800 else "")
+        print(f"\n[GPT-4o match_industry_to_categories] PROMPT:\n{prompt_preview}")
+
         response = openai_client.chat.completions.create(
             model="gpt-4o",
             messages=[
@@ -394,13 +454,15 @@ Now analyze and respond with JSON only:"""
         )
         
         response_text = response.choices[0].message.content.strip()
+        print(f"\n[GPT-4o match_industry_to_categories] RAW OUTPUT:\n{response_text}")
         logger.info(f"OpenAI raw response: {response_text[:500]}")
         
         # Parse JSON response
         try:
             json_str = extract_json_from_response(response_text)
             result = json.loads(json_str)
-            
+
+            print(f"\n[GPT-4o match_industry_to_categories] PARSED RESULT: {result}")
             logger.info(f"Parsed LLM response: {result}")
             
             # Validate structure
@@ -424,12 +486,15 @@ Now analyze and respond with JSON only:"""
                             break
             
             # Return at most 2 categories
-            return {
+            result_to_return = {
                 "matched_categories": validated[:2],
                 "reasoning": reasoning
             }
+            print(f"[GPT-4o match_industry_to_categories] FINAL OUTPUT: {result_to_return}\n")
+            return result_to_return
             
         except (json.JSONDecodeError, ValueError) as parse_error:
+            print(f"[GPT-4o match_industry_to_categories] PARSE ERROR: {parse_error}")
             logger.error(f"Failed to parse LLM JSON response: {parse_error}")
             logger.error(f"Raw response: {response_text}")
             return {

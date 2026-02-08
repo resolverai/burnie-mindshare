@@ -9,9 +9,10 @@ import { Loader2, Globe, Check } from "lucide-react";
 import { contextApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { trackWebsiteAnalysisStarted, trackWebsiteAnalysisCompleted } from "@/lib/mixpanel";
+import { tileImages } from "@/lib/tileImages";
 
-// Progress steps from new implementation (wander-discover-connect OnboardingModal)
-const rotatingWords = ["ad research", "agencies"];
+// Exact copy from wander-discover-connect
+const rotatingWords = ["ad research", "ad agencies", "designers"];
 
 const analysisSteps = [
   { percent: 0, label: "Analyzing your brand identity" },
@@ -34,11 +35,11 @@ function normalizeUrl(url: string): string {
 
 interface HeroSectionProps {
   onAnalysisComplete?: (url: string) => void;
-  /** Called when analysis completes — open inspiration/customize modal instead of navigating to inspiration-selection page. */
   onShowInspirationModal?: () => void;
-  /** Controlled open state for website modal (e.g. from nav "Get Started"). */
   websiteModalOpen?: boolean;
   onWebsiteModalOpenChange?: (open: boolean) => void;
+  adCount?: number;
+  floatingTiles?: { id: number; delay: number; imageIndex: number }[];
 }
 
 export function HeroSection({
@@ -46,13 +47,13 @@ export function HeroSection({
   onShowInspirationModal,
   websiteModalOpen,
   onWebsiteModalOpenChange,
+  adCount = 0,
+  floatingTiles = [],
 }: HeroSectionProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const isModalOpen = websiteModalOpen ?? internalOpen;
   const setIsModalOpen = onWebsiteModalOpenChange ?? setInternalOpen;
-  const [currentWordIndex, setCurrentWordIndex] = useState(0);
-  const [previousWordIndex, setPreviousWordIndex] = useState<number | null>(null);
-  const [isAnimating, setIsAnimating] = useState(false);
+
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
@@ -60,21 +61,7 @@ export function HeroSection({
   const router = useRouter();
   const { toast } = useToast();
 
-  // Rotating words: "ad research" / "agencies" with cube animation
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setPreviousWordIndex(currentWordIndex);
-      setIsAnimating(true);
-      setCurrentWordIndex((prev) => (prev + 1) % rotatingWords.length);
-      setTimeout(() => {
-        setIsAnimating(false);
-        setPreviousWordIndex(null);
-      }, 600);
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [currentWordIndex]);
-
-  // Reset form when website modal opens so user gets a fresh start
+  // Reset form when website modal opens
   useEffect(() => {
     if (isModalOpen) {
       setWebsiteUrl("");
@@ -84,7 +71,7 @@ export function HeroSection({
     }
   }, [isModalOpen]);
 
-  // Progress steps and bar while analysis is in progress (same as wander-discover-connect OnboardingModal)
+  // Progress steps during analysis
   useEffect(() => {
     if (!isAnalyzing) {
       setCurrentStepIndex(0);
@@ -136,43 +123,68 @@ export function HeroSection({
     }
   };
 
+  const stats = [
+    { value: `${adCount.toLocaleString()}+`, label: "Ads created", hasAnimation: true },
+    { value: "15+", label: "Industries served", hasAnimation: false },
+    { value: "Weekly", label: "New teams joining", hasAnimation: false },
+  ];
+
   return (
     <>
-      {/* Hero: wander-style — gradient glow, center-aligned */}
-      <section className="relative pt-40 pb-24 px-6 overflow-hidden">
+      {/* Hero: exact copy from wander-discover-connect */}
+      <section className="relative pt-28 pb-8 px-6 overflow-hidden">
+        {/* Layered background */}
         <div className="absolute inset-0 pointer-events-none" style={{ background: "var(--gradient-hero)" }} />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[600px] rounded-full opacity-30 blur-3xl pointer-events-none" style={{ background: "radial-gradient(circle, hsl(25 100% 55% / 0.1) 0%, transparent 70%)" }} />
+
+        {/* Decorative floating shapes */}
+        <div
+          className="absolute top-20 left-[10%] w-72 h-72 rounded-full opacity-40 blur-3xl pointer-events-none"
+          style={{ background: "radial-gradient(circle, hsl(25 80% 70% / 0.3) 0%, transparent 70%)" }}
+        />
+        <div
+          className="absolute top-40 right-[15%] w-96 h-96 rounded-full opacity-30 blur-3xl pointer-events-none"
+          style={{ background: "radial-gradient(circle, hsl(200 60% 70% / 0.2) 0%, transparent 70%)" }}
+        />
+        <div
+          className="absolute bottom-10 left-[30%] w-64 h-64 rounded-full opacity-25 blur-3xl pointer-events-none"
+          style={{ background: "radial-gradient(circle, hsl(280 50% 70% / 0.2) 0%, transparent 70%)" }}
+        />
+
+        {/* Orange accent glow */}
+        <div
+          className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] rounded-full opacity-20 blur-3xl pointer-events-none"
+          style={{ background: "radial-gradient(circle, hsl(25 100% 55% / 0.15) 0%, transparent 70%)" }}
+        />
+
         <div className="container mx-auto relative z-10">
+          {/* Hero Text */}
           <div className="text-center max-w-4xl mx-auto">
-            <div className="text-lg md:text-xl lg:text-2xl font-medium mb-6 animate-fade-up flex items-center justify-center gap-2" style={{ perspective: "300px" }}>
+            <div className="text-lg md:text-xl lg:text-2xl font-medium mb-6 animate-fade-up flex items-center justify-center gap-2">
               <span className="text-cta font-display">Skip</span>
-              <span
-                className="relative inline-block h-[1.5em] w-[140px] md:w-[160px] lg:w-[180px] overflow-hidden"
-                style={{ transformStyle: "preserve-3d", perspectiveOrigin: "center center" }}
-              >
-                {isAnimating && previousWordIndex !== null && (
-                  <span
-                    className="absolute inset-0 flex items-center justify-center bg-foreground text-background px-3 py-1 rounded-lg animate-cube-rotate-out font-display"
-                    style={{ backfaceVisibility: "hidden", transformOrigin: "center top" }}
-                  >
-                    {rotatingWords[previousWordIndex]}
-                  </span>
-                )}
-                <span
-                  key={currentWordIndex}
-                  className={`absolute inset-0 flex items-center justify-center bg-foreground text-background px-3 py-1 rounded-lg font-display ${isAnimating ? "animate-cube-rotate-in" : ""}`}
-                  style={{ backfaceVisibility: "hidden", transformOrigin: "center bottom" }}
-                >
-                  {rotatingWords[currentWordIndex]}
+              <span className="relative inline-block h-[1.6em] w-[140px] md:w-[160px] lg:w-[180px] overflow-hidden">
+                {/* Simple vertical text rotation */}
+                <span className="absolute inset-0 flex flex-col animate-text-rotate">
+                  {[...rotatingWords, rotatingWords[0]].map((word, index) => (
+                    <span
+                      key={`${word}-${index}`}
+                      className="h-[1.6em] flex items-center justify-center bg-foreground text-background px-3 py-1 rounded-lg font-display shrink-0"
+                    >
+                      {word}
+                    </span>
+                  ))}
                 </span>
               </span>
             </div>
             <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight mb-8 animate-fade-up font-display">
               winning Ads <span className="text-cta">in minutes</span>
             </h1>
-            <p className="text-lg md:text-xl text-muted-foreground mb-12 animate-fade-up max-w-2xl mx-auto leading-relaxed" style={{ animationDelay: "0.1s" }}>
+            <p
+              className="text-lg md:text-xl text-muted-foreground mb-10 animate-fade-up max-w-2xl mx-auto leading-relaxed"
+              style={{ animationDelay: "0.1s" }}
+            >
               AI finds top-performing competitor ads and instantly recreates them in your brand
             </p>
+
             <div className="flex flex-col items-center gap-5 animate-fade-up" style={{ animationDelay: "0.2s" }}>
               <button
                 type="button"
@@ -187,10 +199,58 @@ export function HeroSection({
                 Takes ~2 minutes · No credit card required
               </p>
             </div>
+
+            {/* Traction Stats */}
+            <div className="mt-14 flex flex-wrap justify-center gap-10 md:gap-16 animate-fade-up" style={{ animationDelay: "0.3s" }}>
+              {stats.map((stat) => (
+                <div key={stat.label} className="text-center relative">
+                  <p className="text-4xl md:text-5xl lg:text-6xl font-display font-bold text-foreground">
+                    {stat.value}
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-1">{stat.label}</p>
+                  {stat.hasAnimation &&
+                    floatingTiles.map(({ id, delay, imageIndex }, index) => {
+                      const offsetPercent = (index % 3 - 1) * 30;
+                      return (
+                        <div
+                          key={id}
+                          className="absolute w-8 h-10 rounded-sm overflow-hidden shadow-lg pointer-events-none animate-float-up border border-border/50"
+                          style={{
+                            top: "-15px",
+                            left: `calc(50% + ${offsetPercent}%)`,
+                            transform: "translateX(-50%)",
+                            animationDelay: `${delay}ms`,
+                            opacity: 0,
+                          }}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={tileImages[imageIndex]}
+                            alt=""
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute -left-0.5 top-1 z-10">
+                            <span
+                              className="block pl-1 pr-1.5 py-0.5 bg-gradient-to-r from-green-700 via-green-600 to-green-500 text-white text-[5px] font-bold tracking-wide"
+                              style={{
+                                clipPath: "polygon(0 0, 100% 0, 85% 100%, 0 100%)",
+                                boxShadow: "0 2px 4px rgba(0,0,0,0.3)",
+                              }}
+                            >
+                              WINNER
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </section>
 
+      {/* dvyb website modal (replaces wander OnboardingModal) */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
         <DialogContent className="w-[min(96vw,1120px)] sm:w-[min(92vw,1240px)] max-w-none min-h-[min(82vh,640px)] sm:min-h-[min(88vh,720px)] p-14 sm:p-20 bg-[hsl(0,0%,98%)] border-neutral-200/80 text-neutral-900 rounded-2xl shadow-xl">
           <div className="flex flex-col items-center text-center space-y-5 pt-1 max-w-xl mx-auto">
@@ -231,8 +291,8 @@ export function HeroSection({
                           idx < currentStepIndex
                             ? "bg-neutral-200 text-neutral-700"
                             : idx === currentStepIndex
-                            ? "bg-neutral-900 text-white"
-                            : "bg-neutral-100 text-neutral-500"
+                              ? "bg-neutral-900 text-white"
+                              : "bg-neutral-100 text-neutral-500"
                         }`}
                       >
                         {idx < currentStepIndex && (

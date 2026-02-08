@@ -1054,6 +1054,7 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
         }}
         parentPage="content_library"
         initialJobId={onboardingJobId}
+        expectedImageCount={onboardingJobId ? 2 : undefined}
         onDialogClosed={() => {
           // Ensure onboarding steps are marked as completed
           completeStep('auto_content_viewed');

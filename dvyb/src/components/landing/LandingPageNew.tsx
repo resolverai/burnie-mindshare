@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { NavigationLanding } from "./NavigationLanding";
 import { HeroSection } from "./HeroSection";
@@ -9,11 +9,19 @@ import { DiscoverPreview } from "./DiscoverPreview";
 import { BrandsSection } from "./BrandsSection";
 import { HowItWorksSection } from "./HowItWorksSection";
 import { FeaturesSection } from "./FeaturesSection";
-import { StatsSection } from "./StatsSection";
+import { TestimonialsSection } from "./TestimonialsSection";
 import { FooterLanding } from "./FooterLanding";
 import { OnboardingFlowModal } from "./OnboardingFlowModal";
 import { GenerateContentDialog } from "@/components/onboarding/GenerateContentDialog";
 import { useOnboardingGuide } from "@/hooks/useOnboardingGuide";
+import { tileImages } from "@/lib/tileImages";
+
+function getInitialAdCount() {
+  const startDate = new Date("2026-02-04");
+  const today = new Date();
+  const hoursDiff = Math.floor((today.getTime() - startDate.getTime()) / (1000 * 60 * 60));
+  return 538 + Math.max(0, hoursDiff) * 10;
+}
 
 interface LandingPageNewProps {
   onAnalysisComplete?: (url: string) => void;
@@ -37,7 +45,31 @@ export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: 
   const [showGenerateDialog, setShowGenerateDialog] = useState(false);
   const [onboardingJobId, setOnboardingJobId] = useState<string | null>(null);
   const [showNotRegisteredModal, setShowNotRegisteredModal] = useState(false);
+  const [adCount, setAdCount] = useState(getInitialAdCount);
+  const [floatingTiles, setFloatingTiles] = useState<{ id: number; delay: number; imageIndex: number }[]>([]);
+  const nextImageIndexRef = useRef(0);
   const searchParams = useSearchParams();
+
+  // Traction stats: ad count + floating tiles (shared by Hero and Stats)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const increment = Math.floor(Math.random() * 4);
+      if (increment > 0) {
+        setAdCount((prev) => prev + increment);
+        const newTiles = Array.from({ length: increment }, (_, i) => ({
+          id: Date.now() + i,
+          delay: i * 100,
+          imageIndex: (nextImageIndexRef.current + i) % tileImages.length,
+        }));
+        nextImageIndexRef.current = (nextImageIndexRef.current + increment) % tileImages.length;
+        setFloatingTiles((prev) => [...prev, ...newTiles]);
+        setTimeout(() => {
+          setFloatingTiles((prev) => prev.filter((t) => !newTiles.find((n) => n.id === t.id)));
+        }, 4000);
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Show "not registered" modal when user returns from Sign In with unregistered Google account
   useEffect(() => {
@@ -95,12 +127,14 @@ export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: 
           onShowInspirationModal={handleShowInspirationModal}
           websiteModalOpen={websiteModalOpen}
           onWebsiteModalOpenChange={handleWebsiteModalOpenChange}
+          adCount={adCount}
+          floatingTiles={floatingTiles}
         />
         <DiscoverPreview onOpenWebsiteModal={handleGetStarted} />
         <HowItWorksSection />
         <BrandsSection />
         <FeaturesSection />
-        <StatsSection />
+        <TestimonialsSection />
       </main>
       <FooterLanding />
       <OnboardingFlowModal open={onboardingModalOpen} onOpenChange={setOnboardingModalOpen} />
@@ -118,6 +152,7 @@ export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: 
         initialJobId={onboardingJobId}
         parentPage="home"
         landingStyle
+        expectedImageCount={2}
         onDialogClosed={() => router.push("/discover")}
       />
     </div>

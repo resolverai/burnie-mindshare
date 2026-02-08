@@ -287,8 +287,8 @@ function DvybGoogleCallbackContent() {
             const genResponse = await adhocGenerationApi.generateContent({
               topic: contentTopic,
               platforms: ['instagram'],
-              number_of_posts: 4,
-              number_of_images: 4,
+              number_of_posts: 2,
+              number_of_images: 2,
               number_of_videos: 0,
               user_prompt: topicDescription || undefined,
               user_images: userImages.length > 0 ? userImages : undefined,

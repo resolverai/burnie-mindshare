@@ -21,25 +21,6 @@ import { format } from "date-fns";
 
 type TabId = "my-ads" | "my-products" | "saved-ads";
 
-type AspectRatio = "9:16" | "16:9" | "1:1";
-
-const getAspectRatioClass = (ratio: AspectRatio) => {
-  switch (ratio) {
-    case "9:16": return "aspect-[9/16]";
-    case "16:9": return "aspect-[16/9]";
-    case "1:1": return "aspect-square";
-    default: return "aspect-square";
-  }
-};
-
-/** Derive aspect ratio from ad id for visual variety (API doesn't return dimensions yet). */
-const getAspectRatioFromId = (id: number): AspectRatio => {
-  const r = id % 5;
-  if (r === 0 || r === 1) return "1:1";
-  if (r === 2 || r === 3) return "9:16";
-  return "16:9";
-};
-
 interface SavedAdCard {
   id: number;
   image: string | null;
@@ -231,7 +212,7 @@ export function MyContentPage({
             brandLetter: ad.brandLetter,
             brandName: ad.brandName,
             category: ad.category,
-            aspectRatio: getAspectRatioFromId(ad.id),
+            aspectRatio: "1:1",
             status: ad.status,
             runtime: ad.runtime,
             firstSeen: (ad as any).firstSeen,
@@ -358,7 +339,18 @@ export function MyContentPage({
                 <p className="text-muted-foreground">Loading products...</p>
               </div>
             ) : (
-              <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+              <>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Drag and drop an image anywhere on this screen to add a product, or click the Add Product card
+                </p>
+                <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+                <button
+                  onClick={handleAddProductClick}
+                  className="aspect-square bg-secondary/50 border-2 border-dashed border-border rounded-xl flex flex-col items-center justify-center gap-2 text-muted-foreground hover:border-primary hover:text-primary transition-colors"
+                >
+                  <Plus className="w-8 h-8" />
+                  <span className="text-sm font-medium">Add Product</span>
+                </button>
                 {products.map((product) => (
                   <div
                     key={product.id}
@@ -430,14 +422,8 @@ export function MyContentPage({
                     </div>
                   </div>
                 ))}
-                <button
-                  onClick={handleAddProductClick}
-                  className="aspect-square bg-secondary/50 border-2 border-dashed border-border rounded-xl flex flex-col items-center justify-center gap-2 text-muted-foreground hover:border-primary hover:text-primary transition-colors"
-                >
-                  <Plus className="w-8 h-8" />
-                  <span className="text-sm font-medium">Add Product</span>
-                </button>
-              </div>
+                </div>
+              </>
             )}
           </div>
         )}
@@ -464,7 +450,7 @@ export function MyContentPage({
                 {savedAds.map((ad, index) => (
                   <div
                     key={ad.id}
-                    className={`mb-4 md:mb-5 break-inside-avoid group relative rounded-xl overflow-hidden bg-card shadow-card hover:shadow-card-hover transition-all cursor-pointer ${getAspectRatioClass(ad.aspectRatio)}`}
+                    className="mb-4 md:mb-5 break-inside-avoid group relative rounded-xl overflow-hidden bg-card shadow-card hover:shadow-card-hover transition-all cursor-pointer w-full"
                     style={{ animationDelay: `${Math.min(index * 0.03, 0.5)}s` }}
                     onClick={() => {
                       setSelectedSavedAd(ad);
@@ -485,35 +471,54 @@ export function MyContentPage({
                       }
                     }}
                   >
-                    <div className="relative w-full h-full">
+                    <div className="relative">
                       {ad.videoSrc ? (
-                        <>
-                          <img
-                            src={ad.image || "/placeholder.svg"}
-                            alt=""
-                            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
-                              hoveredSavedId === ad.id ? "opacity-0" : "opacity-100"
-                            }`}
-                          />
+                        ad.image ? (
+                          <>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={ad.image}
+                              alt=""
+                              className={`w-full h-auto block transition-opacity duration-300 ${
+                                hoveredSavedId === ad.id ? "opacity-0" : "opacity-100"
+                              }`}
+                            />
+                            <video
+                              ref={(el) => {
+                                savedVideoRefs.current[ad.id] = el;
+                              }}
+                              src={ad.videoSrc}
+                              className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
+                                hoveredSavedId === ad.id ? "opacity-100" : "opacity-0"
+                              }`}
+                              muted
+                              playsInline
+                              loop
+                            />
+                          </>
+                        ) : (
                           <video
                             ref={(el) => {
                               savedVideoRefs.current[ad.id] = el;
                             }}
                             src={ad.videoSrc}
-                            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
-                              hoveredSavedId === ad.id ? "opacity-100" : "opacity-0"
-                            }`}
+                            className="w-full h-auto block"
                             muted
                             playsInline
                             loop
                           />
-                        </>
-                      ) : (
+                        )
+                      ) : ad.image ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
                         <img
-                          src={ad.image || "/placeholder.svg"}
+                          src={ad.image}
                           alt={ad.brandName}
-                          className="absolute inset-0 w-full h-full object-cover"
+                          className="w-full h-auto block"
                         />
+                      ) : (
+                        <div className="w-full aspect-square bg-neutral-200 flex items-center justify-center text-neutral-500 text-sm">
+                          No preview
+                        </div>
                       )}
                       <div className="absolute top-2.5 left-2.5">
                         <span className="px-2.5 py-1 rounded-md bg-teal-600 text-white text-xs font-medium">

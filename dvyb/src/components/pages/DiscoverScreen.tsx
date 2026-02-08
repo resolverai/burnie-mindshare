@@ -45,24 +45,6 @@ interface DiscoverCard {
   category?: string | null;
 }
 
-/** Vertical items (9:16) stay tall; shorter/landscape items (16:9, 1:1) display as square. */
-const getAspectRatioClass = (ratio: AspectRatio) => {
-  switch (ratio) {
-    case "9:16": return "aspect-[9/16]";
-    case "16:9":
-    case "1:1":
-    default: return "aspect-square";
-  }
-};
-
-/** Derive aspect ratio from ad id for visual variety (API doesn't return dimensions yet). */
-const getAspectRatioFromId = (id: number): AspectRatio => {
-  const r = id % 5;
-  if (r === 0 || r === 1) return "1:1";
-  if (r === 2 || r === 3) return "9:16";
-  return "16:9";
-};
-
 const DRAWER_CLOSE_DURATION_MS = 300;
 
 export function DiscoverScreen({ onCreateAd }: { onCreateAd?: (inspiration?: PreselectedInspiration) => void }) {
@@ -108,7 +90,7 @@ export function DiscoverScreen({ onCreateAd }: { onCreateAd?: (inspiration?: Pre
             timeAgo: (ad.runtime as string) || "",
             brandLetter: (ad.brandLetter as string) || (ad.brandName as string)?.charAt(0) || "?",
             brandName: (ad.brandName as string) || "Unknown",
-            aspectRatio: getAspectRatioFromId(ad.id as number),
+            aspectRatio: "1:1",
             status: ad.status as string,
             firstSeen: ad.firstSeen as string | null,
             targetLanguage: ad.targetLanguage as string,
@@ -173,7 +155,7 @@ export function DiscoverScreen({ onCreateAd }: { onCreateAd?: (inspiration?: Pre
             timeAgo: (ad.runtime as string) || "",
             brandLetter: (ad.brandLetter as string) || (ad.brandName as string)?.charAt(0) || "?",
             brandName: (ad.brandName as string) || "Unknown",
-            aspectRatio: getAspectRatioFromId(ad.id as number),
+            aspectRatio: "1:1",
             status: ad.status as string,
             firstSeen: ad.firstSeen as string | null,
             targetLanguage: ad.targetLanguage as string,
@@ -331,7 +313,7 @@ export function DiscoverScreen({ onCreateAd }: { onCreateAd?: (inspiration?: Pre
           {cards.map((card, index) => (
             <div
               key={card.id}
-              className={`mb-4 md:mb-5 break-inside-avoid group relative rounded-xl overflow-hidden bg-card shadow-card hover:shadow-card-hover transition-all cursor-pointer animate-scale-in ${getAspectRatioClass(card.aspectRatio)}`}
+              className="mb-4 md:mb-5 break-inside-avoid group relative rounded-xl overflow-hidden bg-card shadow-card hover:shadow-card-hover transition-all cursor-pointer animate-scale-in w-full"
               style={{ animationDelay: `${Math.min(index * 0.03, 0.5)}s` }}
               onClick={() => handleOpenDetail(card)}
               onMouseEnter={() => {
@@ -349,37 +331,56 @@ export function DiscoverScreen({ onCreateAd }: { onCreateAd?: (inspiration?: Pre
                 }
               }}
             >
-              <div className="relative w-full h-full">
+              <div className="relative">
                 {card.videoSrc ? (
                   <>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={card.image}
-                      alt=""
-                      className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
-                        hoveredId === card.id ? "opacity-0" : "opacity-100"
-                      }`}
-                    />
-                    <video
-                      ref={(el) => {
-                        videoRefs.current[card.id] = el;
-                      }}
-                      src={card.videoSrc}
-                      className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
-                        hoveredId === card.id ? "opacity-100" : "opacity-0"
-                      }`}
-                      muted
-                      playsInline
-                      loop
-                    />
+                    {card.image ? (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={card.image}
+                          alt=""
+                          className={`w-full h-auto block transition-opacity duration-300 ${
+                            hoveredId === card.id ? "opacity-0" : "opacity-100"
+                          }`}
+                        />
+                        <video
+                          ref={(el) => {
+                            videoRefs.current[card.id] = el;
+                          }}
+                          src={card.videoSrc}
+                          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
+                            hoveredId === card.id ? "opacity-100" : "opacity-0"
+                          }`}
+                          muted
+                          playsInline
+                          loop
+                        />
+                      </>
+                    ) : (
+                      <video
+                        ref={(el) => {
+                          videoRefs.current[card.id] = el;
+                        }}
+                        src={card.videoSrc}
+                        className="w-full h-auto block"
+                        muted
+                        playsInline
+                        loop
+                      />
+                    )}
                   </>
-                ) : (
+                ) : card.image ? (
                   /* eslint-disable-next-line @next/next/no-img-element */
                   <img
                     src={card.image}
                     alt=""
-                    className="absolute inset-0 w-full h-full object-cover"
+                    className="w-full h-auto block"
                   />
+                ) : (
+                  <div className="w-full aspect-square bg-neutral-200 flex items-center justify-center text-neutral-500 text-sm">
+                    No preview
+                  </div>
                 )}
                 {/* Time badge - teal pill top-left (new UI) */}
                 <div className="absolute top-2.5 left-2.5">

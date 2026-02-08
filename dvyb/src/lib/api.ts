@@ -342,6 +342,33 @@ export const contextApi = {
       { method: 'GET' }
     );
   },
+
+  /**
+   * Upload product image during onboarding when no images were fetched from website/Instagram.
+   * Uses X-DVYB-API-Key for unauthenticated onboarding.
+   * Saves to S3 and dvyb_domain_product_images for use in content generation.
+   */
+  async uploadDomainProductImage(file: File, domainOrUrl: string) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('domain', domainOrUrl || 'onboarding');
+
+    const apiKey = typeof window !== 'undefined' ? process.env.NEXT_PUBLIC_DVYB_ONBOARDING_API_KEY || '' : '';
+    const response = await fetch(
+      `${API_URL}/dvyb/context/upload-domain-product-image`,
+      {
+        method: 'POST',
+        headers: { 'X-DVYB-API-Key': apiKey },
+        body: formData,
+      }
+    );
+
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || 'Upload failed');
+    }
+    return data.data as { id: number; s3Key: string; image: string };
+  },
 };
 
 // Inspiration Item type
@@ -355,15 +382,28 @@ export interface InspirationItem {
   mediaUrl?: string | null;
 }
 
+// Brand context from localStorage (business overview, popular products, etc.)
+export interface BrandContextForMatch {
+  business_overview?: string | null;
+  popular_products?: string[] | null;
+  customer_demographics?: string | null;
+  brand_story?: string | null;
+}
+
 // Inspirations API
 export const inspirationsApi = {
   /**
-   * Match industry to inspiration categories using AI
+   * Match industry + brand context to inspiration categories using AI (GPT-4o)
    * Returns matched categories and selected inspiration videos
+   * Brand context improves matching when available from website analysis
    */
-  async matchInspirations(industry: string, count: number = 6) {
-    return apiRequest<{ 
-      success: boolean; 
+  async matchInspirations(
+    industry: string,
+    count: number = 6,
+    brandContext?: BrandContextForMatch | null
+  ) {
+    return apiRequest<{
+      success: boolean;
       data: {
         matched_categories: string[];
         inspiration_videos: Array<InspirationItem>;
@@ -372,7 +412,11 @@ export const inspirationsApi = {
       '/dvyb/inspirations/match',
       {
         method: 'POST',
-        body: JSON.stringify({ industry, count }),
+        body: JSON.stringify({
+          industry,
+          count,
+          brand_context: brandContext || undefined,
+        }),
       }
     );
   },
@@ -2106,6 +2150,7 @@ export const brandsApi = {
     status?: string;
     category?: string;
     websiteCategory?: string;
+    brandContext?: BrandContextForMatch | null;
     runtime?: string;
     adCount?: string;
     country?: string;
@@ -2120,6 +2165,9 @@ export const brandsApi = {
     if (params?.status && params.status !== 'All') sp.set('status', params.status);
     if (params?.category && params.category !== 'All') sp.set('category', params.category);
     if (params?.websiteCategory) sp.set('websiteCategory', params.websiteCategory);
+    if (params?.brandContext && Object.keys(params.brandContext).length > 0) {
+      sp.set('brandContext', encodeURIComponent(JSON.stringify(params.brandContext)));
+    }
     if (params?.runtime && params.runtime !== 'All') sp.set('runtime', params.runtime);
     if (params?.adCount && params.adCount !== 'All') sp.set('adCount', params.adCount);
     if (params?.country && params.country !== 'All') sp.set('country', params.country);
@@ -2167,6 +2215,7 @@ export const brandsApi = {
     status?: string;
     category?: string;
     websiteCategory?: string;
+    brandContext?: BrandContextForMatch | null;
     runtime?: string;
     adCount?: string;
     country?: string;
@@ -2181,6 +2230,9 @@ export const brandsApi = {
     if (params?.status && params.status !== 'All') sp.set('status', params.status);
     if (params?.category && params.category !== 'All') sp.set('category', params.category);
     if (params?.websiteCategory) sp.set('websiteCategory', params.websiteCategory);
+    if (params?.brandContext && Object.keys(params.brandContext).length > 0) {
+      sp.set('brandContext', encodeURIComponent(JSON.stringify(params.brandContext)));
+    }
     if (params?.runtime && params.runtime !== 'All') sp.set('runtime', params.runtime);
     if (params?.adCount && params.adCount !== 'All') sp.set('adCount', params.adCount);
     if (params?.country && params.country !== 'All') sp.set('country', params.country);

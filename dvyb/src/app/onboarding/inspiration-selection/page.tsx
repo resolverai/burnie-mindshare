@@ -162,8 +162,20 @@ export default function InspirationSelectionPage() {
         const detectedIndustry = analysis.industry || "General";
         setDetectedCategory(detectedIndustry);
 
-        // Fetch matched inspirations from API
-        const response = await inspirationsApi.matchInspirations(detectedIndustry, 6);
+        // Build brand context from analysis (business overview, products, demographics, brand story)
+        const brandContext = {
+          business_overview: analysis.business_overview_and_positioning || null,
+          popular_products: analysis.most_popular_products_and_services || null,
+          customer_demographics: analysis.customer_demographics_and_psychographics || null,
+          brand_story: analysis.brand_story || null,
+        };
+
+        // Fetch matched inspirations from API (industry + brand context + available categories)
+        const response = await inspirationsApi.matchInspirations(
+          detectedIndustry,
+          6,
+          brandContext
+        );
         
         if (response.success && response.data) {
           const items = response.data.inspiration_videos || [];

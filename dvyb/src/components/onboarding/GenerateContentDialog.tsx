@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
-import { X, Plus, Upload, Link, Loader2, Twitter, Instagram, Linkedin, Heart, XCircle, Briefcase, Pencil, MessageCircle, Send, Bookmark, Download } from "lucide-react";
+import { X, Plus, Upload, Link, Loader2, Twitter, Instagram, Linkedin, Heart, XCircle, Briefcase, Pencil, MessageCircle, Send, Bookmark, Download, Lock, Facebook } from "lucide-react";
 import { PostDetailDialog } from "@/components/calendar/PostDetailDialog";
 import { ScheduleDialog } from "@/components/calendar/ScheduleDialog";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
@@ -302,6 +302,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
   const [rejectedPosts, setRejectedPosts] = useState<string[]>([]);
   const [questionnaireCompleted, setQuestionnaireCompleted] = useState(false);
   const [strategyGenerating, setStrategyGenerating] = useState(false);
+  const [adPreviewTab, setAdPreviewTab] = useState<"ig_post" | "ig_reel" | "facebook">("ig_post");
   
   // Inspiration selection state
   const [inspirationCategories, setInspirationCategories] = useState<string[]>([]);
@@ -498,11 +499,11 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
       setSelectedPlatforms(['instagram']);
       setJobId(initialJobId);
       setGenerationUuid(initialJobId); // May be uuid format
-      setImagePostCount([4]);
+      setImagePostCount([expectedImageCount ?? 4]);
       setVideoPostCount([0]);
       
-      // Create placeholder posts (N items for grid UI - 4 for onboarding, expectedImageCount for ad flow)
-      const count = adFlowMode ? Math.max(1, expectedImageCount ?? 4) : 4;
+      // Create placeholder posts (N items for grid UI - expectedImageCount for onboarding/ad flow, else 4)
+      const count = (adFlowMode || initialJobId) ? Math.max(1, expectedImageCount ?? 4) : 4;
       const placeholders = Array.from({ length: count }, (_, i) => ({
         id: String(i + 1),
         date: new Date().toISOString().split('T')[0],
@@ -2607,7 +2608,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
         const getAcceptIndicatorOpacity = () => Math.min(1, Math.max(0, swipeOffset / 100));
         const getRejectIndicatorOpacity = () => Math.min(1, Math.max(0, -swipeOffset / 100));
         
-        // Landing style grid view: N items as Instagram cards (no CTAs on card), click opens PostDetailDialog
+        // Landing style grid view: N items as platform preview cards (IG Post, IG Reel, Facebook tabs)
         const showLandingGrid = (landingStyle || adFlowMode) && initialJobId;
         if (showLandingGrid) {
           const brandDisplay = getWebsiteDomainDisplay();
@@ -2618,6 +2619,189 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
             "Elevate your everyday. Quality meets style in our newest arrivals.",
             "Your new favorites are here! Don't miss out on this season's best.",
           ];
+          const displayPosts = adFlowMode || (initialJobId && expectedImageCount)
+            ? generatedPosts.slice(0, expectedImageCount ?? generatedPosts.length)
+            : generatedPosts.slice(0, 4);
+
+          const renderAdCard = (post: any, index: number) => {
+            const isLoading = post.isGenerating || post.isFailed;
+            const caption = post.platformTexts?.instagram || post.description || sampleCaptions[index % sampleCaptions.length];
+            const handleEditOrDownload = (e: React.MouseEvent) => {
+              e.stopPropagation();
+              setShowDownloadPricingModal(true);
+            };
+
+            const commonCardClasses = "relative rounded-lg overflow-hidden border border-neutral-200/80 bg-white shadow-sm flex flex-col min-h-0 group w-[280px] sm:w-[300px] shrink-0";
+            const loadingPlaceholder = (
+              <div className={`flex flex-col items-center justify-center bg-neutral-100 min-h-[200px] ${adPreviewTab === "ig_reel" ? "aspect-[9/16]" : adPreviewTab === "facebook" ? "aspect-video" : "aspect-[4/5]"}`}>
+                {isLoading ? (
+                  <>
+                    <Loader2 className="w-8 h-8 text-neutral-500 animate-spin mb-2" />
+                    <span className="text-neutral-700 font-semibold text-lg">{progressPercent}%</span>
+                  </>
+                ) : (
+                  <div className="text-center p-4">
+                    <XCircle className="w-8 h-8 text-red-500 mx-auto mb-2" />
+                    <p className="text-xs text-muted-foreground">Failed to generate</p>
+                  </div>
+                )}
+              </div>
+            );
+
+            if (!post.image || post.isFailed) {
+              return (
+                <div key={post.id} className={`${commonCardClasses} cursor-default`}>
+                  {loadingPlaceholder}
+                </div>
+              );
+            }
+
+            if (adPreviewTab === "ig_reel") {
+              return (
+                <div
+                  key={post.id}
+                  className={`${commonCardClasses} aspect-[9/16] cursor-pointer hover:shadow-lg transition-shadow`}
+                  onClick={() => setShowDownloadPricingModal(true)}
+                >
+                  <div className="w-full flex flex-col h-full">
+                    <div className="flex items-center gap-2 px-3 py-2.5 border-b border-neutral-100 shrink-0">
+                      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-neutral-900 truncate">{brandDisplay}</p>
+                        <p className="text-xs text-muted-foreground">Sponsored</p>
+                      </div>
+                    </div>
+                    <div className="relative flex-1 min-h-0 bg-neutral-900">
+                      <img src={post.image} alt={post.title} className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3 gap-2">
+                        <Button size="sm" variant="secondary" className="w-full gap-2" onClick={handleEditOrDownload}>
+                          <Pencil className="w-4 h-4" /> Edit
+                        </Button>
+                        <Button size="sm" variant="outline" className="w-full gap-2 bg-background/80 backdrop-blur-sm" onClick={handleEditOrDownload}>
+                          <Download className="w-4 h-4" /> Download
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="px-3 py-2 border-t border-neutral-100 bg-neutral-50/50 shrink-0">
+                      <p className="text-sm font-semibold text-neutral-900">Shop Now</p>
+                      <p className="text-xs text-muted-foreground truncate">{brandDisplay.startsWith("@") ? "instagram.com" : brandDisplay}</p>
+                    </div>
+                    <div className="px-3 py-2.5 shrink-0">
+                      <div className="flex items-center gap-3 mb-1">
+                        <Heart className="w-5 h-5 text-neutral-700" />
+                        <MessageCircle className="w-5 h-5 text-neutral-700" />
+                        <Send className="w-5 h-5 text-neutral-700" />
+                      </div>
+                      <p className="text-sm font-semibold text-neutral-900 mb-0.5">2.1K likes</p>
+                      <p className="text-sm text-neutral-600 line-clamp-2">
+                        <span className="font-semibold text-neutral-900">{brandDisplay}</span> {caption}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            if (adPreviewTab === "facebook") {
+              return (
+                <div
+                  key={post.id}
+                  className={`${commonCardClasses} w-[320px] sm:w-[340px] cursor-pointer hover:shadow-lg transition-shadow`}
+                  onClick={() => setShowDownloadPricingModal(true)}
+                >
+                  <div className="w-full flex flex-col bg-white">
+                    <div className="flex items-center gap-2 px-3 py-2.5 border-b border-neutral-100 shrink-0">
+                      <div className="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center text-white text-sm font-bold">
+                        {brandDisplay.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-neutral-900 truncate">{brandDisplay}</p>
+                        <p className="text-xs text-muted-foreground">Sponsored</p>
+                      </div>
+                    </div>
+                    <div className="px-3 py-2 shrink-0">
+                      <p className="text-sm text-neutral-600 line-clamp-2">
+                        <span className="font-semibold text-neutral-900">{brandDisplay}</span> {caption}
+                      </p>
+                    </div>
+                    <div className="relative aspect-video bg-neutral-100">
+                      <img src={post.image} alt={post.title} className="w-full h-full object-cover" />
+                      <div className="absolute top-2 right-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                        <Button size="sm" variant="secondary" className="gap-1.5" onClick={handleEditOrDownload}>
+                          <Pencil className="w-3.5 h-3.5" /> Edit
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="px-3 py-2 border-t border-neutral-100 shrink-0">
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide">{brandDisplay.replace(/^https?:\/\//, "").replace(/\/$/, "") || "yourbrand.com"}</p>
+                    </div>
+                    <div className="px-3 py-2 shrink-0">
+                      <p className="text-sm text-neutral-600 mb-2">Shop Now - Free Shipping</p>
+                      <Button type="button" size="sm" className="w-full bg-blue-600 hover:bg-blue-700 text-white">
+                        Shop Now
+                      </Button>
+                    </div>
+                    <div className="flex items-center gap-4 px-3 py-2 border-t border-neutral-100 text-muted-foreground text-sm">
+                      <span>Like</span>
+                      <span>Comment</span>
+                      <span>Share</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            // IG Post (default)
+            return (
+              <div
+                key={post.id}
+                className={`${commonCardClasses} aspect-[4/5] cursor-pointer hover:shadow-lg transition-shadow`}
+                onClick={() => setShowDownloadPricingModal(true)}
+              >
+                <div className="w-full flex flex-col h-full">
+                  <div className="flex items-center gap-2 px-3 py-2.5 border-b border-neutral-100 shrink-0">
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-neutral-900 truncate">{brandDisplay}</p>
+                      <p className="text-xs text-muted-foreground">Sponsored</p>
+                    </div>
+                  </div>
+                  <div className="relative flex-1 min-h-0 bg-neutral-900">
+                    <img src={post.image} alt={post.title} className="w-full h-full object-cover" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3 gap-2">
+                      <Button size="sm" variant="secondary" className="w-full gap-2" onClick={handleEditOrDownload}>
+                        <Pencil className="w-4 h-4" /> Edit
+                      </Button>
+                      <Button size="sm" variant="outline" className="w-full gap-2 bg-background/80 backdrop-blur-sm" onClick={handleEditOrDownload}>
+                        <Download className="w-4 h-4" /> Download
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between px-3 py-2 border-t border-neutral-100 bg-neutral-50/50 shrink-0">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-neutral-900">Shop Now</p>
+                      <p className="text-xs text-muted-foreground truncate">{brandDisplay.startsWith("@") ? "instagram.com" : brandDisplay}</p>
+                    </div>
+                  </div>
+                  <div className="px-3 py-2.5 shrink-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-3">
+                        <Heart className="w-5 h-5 text-neutral-700" />
+                        <MessageCircle className="w-5 h-5 text-neutral-700" />
+                        <Send className="w-5 h-5 text-neutral-700" />
+                      </div>
+                      <Bookmark className="w-5 h-5 text-neutral-700" />
+                    </div>
+                    <p className="text-sm font-semibold text-neutral-900 mb-0.5">1,234 likes</p>
+                    <p className="text-sm text-neutral-600 line-clamp-2">
+                      <span className="font-semibold text-neutral-900">{brandDisplay}</span> {caption}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            );
+          };
+
           return (
             <div className="flex flex-col h-full min-h-0">
               <div className="text-center mb-2 shrink-0">
@@ -2644,126 +2828,56 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                   </div>
                 </div>
               )}
-              <div
-                className={
-                  adFlowMode
-                    ? "flex-1 min-h-[320px] md:min-h-[400px] flex flex-wrap justify-center items-start gap-4"
-                    : "grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 flex-1 min-h-[320px] md:min-h-[400px]"
-                }
-              >
-                {(adFlowMode
-                  ? generatedPosts.slice(0, expectedImageCount ?? generatedPosts.length)
-                  : generatedPosts.slice(0, 4)
-                ).map((post, index) => {
-                  const isLoading = post.isGenerating || post.isFailed;
-                  const caption = post.platformTexts?.instagram || post.description || sampleCaptions[index % sampleCaptions.length];
-                  /* Until user attaches card, Edit/Download open pricing modal (same as Download All) */
-                  const handleEditOrDownload = (e: React.MouseEvent) => {
-                    e.stopPropagation();
-                    setShowDownloadPricingModal(true);
-                  };
-                  return (
-                    <div
-                      key={post.id}
-                      className={`relative rounded-lg overflow-hidden border border-neutral-200/80 bg-white shadow-sm flex flex-col min-h-0 group ${
-                        adFlowMode ? "w-64 shrink-0" : ""
-                      } ${post.image && !post.isFailed ? "cursor-pointer hover:shadow-lg transition-shadow" : ""}`}
-                      onClick={() => {
-                        if (post.image && !post.isFailed) {
-                          setShowDownloadPricingModal(true);
-                        }
-                      }}
-                    >
-                      {post.image && !post.isFailed ? (
-                        <div className="w-full flex flex-col flex-1 min-h-0">
-                          {/* Instagram Header */}
-                          <div className="flex items-center gap-2 px-3 py-2.5 border-b border-neutral-100 shrink-0">
-                            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400" />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-neutral-900 truncate">{brandDisplay}</p>
-                              <p className="text-xs text-muted-foreground">Sponsored</p>
-                            </div>
-                          </div>
-                          {/* Image - flex-1 to fill; aspect-[4/5] for vertical Instagram look in ad flow */}
-                          <div className={`relative ${adFlowMode ? "aspect-[4/5] flex-shrink-0" : "flex-1 min-h-0"}`}>
-                            <img
-                              src={post.image}
-                              alt={post.title}
-                              className="w-full h-full object-cover min-h-[120px] md:min-h-[160px]"
-                            />
-                            {/* Edit/Download - until user attaches card, opens pricing modal (same as Download All) */}
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3 gap-2">
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                className="w-full gap-2"
-                                onClick={handleEditOrDownload}
-                              >
-                                <Pencil className="w-4 h-4" />
-                                Edit
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="w-full gap-2 bg-background/80 backdrop-blur-sm"
-                                onClick={handleEditOrDownload}
-                              >
-                                <Download className="w-4 h-4" />
-                                Download
-                              </Button>
-                            </div>
-                          </div>
-                          {/* Instagram CTA Section */}
-                          <div className="flex items-center justify-between px-3 py-2 border-t border-neutral-100 bg-neutral-50/50 shrink-0">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-neutral-900">Shop Now</p>
-                              <p className="text-xs text-muted-foreground truncate">{brandDisplay.startsWith("@") ? "instagram.com" : brandDisplay}</p>
-                            </div>
-                          </div>
-                          {/* Instagram Actions - decorative only */}
-                          <div className="px-3 py-2.5 shrink-0">
-                            <div className="flex items-center justify-between mb-1">
-                              <div className="flex items-center gap-3">
-                                <Heart className="w-5 h-5 text-neutral-700" />
-                                <MessageCircle className="w-5 h-5 text-neutral-700" />
-                                <Send className="w-5 h-5 text-neutral-700" />
-                              </div>
-                              <Bookmark className="w-5 h-5 text-neutral-700" />
-                            </div>
-                            <p className="text-sm font-semibold text-neutral-900 mb-0.5">1,234 likes</p>
-                            <p className="text-sm text-neutral-600 line-clamp-2">
-                              <span className="font-semibold text-neutral-900">{brandDisplay}</span>{" "}
-                              {caption}
-                            </p>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className={`flex flex-col items-center justify-center bg-neutral-100 ${adFlowMode ? "aspect-[4/5] min-h-[200px]" : "flex-1 min-h-[200px] md:min-h-[240px]"}`}>
-                          {isLoading ? (
-                            <>
-                              <Loader2 className="w-8 h-8 text-neutral-500 animate-spin mb-2" />
-                              <span className="text-neutral-700 font-semibold text-lg">{progressPercent}%</span>
-                            </>
-                          ) : (
-                            <div className="text-center p-4">
-                              <XCircle className="w-8 h-8 text-red-500 mx-auto mb-2" />
-                              <p className="text-xs text-muted-foreground">Failed to generate</p>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+              <div className="flex justify-center gap-2 mb-4 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setAdPreviewTab("ig_post")}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                    adPreviewTab === "ig_post"
+                      ? "bg-neutral-900 text-white"
+                      : "bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-50"
+                  }`}
+                >
+                  <Instagram className="w-4 h-4" />
+                  IG Post
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdPreviewTab("ig_reel")}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                    adPreviewTab === "ig_reel"
+                      ? "bg-neutral-900 text-white"
+                      : "bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-50"
+                  }`}
+                >
+                  <Instagram className="w-4 h-4" />
+                  IG Reel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdPreviewTab("facebook")}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                    adPreviewTab === "facebook"
+                      ? "bg-neutral-900 text-white"
+                      : "bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-50"
+                  }`}
+                >
+                  <Facebook className="w-4 h-4" />
+                  Facebook
+                </button>
+              </div>
+              <div className="flex-1 min-h-[320px] md:min-h-[400px] flex justify-center items-start gap-4 md:gap-6 overflow-auto">
+                {displayPosts.map((post, index) => renderAdCard(post, index))}
               </div>
               {allComplete && (
-                <div className="flex justify-center mt-4 shrink-0">
+                <div className="flex flex-col items-center mt-4 shrink-0 gap-1">
+                  <p className="text-xs text-muted-foreground">Download includes all formats (IG Post, IG Reel, Facebook)</p>
                   <Button
                     onClick={() => setShowDownloadPricingModal(true)}
-                    className="bg-neutral-900 hover:bg-neutral-800 text-white h-12 px-8 rounded-xl"
+                    className="bg-neutral-900 hover:bg-neutral-800 text-white h-12 px-8 rounded-xl gap-2"
                   >
-                    <Download className="h-5 w-5 mr-2" />
-                    Download All
+                    <Lock className="h-5 w-5" />
+                    Download All Formats (ZIP)
                   </Button>
                 </div>
               )}

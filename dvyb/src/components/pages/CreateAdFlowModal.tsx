@@ -109,10 +109,26 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
     setAdsLoading(true);
     try {
       let websiteCategory: string | undefined;
+      let brandContext: { business_overview?: string | null; popular_products?: string[] | null; customer_demographics?: string | null; brand_story?: string | null } | undefined;
       try {
         const ctxRes = await contextApi.getContext();
-        if (ctxRes.success && ctxRes.data?.industry) {
-          websiteCategory = String(ctxRes.data.industry).trim() || undefined;
+        if (ctxRes.success && ctxRes.data) {
+          const ctx = ctxRes.data;
+          if (ctx.industry) websiteCategory = String(ctx.industry).trim() || undefined;
+          const hasContext =
+            ctx.businessOverview ||
+            ctx.popularProducts ||
+            ctx.customerDemographics ||
+            ctx.brandStory;
+          if (hasContext) {
+            const pop = ctx.popularProducts;
+            brandContext = {
+              business_overview: ctx.businessOverview ?? null,
+              popular_products: Array.isArray(pop) ? pop : typeof pop === "string" ? (pop ? [pop] : null) : null,
+              customer_demographics: ctx.customerDemographics ?? null,
+              brand_story: ctx.brandStory ?? null,
+            };
+          }
         }
       } catch {
         /* ignore */
@@ -122,6 +138,7 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
         limit: 24,
         sort: "latest",
         ...(websiteCategory && { websiteCategory }),
+        ...(brandContext && Object.values(brandContext).some((v) => v != null && (Array.isArray(v) ? v.length : true)) && { brandContext }),
       });
       if (res.success && res.data) {
         const ads = (res.data as Array<Record<string, unknown>>).map((ad) => ({
@@ -421,8 +438,11 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
                 <h2 className="text-xl font-bold mb-2 text-center text-neutral-900">
                   Choose a product
                 </h2>
-                <p className="text-muted-foreground text-center text-sm mb-4">
+                <p className="text-muted-foreground text-center text-sm mb-2">
                   Select the product you want to create an ad for
+                </p>
+                <p className="text-muted-foreground text-center text-xs mb-4">
+                  Drag and drop an image onto the Add Product card, or click to browse
                 </p>
                 <div className="flex items-center gap-3 bg-neutral-100 rounded-full px-4 py-2.5 border border-neutral-200 max-w-md mx-auto">
                   <Search className="w-4 h-4 text-muted-foreground flex-shrink-0" />
@@ -468,6 +488,38 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
                 ) : (
                   <>
                     <div className="grid grid-cols-3 gap-3 content-start items-start">
+                      <button
+                        type="button"
+                        onClick={() => !isProductUploading && productFileInputRef.current?.click()}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setIsProductDraggingOver(true);
+                        }}
+                        onDragLeave={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                            setIsProductDraggingOver(false);
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setIsProductDraggingOver(false);
+                          const file = e.dataTransfer.files?.[0];
+                          if (file) processProductFile(file);
+                        }}
+                        disabled={isProductUploading}
+                        className={`text-left rounded-xl overflow-hidden cursor-pointer shrink-0 flex flex-col border-2 border-dashed bg-secondary/50 transition-colors group ${
+                          isProductDraggingOver ? "border-primary bg-primary/5" : "border-border hover:border-primary hover:bg-primary/5"
+                        } ${isProductUploading ? "pointer-events-none opacity-70" : ""}`}
+                      >
+                        <div className="aspect-square flex flex-col items-center justify-center gap-2 text-muted-foreground group-hover:text-primary">
+                          <Plus className="w-8 h-8" />
+                          <span className="text-sm font-medium">Add Product</span>
+                        </div>
+                      </button>
                       {paginatedProducts.map((product) => {
                         const isSelected = selectedProductId === product.id;
                         return (
@@ -591,7 +643,7 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
                     </div>
                   ) : (
                     <div className="flex-1 min-h-0 overflow-y-auto p-3">
-                      <div className="grid grid-cols-2 gap-4 content-start items-start">
+                      <div className="columns-[160px] md:columns-[180px] lg:columns-[200px] gap-4">
                         {filteredAds.map((ad) => {
                           const isSelected = selectedAdIds.has(ad.id);
                           const mediaUrl = ad.isVideo ? ad.videoSrc : ad.image;
@@ -600,33 +652,34 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
                               key={ad.id}
                               type="button"
                               onClick={() => handleAdToggle(ad.id)}
-                              className={`text-left rounded-xl overflow-hidden cursor-pointer transition-all shrink-0 border border-neutral-200 bg-white aspect-[4/5] w-full ${
+                              className={`text-left rounded-xl overflow-hidden cursor-pointer transition-all border border-neutral-200 bg-white break-inside-avoid mb-4 w-full ${
                                 isSelected ? "ring-4 ring-neutral-900 ring-offset-2 border-neutral-300" : "hover:shadow-lg hover:border-neutral-300"
                               }`}
                             >
-                              <div className="relative bg-neutral-200 w-full h-full">
+                              <div className="relative bg-neutral-100">
                                 {mediaUrl ? (
                                   ad.isVideo ? (
                                     <video
                                       src={mediaUrl}
-                                      className="w-full h-full object-cover"
+                                      className="w-full h-auto block"
                                       muted
                                       playsInline
                                     />
                                   ) : (
+                                    /* eslint-disable-next-line @next/next/no-img-element */
                                     <img
                                       src={mediaUrl}
                                       alt={ad.brandName}
-                                      className="w-full h-full object-cover"
+                                      className="w-full h-auto block"
                                     />
                                   )
                                 ) : (
-                                  <div className="w-full h-full flex items-center justify-center bg-neutral-200 text-neutral-500">
+                                  <div className="w-full aspect-square flex items-center justify-center bg-neutral-200 text-neutral-500">
                                     <span className="text-xs">No preview</span>
                                   </div>
                                 )}
                                 {isSelected && (
-                                  <div className="absolute top-2 right-2 w-7 h-7 bg-neutral-900 rounded-full flex items-center justify-center">
+                                  <div className="absolute top-2 right-2 w-7 h-7 bg-neutral-900 rounded-full flex items-center justify-center z-10">
                                     <Check className="w-4 h-4 text-white" />
                                   </div>
                                 )}

@@ -16,6 +16,7 @@ from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
+from app.utils.image_validation import validate_image_for_grok
 from app.utils.web2_s3_helper import web2_s3_helper
 
 # Min size when we have many candidates (skip small logos); when few candidates accept any non-empty file
@@ -228,8 +229,10 @@ def fetch_images_from_website(
         add(m.group(1), "raw_html(content)")
 
     if not collected:
+        print(f"[fetch-domain-images] Custom website: no image URLs found on page")
         return []
 
+    print(f"[fetch-domain-images] Custom website: {len(collected)} URLs to try, target max {max_images}")
     effective_min_bytes = (
         WEBSITE_MIN_IMAGE_BYTES
         if len(collected) > max_images
@@ -286,18 +289,30 @@ def fetch_images_from_website(
                 size = local_path.stat().st_size
                 if size < effective_min_bytes:
                     continue
-                # Upload to S3 - use dvyb/domain-products/domain_hash/idx.ext
+                # Validate actual binary content (Grok rejects HTML/placeholders)
+                validated = validate_image_for_grok(local_path)
+                if not validated:
+                    print(f"[fetch-domain-images] Custom website: skip URL (invalid binary): {img_url[:60]}...")
+                    continue
+                ext, content_type = validated
+                if local_path.suffix.lower() != ext.lower():
+                    local_path_final = out_dir / f"web_{i}{ext}"
+                    local_path.rename(local_path_final)
+                else:
+                    local_path_final = local_path
                 domain_hash = hashlib.md5(page_url.encode()).hexdigest()[:12]
                 s3_key = f"dvyb/domain-products/{domain_hash}/web_{i}{ext}"
-                content_type = ct if ct and "image" in ct else "image/jpeg"
-                upload_result = web2_s3_helper.upload_file_to_s3(str(local_path), s3_key, content_type)
+                upload_result = web2_s3_helper.upload_file_to_s3(str(local_path_final), s3_key, content_type)
                 if upload_result.get("success"):
                     presigned = web2_s3_helper.generate_presigned_url(s3_key)
                     img_data = {"s3_key": s3_key, "presigned_url": presigned or "", "sourceLabel": "website"}
                     results.append(img_data)
                     if on_image_ready:
                         on_image_ready(img_data)
-            except Exception:
+                    print(f"[fetch-domain-images] Custom website: saved {len(results)}/{max_images} - {s3_key}")
+            except Exception as ex:
+                print(f"[fetch-domain-images] Custom website: URL failed: {ex}")
                 continue
 
+    print(f"[fetch-domain-images] Custom website: done, {len(results)} images saved (target {max_images})")
     return results

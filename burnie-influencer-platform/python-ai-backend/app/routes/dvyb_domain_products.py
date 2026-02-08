@@ -3,12 +3,15 @@ DVYB Domain Product Images
 Fetch product/brand images from website URL and Instagram (if resolvable) for onboarding product selection.
 Images are saved incrementally via callback so users see them as they arrive (no wait for full batch).
 All downloaded images go through Grok AI filter - only product images (product as hero) are saved.
+
+Website and Instagram fetches run in parallel and are independent: neither blocks the other on error.
+Uses Apify when APIFY_TOKEN is set (avoids blocking); falls back to custom/instaloader otherwise.
 """
 import hashlib
 import json
 import logging
 import re
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 
 import requests
@@ -18,7 +21,9 @@ from pydantic import BaseModel
 from app.config.settings import settings
 from app.services.domain_instagram_resolver import resolve_instagram_handle
 from app.services.instagram_image_fetcher import fetch_images_from_instagram
+from app.services.instagram_image_fetcher_apify import fetch_images_from_instagram_apify
 from app.services.website_image_fetcher import fetch_images_from_website
+from app.services.website_image_fetcher_apify import fetch_images_from_website_apify
 
 logger = logging.getLogger(__name__)
 
@@ -78,10 +83,21 @@ def _post_image_to_callback(callback_url: str, domain: str, img: dict) -> None:
         logger.warning(f"⚠️ Callback POST error for {s3_key}: {e}")
 
 
+# Grok only supports these content types when fetching images; exclude others to avoid FAILED_PRECONDITION
+GROK_SUPPORTED_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
+
+
+def _is_grok_supported_image(img: dict) -> bool:
+    """True if image format is supported by Grok (jpeg, jpg, png, webp only)."""
+    s3_key = (img.get("s3_key") or "").lower()
+    return any(s3_key.endswith(ext) for ext in GROK_SUPPORTED_EXTENSIONS)
+
+
 def _filter_product_images_with_grok(all_images: list[dict]) -> list[dict]:
     """
     Filter images with Grok AI - keep only product images (product as hero).
     Images are sent in batches of 8 (Grok limit). Returns only images that pass the AI check.
+    Only jpeg/jpg/png/webp are sent to Grok; unsupported formats (gif, avif, etc.) are kept without analysis.
     """
     if not all_images:
         return []
@@ -100,12 +116,18 @@ def _filter_product_images_with_grok(all_images: list[dict]) -> list[dict]:
         print(f"[fetch-domain-images] ERROR: xai_sdk not installed, skipping Grok filter - saving all {len(all_images)} images")
         return all_images
 
-    product_images: list[dict] = []
+    # Separate supported (jpeg/png/webp) from unsupported (gif, avif, etc.) - Grok rejects unsupported content types
+    grok_images = [img for img in all_images if _is_grok_supported_image(img)]
+    unsupported_images = [img for img in all_images if not _is_grok_supported_image(img)]
+    if unsupported_images:
+        print(f"[fetch-domain-images] Grok filter: skipping {len(unsupported_images)} unsupported format(s) (gif/avif/etc), keeping without analysis")
+
+    product_images: list[dict] = list(unsupported_images)  # Keep unsupported as-is (no Grok analysis)
     try:
-        for batch_start in range(0, len(all_images), GROK_BATCH_SIZE):
-            batch = all_images[batch_start : batch_start + GROK_BATCH_SIZE]
+        for batch_start in range(0, len(grok_images), GROK_BATCH_SIZE):
+            batch = grok_images[batch_start : batch_start + GROK_BATCH_SIZE]
             batch_num = (batch_start // GROK_BATCH_SIZE) + 1
-            total_batches = (len(all_images) + GROK_BATCH_SIZE - 1) // GROK_BATCH_SIZE
+            total_batches = (len(grok_images) + GROK_BATCH_SIZE - 1) // GROK_BATCH_SIZE
             print(f"[fetch-domain-images] Grok batch {batch_num}/{total_batches}: {len(batch)} images (indices {batch_start + 1}-{batch_start + len(batch)})")
 
             presigned_urls = []
@@ -214,51 +236,83 @@ Include ONLY the s3_keys of images where the product is the hero. Use the exact 
     return product_images
 
 
-def _run_fetch_in_background(url: str, domain: str, domain_hash: str, callback_url: str) -> None:
-    """Run fetch in thread; website first (preferred), Instagram only to fill. All images go through Grok filter before save."""
-    print(f"[fetch-domain-images BG] Starting background fetch for domain={domain}")
-
-    # 1. Fetch all images WITHOUT posting to callback (collect first)
-    all_images: list[dict] = []
-    website_count = 0
-
+def _fetch_website_images(url: str, domain_hash: str) -> list[dict]:
+    """Fetch website images (Apify if token set, else custom). Target max 10 images. Independent of Instagram."""
+    use_apify = bool(settings.apify_token)
+    print(f"[fetch-domain-images BG] Website fetch starting (Apify={use_apify}), target max {MAX_PRODUCT_IMAGES}")
     try:
-        print(f"[fetch-domain-images BG] Fetching website images from {url} (max {MAX_PRODUCT_IMAGES})")
-        logger.info(f"📸 Fetching domain product images for: {domain}")
-        website_images = fetch_images_from_website(
+        if use_apify:
+            return fetch_images_from_website_apify(
+                page_url=url, max_images=MAX_PRODUCT_IMAGES, domain_hash=domain_hash, on_image_ready=None
+            )
+        return fetch_images_from_website(
             page_url=url, max_images=MAX_PRODUCT_IMAGES, on_image_ready=None
         )
-        website_count = len(website_images)
-        all_images.extend(website_images)
-        print(f"[fetch-domain-images BG] Website returned {website_count} images, total so far: {len(all_images)}")
-        logger.info(f"   Website: {website_count} images")
     except Exception as e:
         print(f"[fetch-domain-images BG] Website fetch failed: {e}")
-        logger.warning(f"⚠️ Website fetch failed for {domain} (continuing with Instagram): {e}")
+        logger.warning(f"⚠️ Website fetch failed: {e}")
+        return []
 
-    ig_count = 0
-    needed = MAX_PRODUCT_IMAGES - website_count
-    if needed > 0:
-        try:
-            print(f"[fetch-domain-images BG] Need {needed} more, resolving Instagram for domain={domain}")
-            ig_handle = resolve_instagram_handle(domain, website_url=url)
-            print(f"[fetch-domain-images BG] Instagram handle: {ig_handle!r}")
-            if ig_handle:
-                ig_images = fetch_images_from_instagram(
-                    handle=ig_handle,
-                    domain_hash=domain_hash,
-                    max_images=needed,
-                    on_image_ready=None,
-                )
-                ig_count = len(ig_images)
-                all_images.extend(ig_images)
-                print(f"[fetch-domain-images BG] Instagram returned {ig_count} images, total: {len(all_images)}")
-                logger.info(f"   Instagram @{ig_handle}: {ig_count} images (filled gap)")
-            else:
-                print(f"[fetch-domain-images BG] No Instagram handle found")
-        except Exception as e:
-            print(f"[fetch-domain-images BG] Instagram fetch failed: {e}")
-            logger.warning(f"⚠️ Instagram fetch failed for {domain}: {e}")
+
+def _fetch_instagram_images(domain: str, url: str, domain_hash: str) -> list[dict]:
+    """Fetch Instagram images (Apify if token set, else instaloader). Independent of website."""
+    use_apify = bool(settings.apify_token)
+    print(f"[fetch-domain-images BG] Instagram fetch starting (Apify={use_apify})")
+    try:
+        ig_handle = resolve_instagram_handle(domain, website_url=url)
+        if not ig_handle:
+            print(f"[fetch-domain-images BG] No Instagram handle for {domain}")
+            return []
+        print(f"[fetch-domain-images BG] Instagram handle: @{ig_handle}")
+        if use_apify:
+            return fetch_images_from_instagram_apify(
+                handle=ig_handle, domain_hash=domain_hash, max_images=MAX_PRODUCT_IMAGES, on_image_ready=None
+            )
+        return fetch_images_from_instagram(
+            handle=ig_handle, domain_hash=domain_hash, max_images=MAX_PRODUCT_IMAGES, on_image_ready=None
+        )
+    except Exception as e:
+        print(f"[fetch-domain-images BG] Instagram fetch failed: {e}")
+        logger.warning(f"⚠️ Instagram fetch failed: {e}")
+        return []
+
+
+def _run_fetch_in_background(url: str, domain: str, domain_hash: str, callback_url: str) -> None:
+    """Run fetch in thread; website and Instagram in PARALLEL (independent - neither blocks the other)."""
+    print(f"[fetch-domain-images BG] Starting background fetch for domain={domain}")
+
+    # 1. Fetch website and Instagram IN PARALLEL - each failure is isolated
+    all_images: list[dict] = []
+    website_images: list[dict] = []
+    ig_images: list[dict] = []
+
+    future_to_src = {}
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        f_web = pool.submit(_fetch_website_images, url, domain_hash)
+        f_ig = pool.submit(_fetch_instagram_images, domain, url, domain_hash)
+        future_to_src[f_web] = "web"
+        future_to_src[f_ig] = "ig"
+        for future in as_completed([f_web, f_ig]):
+            try:
+                result = future.result() or []
+                src = future_to_src.get(future, "")
+                if src == "web":
+                    website_images = result
+                    print(f"[fetch-domain-images BG] Website returned {len(website_images)} images")
+                    logger.info(f"   Website: {len(website_images)} images")
+                else:
+                    ig_images = result
+                    print(f"[fetch-domain-images BG] Instagram returned {len(ig_images)} images")
+                    logger.info(f"   Instagram: {len(ig_images)} images")
+            except Exception as e:
+                print(f"[fetch-domain-images BG] One fetch failed: {e}")
+                logger.warning(f"⚠️ Fetch error (non-blocking): {e}")
+
+    # Website preferred first, then Instagram to fill
+    all_images.extend(website_images)
+    needed = MAX_PRODUCT_IMAGES - len(website_images)
+    if needed > 0 and ig_images:
+        all_images.extend(ig_images[:needed])
 
     total_downloaded = len(all_images)
     print(f"[fetch-domain-images BG] Downloaded {total_downloaded} images total for {domain}")
@@ -324,33 +378,35 @@ async def fetch_domain_images(request: FetchDomainImagesRequest):
             accepted=True,
         )
 
-    # Legacy sync mode: website first (preferred), Instagram only to fill, then Grok filter
+    # Legacy sync mode: website and Instagram in PARALLEL (independent errors)
     all_images: list[dict] = []
-    try:
-        print(f"[fetch-domain-images] Fetching website images from {url} (max {MAX_PRODUCT_IMAGES})")
-        website_images = fetch_images_from_website(page_url=url, max_images=MAX_PRODUCT_IMAGES)
-        all_images.extend(website_images)
-        print(f"[fetch-domain-images] Website returned {len(website_images)} images, total so far: {len(all_images)}")
-    except Exception as e:
-        print(f"[fetch-domain-images] Website fetch failed: {e}")
-        logger.warning(f"⚠️ Website fetch failed for {domain} (continuing with Instagram): {e}")
-    needed = MAX_PRODUCT_IMAGES - len(all_images)
-    if needed > 0:
-        try:
-            print(f"[fetch-domain-images] Need {needed} more images, resolving Instagram for domain={domain}")
-            ig_handle = resolve_instagram_handle(domain, website_url=url)
-            print(f"[fetch-domain-images] Instagram handle resolved: {ig_handle!r}")
-            if ig_handle:
-                ig_images = fetch_images_from_instagram(
-                    handle=ig_handle, domain_hash=domain_hash, max_images=needed
-                )
-                all_images.extend(ig_images)
-                print(f"[fetch-domain-images] Instagram returned {len(ig_images)} images, total: {len(all_images)}")
-            else:
-                print(f"[fetch-domain-images] No Instagram handle found, skipping")
-        except Exception as e:
-            print(f"[fetch-domain-images] Instagram fetch failed: {e}")
-            logger.warning(f"⚠️ Instagram fetch failed for {domain}: {e}")
+    website_images: list[dict] = []
+    ig_images: list[dict] = []
+
+    future_to_src = {}
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        f_web = pool.submit(_fetch_website_images, url, domain_hash)
+        f_ig = pool.submit(_fetch_instagram_images, domain, url, domain_hash)
+        future_to_src[f_web] = "web"
+        future_to_src[f_ig] = "ig"
+        for future in as_completed([f_web, f_ig]):
+            try:
+                result = future.result() or []
+                src = future_to_src.get(future, "")
+                if src == "web":
+                    website_images = result
+                    print(f"[fetch-domain-images] Website returned {len(website_images)} images")
+                else:
+                    ig_images = result
+                    print(f"[fetch-domain-images] Instagram returned {len(ig_images)} images")
+            except Exception as e:
+                print(f"[fetch-domain-images] One fetch failed: {e}")
+                logger.warning(f"⚠️ Fetch error (non-blocking): {e}")
+
+    all_images.extend(website_images)
+    needed = MAX_PRODUCT_IMAGES - len(website_images)
+    if needed > 0 and ig_images:
+        all_images.extend(ig_images[:needed])
 
     # Grok filter - keep only product images
     product_images = _filter_product_images_with_grok(all_images) if all_images else []

@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 
 import requests
 
+from app.utils.image_validation import validate_image_for_grok
 from app.utils.web2_s3_helper import web2_s3_helper
 
 logger = logging.getLogger(__name__)
@@ -130,12 +131,12 @@ def fetch_images_from_instagram(
 
 
 def _upload_to_s3(local_path: Path, domain_hash: str, base_name: str) -> tuple[str | None, str | None]:
-    """Upload local file to S3, return (s3_key, presigned_url)."""
-    ext = local_path.suffix.lower()
-    if ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
-        ext = ".jpg"
+    """Upload local file to S3, return (s3_key, presigned_url). Skips if not valid JPG/PNG/WebP."""
+    validated = validate_image_for_grok(local_path)
+    if not validated:
+        return None, None
+    ext, content_type = validated
     s3_key = f"dvyb/domain-products/{domain_hash}/{base_name}{ext}"
-    content_type = mimetypes.types_map.get(ext, "image/jpeg")
     upload_result = web2_s3_helper.upload_file_to_s3(str(local_path), s3_key, content_type)
     if upload_result.get("success"):
         presigned = web2_s3_helper.generate_presigned_url(s3_key)

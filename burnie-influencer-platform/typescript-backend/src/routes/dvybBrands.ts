@@ -216,21 +216,34 @@ const COUNTRY_MAP: Record<string, string> = {
   Germany: 'Germany',
 };
 
+/** Brand context for GPT-4o matching (from dvyb_context or dvyb_website_analysis) */
+interface BrandContextForMatch {
+  business_overview?: string | null;
+  popular_products?: string[] | null;
+  customer_demographics?: string | null;
+  brand_story?: string | null;
+}
+
 /** Match website category to brand ad categories via GPT-4o (Python backend) */
 async function matchWebsiteCategoryToAdCategories(
   websiteCategory: string,
-  availableCategories: string[]
+  availableCategories: string[],
+  brandContext?: BrandContextForMatch | null
 ): Promise<string[]> {
   if (!websiteCategory?.trim() || availableCategories.length === 0) return [];
   const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
   try {
+    const body: Record<string, unknown> = {
+      website_category: websiteCategory.trim(),
+      available_categories: availableCategories,
+    };
+    if (brandContext && Object.keys(brandContext).length > 0) {
+      body.brand_context = brandContext;
+    }
     const response = await fetch(`${pythonBackendUrl}/api/dvyb/inspirations/match-website-category`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        website_category: websiteCategory.trim(),
-        available_categories: availableCategories,
-      }),
+      body: JSON.stringify(body),
     });
     if (!response.ok) {
       logger.warn(`match-website-category failed: ${response.status}`);
@@ -255,6 +268,7 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
   const status = ((req.query.status as string) || '').trim();
   const category = ((req.query.category as string) || '').trim();
   const websiteCategory = ((req.query.websiteCategory as string) || '').trim();
+  const brandContextParam = (req.query.brandContext as string) || '';
   const runtime = ((req.query.runtime as string) || '').trim();
   const adCount = ((req.query.adCount as string) || '').trim();
   const country = ((req.query.country as string) || '').trim();
@@ -265,6 +279,15 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
 
   // When websiteCategory is passed (onboarding): use GPT-4o to match to brand ad categories
   let categoriesToFilter: string[] = [];
+  let brandContext: BrandContextForMatch | undefined;
+  if (brandContextParam) {
+    try {
+      const parsed = JSON.parse(decodeURIComponent(brandContextParam)) as BrandContextForMatch;
+      if (parsed && typeof parsed === 'object') brandContext = parsed;
+    } catch {
+      /* ignore malformed brandContext */
+    }
+  }
   if (websiteCategory) {
     const distinctResult = await adRepo
       .createQueryBuilder('ad')
@@ -277,7 +300,7 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
       .map((r) => r.category as string)
       .filter((c): c is string => !!c && typeof c === 'string');
     if (availableCategories.length > 0) {
-      categoriesToFilter = await matchWebsiteCategoryToAdCategories(websiteCategory, availableCategories);
+      categoriesToFilter = await matchWebsiteCategoryToAdCategories(websiteCategory, availableCategories, brandContext);
       if (categoriesToFilter.length > 0) {
         logger.info(`GPT-4o matched website category "${websiteCategory}" to ad categories: ${categoriesToFilter.join(', ')}`);
       }

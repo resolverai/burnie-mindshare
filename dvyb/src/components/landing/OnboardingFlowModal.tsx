@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { Search, Check, ArrowRight, Loader2 } from "lucide-react";
+import { Search, Check, ArrowRight, Loader2, Upload } from "lucide-react";
 import { brandsApi, authApi, contextApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { trackInspirationPageViewed, trackInspirationSelected, trackSignInClicked } from "@/lib/mixpanel";
@@ -22,15 +22,7 @@ interface DiscoverAd {
   creativeVideoUrl: string | null;
 }
 
-const STATIC_PRODUCTS = [
-  { id: 1, name: "Snowflake Jacket", image: "/products/product-1.jpg" },
-  { id: 2, name: "Puffer Coat", image: "/products/product-2.jpeg" },
-  { id: 3, name: "Mohair Knit", image: "/products/product-3.webp" },
-  { id: 4, name: "Black Crewneck", image: "/products/product-4.webp" },
-  { id: 5, name: "Silver Speed Tee", image: "/products/product-5.webp" },
-  { id: 6, name: "Tassel Bikini", image: "/products/product-6.jpeg" },
-  { id: 7, name: "Chore Coat", image: "/products/product-7.jpeg" },
-];
+const ALLOWED_PRODUCT_IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
 
 interface OnboardingFlowModalProps {
   open: boolean;
@@ -53,6 +45,9 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
   const [domainProductsLoading, setDomainProductsLoading] = useState(true);
   const [domainProducts, setDomainProducts] = useState<Array<{ id: number; s3Key: string; image: string }>>([]);
   const [domainProductsDone, setDomainProductsDone] = useState(false); // true when we've stopped polling
+  const [isProductUploading, setIsProductUploading] = useState(false);
+  const [isProductDraggingOver, setIsProductDraggingOver] = useState(false);
+  const productFileInputRef = useRef<HTMLInputElement>(null);
 
   // Login state
   const [isConnecting, setIsConnecting] = useState(false);
@@ -74,11 +69,25 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
       setAdsLoading(true);
       try {
         let websiteCategory: string | undefined;
+        let brandContext: { business_overview?: string | null; popular_products?: string[] | null; customer_demographics?: string | null; brand_story?: string | null } | undefined;
         try {
           const analysisStr = localStorage.getItem("dvyb_website_analysis");
           if (analysisStr) {
-            const analysis = JSON.parse(analysisStr) as { industry?: string };
+            const analysis = JSON.parse(analysisStr) as {
+              industry?: string;
+              business_overview_and_positioning?: string;
+              most_popular_products_and_services?: string | string[];
+              customer_demographics_and_psychographics?: string;
+              brand_story?: string;
+            };
             websiteCategory = analysis?.industry?.trim() || undefined;
+            const pop = analysis?.most_popular_products_and_services;
+            brandContext = {
+              business_overview: analysis?.business_overview_and_positioning ?? null,
+              popular_products: Array.isArray(pop) ? pop : typeof pop === "string" ? (pop ? [pop] : null) : null,
+              customer_demographics: analysis?.customer_demographics_and_psychographics ?? null,
+              brand_story: analysis?.brand_story ?? null,
+            };
           }
         } catch {
           /* ignore */
@@ -88,6 +97,7 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
           limit: 24,
           sort: "latest",
           ...(websiteCategory && { websiteCategory }),
+          ...(brandContext && Object.values(brandContext).some((v) => v != null && (Array.isArray(v) ? v.length : true)) && { brandContext }),
         });
         if (response.success && response.data) {
           const ads = (response.data as Array<Record<string, unknown>>).map((ad) => ({
@@ -143,20 +153,12 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
   };
 
   const handleProductNext = () => {
-    const useDomainProducts = domainProducts.length > 0;
-    if (useDomainProducts) {
-      const selected = domainProducts.filter((p) => selectedProductIds.has(p.id));
-      if (selected.length > 0) {
-        localStorage.setItem(
-          "dvyb_selected_products",
-          JSON.stringify(selected.map((p) => ({ id: p.id, s3Key: p.s3Key, image: p.image })))
-        );
-      }
-    } else {
-      const selected = STATIC_PRODUCTS.filter((p) => selectedProductIds.has(p.id));
-      if (selected.length > 0) {
-        localStorage.setItem("dvyb_selected_products", JSON.stringify(selected));
-      }
+    const selected = domainProducts.filter((p) => selectedProductIds.has(p.id));
+    if (selected.length > 0) {
+      localStorage.setItem(
+        "dvyb_selected_products",
+        JSON.stringify(selected.map((p) => ({ id: p.id, s3Key: p.s3Key, image: p.image })))
+      );
     }
     setStep("inspiration");
   };
@@ -168,6 +170,79 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
       else if (next.size < 3) next.add(id);
       return next;
     });
+  };
+
+  /** Get domain/url from localStorage for upload */
+  const getDomainForUpload = useCallback(() => {
+    const url =
+      localStorage.getItem("dvyb_pending_website_url")?.trim() ||
+      (() => {
+        try {
+          const analysisStr = localStorage.getItem("dvyb_website_analysis");
+          if (analysisStr) {
+            const analysis = JSON.parse(analysisStr);
+            return analysis?.source_urls?.[0] || analysis?.url || analysis?.domain || "";
+          }
+        } catch {
+          /* ignore */
+        }
+        return "";
+      })();
+    return url || "onboarding";
+  }, []);
+
+  const processProductFile = useCallback(
+    async (file: File) => {
+      if (!ALLOWED_PRODUCT_IMAGE_TYPES.includes(file.type)) {
+        toast({
+          title: "Invalid file",
+          description: "Please upload JPEG, PNG, or WebP image",
+          variant: "destructive",
+        });
+        return;
+      }
+      setIsProductUploading(true);
+      try {
+        const domain = getDomainForUpload();
+        const result = await contextApi.uploadDomainProductImage(file, domain);
+        setDomainProducts((prev) => [...prev, result]);
+        setSelectedProductIds((prev) => new Set([...prev, result.id]));
+      } catch (e) {
+        console.error("Failed to upload product:", e);
+        toast({ title: "Upload failed", description: "Could not upload image", variant: "destructive" });
+      } finally {
+        setIsProductUploading(false);
+      }
+    },
+    [getDomainForUpload, toast]
+  );
+
+  const handleProductFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processProductFile(file);
+    e.target.value = "";
+  };
+
+  const handleProductDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsProductDraggingOver(true);
+  };
+
+  const handleProductDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsProductDraggingOver(false);
+    }
+  };
+
+  const handleProductDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsProductDraggingOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) processProductFile(file);
   };
 
   // Fetch domain product images when entering product step - poll every 3s until we have 10 images or max polls
@@ -240,9 +315,10 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
   );
   const displayProducts = useMemo(() => {
     if (domainProducts.length === 0) return [];
-    if (domainProducts.length <= DISPLAY_IMAGES_COUNT) return domainProducts;
+    // Show all when we have few; when many from fetch, show random subset
+    if (domainProducts.length <= 6) return domainProducts;
     const shuffled = [...domainProducts].sort(() => Math.random() - 0.5);
-    return shuffled.slice(0, DISPLAY_IMAGES_COUNT);
+    return shuffled.slice(0, 6);
     // Only re-pick when productIdsKey changes (avoids re-shuffling on every poll with same data)
   }, [productIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -297,6 +373,13 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
               </p>
             </div>
             <div className={`flex-1 min-h-0 overflow-y-auto p-6 ${selectedProductIds.size > 0 ? "pb-24" : "pb-4"}`}>
+              <input
+                ref={productFileInputRef}
+                type="file"
+                accept="image/jpeg,image/jpg,image/png,image/webp"
+                className="hidden"
+                onChange={handleProductFileSelect}
+              />
               {domainProductsLoading && !domainProductsDone ? (
                 <div className="flex flex-col items-center justify-center py-16 gap-6">
                   <div className="relative">
@@ -309,59 +392,76 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
                   <p className="text-xs text-muted-foreground">This usually takes a few seconds</p>
                 </div>
               ) : domainProducts.length > 0 ? (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {displayProducts.map((product) => {
-                    const isSelected = selectedProductIds.has(product.id);
-                    return (
-                      <button
-                        key={product.id}
-                        type="button"
-                        onClick={() => handleProductToggle(product.id)}
-                        className={`text-left rounded-xl overflow-hidden cursor-pointer group transition-all ${
-                          isSelected ? "ring-4 ring-neutral-900 ring-offset-2" : "hover:shadow-lg"
-                        }`}
-                      >
-                        <div className="aspect-square relative bg-neutral-200">
-                          <img src={product.image} alt="Product" className="w-full h-full object-cover" />
-                          {isSelected && (
-                            <div className="absolute top-3 right-3 w-7 h-7 bg-neutral-900 rounded-full flex items-center justify-center">
-                              <Check className="w-4 h-4 text-white" />
-                            </div>
-                          )}
-                          <div className="absolute inset-0 bg-gradient-to-t from-foreground/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                        </div>
-                      </button>
-                    );
-                  })}
+                <div className="flex flex-col gap-4">
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    {displayProducts.map((product) => {
+                      const isSelected = selectedProductIds.has(product.id);
+                      return (
+                        <button
+                          key={product.id}
+                          type="button"
+                          onClick={() => handleProductToggle(product.id)}
+                          className={`text-left rounded-xl overflow-hidden cursor-pointer group transition-all ${
+                            isSelected ? "ring-4 ring-neutral-900 ring-offset-2" : "hover:shadow-lg"
+                          }`}
+                        >
+                          <div className="aspect-square relative bg-neutral-200">
+                            <img src={product.image} alt="Product" className="w-full h-full object-cover" />
+                            {isSelected && (
+                              <div className="absolute top-3 right-3 w-7 h-7 bg-neutral-900 rounded-full flex items-center justify-center">
+                                <Check className="w-4 h-4 text-white" />
+                              </div>
+                            )}
+                            <div className="absolute inset-0 bg-gradient-to-t from-foreground/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </div>
+                        </button>
+                      );
+                    })}
+                    {/* Add another product (for users who uploaded and want more) */}
+                    <button
+                      type="button"
+                      onClick={() => !isProductUploading && productFileInputRef.current?.click()}
+                      disabled={isProductUploading || domainProducts.length >= 3}
+                      className={`text-left rounded-xl overflow-hidden cursor-pointer border-2 border-dashed border-border hover:border-primary hover:bg-primary/5 transition-all aspect-square flex flex-col items-center justify-center gap-2 ${
+                        isProductUploading || domainProducts.length >= 3 ? "opacity-50 cursor-not-allowed" : ""
+                      }`}
+                    >
+                      {isProductUploading ? (
+                        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                      ) : (
+                        <>
+                          <Upload className="w-8 h-8 text-muted-foreground" />
+                          <span className="text-sm font-medium text-muted-foreground">
+                            {domainProducts.length >= 3 ? "Max 3 products" : "Add another"}
+                          </span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {STATIC_PRODUCTS.map((product) => {
-                    const isSelected = selectedProductIds.has(product.id);
-                    return (
-                      <button
-                        key={product.id}
-                        type="button"
-                        onClick={() => handleProductToggle(product.id)}
-                        className={`text-left rounded-xl overflow-hidden cursor-pointer group transition-all ${
-                          isSelected ? "ring-4 ring-neutral-900 ring-offset-2" : "hover:shadow-lg"
-                        }`}
-                      >
-                        <div className="aspect-square relative bg-neutral-200">
-                          <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
-                          {isSelected && (
-                            <div className="absolute top-3 right-3 w-7 h-7 bg-neutral-900 rounded-full flex items-center justify-center">
-                              <Check className="w-4 h-4 text-white" />
-                            </div>
-                          )}
-                          <div className="absolute inset-0 bg-gradient-to-t from-foreground/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                          <div className="absolute bottom-0 left-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <p className="text-primary-foreground font-medium text-sm">{product.name}</p>
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
+                <div
+                  className={`flex flex-col items-center justify-center flex-1 text-muted-foreground text-center cursor-pointer border-2 border-dashed border-border rounded-xl min-h-[280px] transition-colors ${
+                    isProductDraggingOver ? "bg-primary/5 border-primary" : "hover:border-primary hover:bg-primary/5"
+                  } ${isProductUploading ? "pointer-events-none opacity-70" : ""}`}
+                  onDragOver={handleProductDragOver}
+                  onDragLeave={handleProductDragLeave}
+                  onDrop={handleProductDrop}
+                  onClick={() => !isProductUploading && productFileInputRef.current?.click()}
+                >
+                  {isProductUploading ? (
+                    <div className="flex flex-col items-center gap-3 py-8">
+                      <Loader2 className="w-10 h-10 animate-spin" />
+                      <p>Uploading product image...</p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center gap-3 py-8">
+                      <Upload className="w-12 h-12 opacity-60" />
+                      <p className="font-medium text-foreground">Drop a product image here</p>
+                      <p className="text-sm">or click to browse</p>
+                      <p className="text-xs mt-2">JPEG, PNG, or WebP. We&apos;ll use it for your ad creation.</p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -397,7 +497,7 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
               ) : filteredAds.length === 0 ? (
                 <div className="text-center py-16 text-muted-foreground">No ads match your search.</div>
               ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                <div className="columns-[160px] md:columns-[180px] lg:columns-[200px] gap-4">
                   {filteredAds.map((ad) => {
                     const isSelected = selectedAdIds.has(ad.id);
                     const mediaUrl = ad.isVideo ? ad.videoSrc : ad.image;
@@ -406,33 +506,36 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
                         key={ad.id}
                         type="button"
                         onClick={() => handleAdToggle(ad.id)}
-                        className={`text-left rounded-xl overflow-hidden cursor-pointer transition-all border border-neutral-200 bg-white aspect-[4/5] w-full ${
+                        className={`text-left rounded-xl overflow-hidden cursor-pointer transition-all border border-neutral-200 bg-white break-inside-avoid mb-4 w-full ${
                           isSelected ? "ring-4 ring-neutral-900 ring-offset-2" : "hover:shadow-lg hover:border-neutral-300"
                         }`}
                       >
-                        <div className="relative bg-neutral-200 w-full h-full">
+                        <div className="relative bg-neutral-100">
                           {mediaUrl ? (
                             ad.isVideo ? (
-                              <video
-                                src={mediaUrl}
-                                className="w-full h-full object-cover"
-                                muted
-                                playsInline
-                              />
+                              <div className="w-full aspect-video bg-neutral-200">
+                                <video
+                                  src={mediaUrl}
+                                  className="w-full h-full object-contain"
+                                  muted
+                                  playsInline
+                                />
+                              </div>
                             ) : (
+                              /* eslint-disable-next-line @next/next/no-img-element */
                               <img
                                 src={mediaUrl}
                                 alt={ad.brandName}
-                                className="w-full h-full object-cover"
+                                className="w-full h-auto block"
                               />
                             )
                           ) : (
-                            <div className="w-full h-full flex items-center justify-center bg-neutral-200 text-neutral-500">
+                            <div className="w-full aspect-square flex items-center justify-center bg-neutral-200 text-neutral-500">
                               <span className="text-xs">No preview</span>
                             </div>
                           )}
                           {isSelected && (
-                            <div className="absolute top-2 right-2 w-7 h-7 bg-neutral-900 rounded-full flex items-center justify-center">
+                            <div className="absolute top-2 right-2 w-7 h-7 bg-neutral-900 rounded-full flex items-center justify-center z-10">
                               <Check className="w-4 h-4 text-white" />
                             </div>
                           )}

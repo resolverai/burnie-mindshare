@@ -38,7 +38,7 @@ interface MatchedInspiration {
  */
 router.post('/match', async (req: Request, res: Response) => {
   try {
-    const { industry, count = 6 } = req.body;
+    const { industry, count = 6, brand_context } = req.body;
 
     if (!industry) {
       return res.status(400).json({
@@ -48,7 +48,7 @@ router.post('/match', async (req: Request, res: Response) => {
       });
     }
 
-    logger.info(`🎯 Matching inspirations for industry: ${industry}`);
+    logger.info(`🎯 Matching inspirations for industry: ${industry}${brand_context ? ' (with brand context)' : ''}`);
 
     const inspirationRepo = AppDataSource.getRepository(DvybInspirationLink);
 
@@ -117,6 +117,7 @@ router.post('/match', async (req: Request, res: Response) => {
         categories,
         inspiration_links: formattedLinks,
         count: count,
+        brand_context: brand_context || undefined,
       }),
     });
 

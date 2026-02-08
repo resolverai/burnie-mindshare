@@ -129,6 +129,20 @@ export default {
           "0%": { transform: "translateY(0) rotateX(0deg)" },
           "100%": { transform: "translateY(-100%) rotateX(90deg)" },
         },
+        "text-rotate": {
+          "0%, 20%": { transform: "translateY(0%)" },
+          "33.33%, 53.33%": { transform: "translateY(-100%)" },
+          "66.66%, 86.66%": { transform: "translateY(-200%)" },
+          "100%": { transform: "translateY(-300%)" },
+        },
+        "float-up": {
+          "0%": { opacity: "1", transform: "translateY(0) translateX(-50%)" },
+          "100%": { opacity: "0", transform: "translateY(-40px) translateX(-50%)" },
+        },
+        "marquee": {
+          "0%": { transform: "translateX(0)" },
+          "100%": { transform: "translateX(-50%)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -142,6 +156,9 @@ export default {
         "scale-in": "scale-in 0.3s ease-out forwards",
         "cube-rotate-in": "cube-rotate-in 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards",
         "cube-rotate-out": "cube-rotate-out 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards",
+        "text-rotate": "text-rotate 6s ease-in-out infinite",
+        "float-up": "float-up 4s ease-out forwards",
+        "marquee": "marquee 25s linear infinite",
       },
       boxShadow: {
         card: "var(--shadow-card)",

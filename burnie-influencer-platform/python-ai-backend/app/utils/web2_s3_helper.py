@@ -93,19 +93,21 @@ class Web2S3Helper:
         try:
             logger.info(f"📤 Uploading file to S3: {s3_key}")
             
-            # Determine content type based on file extension if not provided
-            if not content_type:
-                ext = os.path.splitext(local_path)[1].lower()
-                content_type_map = {
-                    '.jpg': 'image/jpeg',
-                    '.jpeg': 'image/jpeg',
-                    '.png': 'image/png',
-                    '.gif': 'image/gif',
-                    '.mp4': 'video/mp4',
-                    '.mov': 'video/quicktime',
-                    '.avi': 'video/x-msvideo'
-                }
-                content_type = content_type_map.get(ext, 'application/octet-stream')
+            # Determine content type; infer from extension when missing or unsupported (Grok only supports jpeg/png/webp)
+            content_type_map = {
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.png': 'image/png',
+                '.webp': 'image/webp',
+                '.gif': 'image/gif',
+                '.mp4': 'video/mp4',
+                '.mov': 'video/quicktime',
+                '.avi': 'video/x-msvideo'
+            }
+            grok_supported = {'image/jpeg', 'image/jpg', 'image/png', 'image/webp'}
+            ext = os.path.splitext(s3_key or local_path)[1].lower()
+            if not content_type or content_type.lower().startswith('application/octet-stream') or content_type.split(';')[0].strip().lower() not in grok_supported:
+                content_type = content_type_map.get(ext, 'image/jpeg')
             
             # Upload file
             self.s3_client.upload_file(
