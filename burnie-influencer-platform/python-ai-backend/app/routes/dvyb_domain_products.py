@@ -236,17 +236,28 @@ Include ONLY the s3_keys of images where the product is the hero. Use the exact 
     return product_images
 
 
-def _fetch_website_images(url: str, domain_hash: str) -> list[dict]:
-    """Fetch website images (Apify if token set, else custom). Target max 10 images. Independent of Instagram."""
+def _fetch_website_images(
+    url: str, domain_hash: str, callback_url: str | None = None, domain: str | None = None
+) -> list[dict]:
+    """Fetch website images (Apify if token set, else custom). Target max 10 images. Independent of Instagram.
+    When callback_url and domain are set, each image is POSTed to callback as soon as it's downloaded (incremental display).
+    """
+    on_image_ready = None
+    if callback_url and domain:
+        on_image_ready = lambda img: _post_image_to_callback(callback_url, domain, img)
+
     use_apify = bool(settings.apify_token)
     print(f"[fetch-domain-images BG] Website fetch starting (Apify={use_apify}), target max {MAX_PRODUCT_IMAGES}")
     try:
         if use_apify:
             return fetch_images_from_website_apify(
-                page_url=url, max_images=MAX_PRODUCT_IMAGES, domain_hash=domain_hash, on_image_ready=None
+                page_url=url,
+                max_images=MAX_PRODUCT_IMAGES,
+                domain_hash=domain_hash,
+                on_image_ready=on_image_ready,
             )
         return fetch_images_from_website(
-            page_url=url, max_images=MAX_PRODUCT_IMAGES, on_image_ready=None
+            page_url=url, max_images=MAX_PRODUCT_IMAGES, on_image_ready=on_image_ready
         )
     except Exception as e:
         print(f"[fetch-domain-images BG] Website fetch failed: {e}")
@@ -254,8 +265,16 @@ def _fetch_website_images(url: str, domain_hash: str) -> list[dict]:
         return []
 
 
-def _fetch_instagram_images(domain: str, url: str, domain_hash: str) -> list[dict]:
-    """Fetch Instagram images (Apify if token set, else instaloader). Independent of website."""
+def _fetch_instagram_images(
+    domain: str, url: str, domain_hash: str, callback_url: str | None = None
+) -> list[dict]:
+    """Fetch Instagram images (Apify if token set, else instaloader). Independent of website.
+    When callback_url is set, each image is POSTed to callback as soon as it's downloaded (incremental display).
+    """
+    on_image_ready = None
+    if callback_url and domain:
+        on_image_ready = lambda img: _post_image_to_callback(callback_url, domain, img)
+
     use_apify = bool(settings.apify_token)
     print(f"[fetch-domain-images BG] Instagram fetch starting (Apify={use_apify})")
     try:
@@ -266,10 +285,16 @@ def _fetch_instagram_images(domain: str, url: str, domain_hash: str) -> list[dic
         print(f"[fetch-domain-images BG] Instagram handle: @{ig_handle}")
         if use_apify:
             return fetch_images_from_instagram_apify(
-                handle=ig_handle, domain_hash=domain_hash, max_images=MAX_PRODUCT_IMAGES, on_image_ready=None
+                handle=ig_handle,
+                domain_hash=domain_hash,
+                max_images=MAX_PRODUCT_IMAGES,
+                on_image_ready=on_image_ready,
             )
         return fetch_images_from_instagram(
-            handle=ig_handle, domain_hash=domain_hash, max_images=MAX_PRODUCT_IMAGES, on_image_ready=None
+            handle=ig_handle,
+            domain_hash=domain_hash,
+            max_images=MAX_PRODUCT_IMAGES,
+            on_image_ready=on_image_ready,
         )
     except Exception as e:
         print(f"[fetch-domain-images BG] Instagram fetch failed: {e}")
@@ -278,18 +303,20 @@ def _fetch_instagram_images(domain: str, url: str, domain_hash: str) -> list[dic
 
 
 def _run_fetch_in_background(url: str, domain: str, domain_hash: str, callback_url: str) -> None:
-    """Run fetch in thread; website and Instagram in PARALLEL (independent - neither blocks the other)."""
-    print(f"[fetch-domain-images BG] Starting background fetch for domain={domain}")
+    """Run fetch in thread; website and Instagram in PARALLEL (independent - neither blocks the other).
+    When callback_url is set: each image is saved to DB immediately via on_image_ready (incremental display).
+    No batch Grok filter in incremental mode - images shown as they arrive for faster feedback.
+    """
+    print(f"[fetch-domain-images BG] Starting background fetch for domain={domain} (incremental via callback)")
 
-    # 1. Fetch website and Instagram IN PARALLEL - each failure is isolated
-    all_images: list[dict] = []
+    # 1. Fetch website and Instagram IN PARALLEL - each image is POSTed to callback as soon as it's downloaded
     website_images: list[dict] = []
     ig_images: list[dict] = []
 
     future_to_src = {}
     with ThreadPoolExecutor(max_workers=2) as pool:
-        f_web = pool.submit(_fetch_website_images, url, domain_hash)
-        f_ig = pool.submit(_fetch_instagram_images, domain, url, domain_hash)
+        f_web = pool.submit(_fetch_website_images, url, domain_hash, callback_url, domain)
+        f_ig = pool.submit(_fetch_instagram_images, domain, url, domain_hash, callback_url)
         future_to_src[f_web] = "web"
         future_to_src[f_ig] = "ig"
         for future in as_completed([f_web, f_ig]):
@@ -298,34 +325,19 @@ def _run_fetch_in_background(url: str, domain: str, domain_hash: str, callback_u
                 src = future_to_src.get(future, "")
                 if src == "web":
                     website_images = result
-                    print(f"[fetch-domain-images BG] Website returned {len(website_images)} images")
+                    print(f"[fetch-domain-images BG] Website returned {len(website_images)} images (already saved via callback)")
                     logger.info(f"   Website: {len(website_images)} images")
                 else:
                     ig_images = result
-                    print(f"[fetch-domain-images BG] Instagram returned {len(ig_images)} images")
+                    print(f"[fetch-domain-images BG] Instagram returned {len(ig_images)} images (already saved via callback)")
                     logger.info(f"   Instagram: {len(ig_images)} images")
             except Exception as e:
                 print(f"[fetch-domain-images BG] One fetch failed: {e}")
                 logger.warning(f"⚠️ Fetch error (non-blocking): {e}")
 
-    # Website preferred first, then Instagram to fill
-    all_images.extend(website_images)
-    needed = MAX_PRODUCT_IMAGES - len(website_images)
-    if needed > 0 and ig_images:
-        all_images.extend(ig_images[:needed])
-
-    total_downloaded = len(all_images)
-    print(f"[fetch-domain-images BG] Downloaded {total_downloaded} images total for {domain}")
-
-    # 2. Grok AI filter - keep only product images (product as hero)
-    product_images = _filter_product_images_with_grok(all_images) if all_images else []
-
-    # 3. POST only product images to callback (save to DB)
-    for img in product_images:
-        _post_image_to_callback(callback_url, domain, img)
-
-    print(f"[fetch-domain-images BG] Done. {len(product_images)} product images saved to DB (from {total_downloaded} downloaded) for {domain}")
-    logger.info(f"✅ Fetched {total_downloaded} total, {len(product_images)} product images saved for {domain}")
+    total_saved = len(website_images) + len(ig_images)
+    print(f"[fetch-domain-images BG] Done. {total_saved} images saved to DB for {domain}")
+    logger.info(f"✅ Fetched {total_saved} images saved for {domain} (incremental)")
 
 
 class FetchDomainImagesRequest(BaseModel):

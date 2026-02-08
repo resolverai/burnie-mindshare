@@ -70,6 +70,7 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
       try {
         let websiteCategory: string | undefined;
         let brandContext: { business_overview?: string | null; popular_products?: string[] | null; customer_demographics?: string | null; brand_story?: string | null } | undefined;
+        let productImageS3Key: string | undefined;
         try {
           const analysisStr = localStorage.getItem("dvyb_website_analysis");
           if (analysisStr) {
@@ -92,10 +93,22 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
         } catch {
           /* ignore */
         }
+        try {
+          const selectedStr = localStorage.getItem("dvyb_selected_products");
+          if (selectedStr) {
+            const selected = JSON.parse(selectedStr) as Array<{ id: number; s3Key: string; image?: string }>;
+            if (Array.isArray(selected) && selected.length > 0 && selected[0]?.s3Key) {
+              productImageS3Key = selected[0].s3Key;
+            }
+          }
+        } catch {
+          /* ignore */
+        }
         const response = await brandsApi.getDiscoverAdsOnboarding({
           page: 1,
           limit: 24,
           sort: "latest",
+          ...(productImageS3Key && { productImageS3Key }),
           ...(websiteCategory && { websiteCategory }),
           ...(brandContext && Object.values(brandContext).some((v) => v != null && (Array.isArray(v) ? v.length : true)) && { brandContext }),
         });
@@ -245,11 +258,11 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
     if (file) processProductFile(file);
   };
 
-  // Fetch domain product images when entering product step - poll every 3s until we have 10 images or max polls
+  // Fetch domain product images when entering product step - poll every 4s until we have 10 images or max polls
   const MAX_FETCH_IMAGES = 10;
   const DISPLAY_IMAGES_COUNT = 4; // Show 4 random from fetched
-  const POLL_INTERVAL_MS = 3000;
-  const MAX_POLLS = 40; // ~2 min total
+  const POLL_INTERVAL_MS = 4000;
+  const MAX_POLLS = 120; // ~8 min total (images can take time with Apify download)
 
   useEffect(() => {
     if (!open || step !== "product") return;
@@ -296,6 +309,7 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
         // ignore, continue polling
       }
       if (pollCount >= MAX_POLLS) {
+        setDomainProductsLoading(false);
         setDomainProductsDone(true);
         return;
       }
@@ -497,16 +511,25 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
               ) : filteredAds.length === 0 ? (
                 <div className="text-center py-16 text-muted-foreground">No ads match your search.</div>
               ) : (
-                <div className="columns-[160px] md:columns-[180px] lg:columns-[200px] gap-4">
+                <div
+                  className={
+                    filteredAds.length >= 8
+                      ? "columns-[160px] md:columns-[180px] lg:columns-[200px] gap-4"
+                      : "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 max-w-5xl mx-auto"
+                  }
+                >
                   {filteredAds.map((ad) => {
                     const isSelected = selectedAdIds.has(ad.id);
                     const mediaUrl = ad.isVideo ? ad.videoSrc : ad.image;
+                    const useMasonry = filteredAds.length >= 8;
                     return (
                       <button
                         key={ad.id}
                         type="button"
                         onClick={() => handleAdToggle(ad.id)}
-                        className={`text-left rounded-xl overflow-hidden cursor-pointer transition-all border border-neutral-200 bg-white break-inside-avoid mb-4 w-full ${
+                        className={`text-left rounded-xl overflow-hidden cursor-pointer transition-all border border-neutral-200 bg-white w-full ${
+                          useMasonry ? "break-inside-avoid mb-4" : ""
+                        } ${
                           isSelected ? "ring-4 ring-neutral-900 ring-offset-2" : "hover:shadow-lg hover:border-neutral-300"
                         }`}
                       >

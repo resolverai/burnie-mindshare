@@ -107,6 +107,14 @@ export class DvybBrandAd {
   @Column({ type: 'jsonb', nullable: true })
   beneficiaryPayers!: unknown[] | null;
 
+  /** Grok inventory analysis: full analysis of products/items in ad image (e.g. objects, description, subcategory context) */
+  @Column({ type: 'jsonb', nullable: true })
+  inventoryAnalysis!: Record<string, unknown> | null;
+
+  /** Subcategory of the ad (e.g. sportswear→shoes, bra; fashion→dress, scarf). Used for inspiration matching. */
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  subcategory!: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

@@ -13,6 +13,7 @@ import re
 import shutil
 import tempfile
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
@@ -22,6 +23,25 @@ from app.config.settings import settings
 from app.services.s3_storage_service import S3StorageService
 
 logger = logging.getLogger(__name__)
+
+# Video extensions for image-only filter (only save ads with image creatives, not video)
+_VIDEO_EXTENSIONS = (".mp4", ".webm", ".mov", ".m4v")
+
+
+def _is_video_url(url: str) -> bool:
+    """True if URL path or extension suggests video. Used to filter image-only when media=image."""
+    if not url or not isinstance(url, str):
+        return False
+    path = (urlparse(url).path or "").lower()
+    return any(ext in path for ext in _VIDEO_EXTENSIONS)
+
+
+def _is_video_content_type(ct: str) -> bool:
+    """True if Content-Type indicates video."""
+    if not ct:
+        return False
+    ct_lower = ct.lower().split(";")[0].strip()
+    return ct_lower.startswith("video/")
 
 router = APIRouter(prefix="/api/dvyb/brands", tags=["dvyb-brands"])
 
@@ -37,7 +57,8 @@ class BrandsFetchRequest(BaseModel):
     brandDomain: str
     callbackUrl: str
     countries: list[CountryInput] | None = None  # Empty/None = All (fetch for all). Single = one. Multiple = each.
-    limit: int = 300  # Dynamic: default 300, or next multiple of 300 if brand has more ads
+    limit: int = 300  # Fetch this many ads from Meta
+    saveLimit: int | None = None  # If set (e.g. 20 for initial fetch), only download creatives and save this many
     excludeMetaAdIds: list[str] | None = None  # Ads already in DB with ad copy + creatives (skip re-fetch)
     media: str = "image"  # image, video, or both
     localCompetitors: int = 5
@@ -103,17 +124,26 @@ def _download_largest_and_upload_to_s3(
     brand_id: int,
     meta_ad_id: str,
     content_type: str,  # "image" or "video"
+    image_only: bool = False,  # When True, reject video URLs and video Content-Type (only save image creatives)
 ) -> str | None:
     """
     Download all creatives from URLs, pick the one with maximum size, upload to S3.
+    When image_only=True (media=image): only accept image URLs and image Content-Type; reject video.
     Returns S3 key or None.
     """
     if not urls:
         return None
+    if image_only:
+        urls = [u for u in urls if not _is_video_url(u)]
+        if not urls:
+            return None
     candidates: list[tuple[bytes, str]] = []
     for url in urls:
         result = _download_url_content(url)
         if result:
+            _, raw_ct = result
+            if image_only and _is_video_content_type(raw_ct or ""):
+                continue  # Skip video content when we only want images
             candidates.append(result)
     if not candidates:
         return None
@@ -144,6 +174,7 @@ def _run_brands_fetch_task(
     callback_url: str,
     countries: list[dict] | None,
     limit: int,
+    save_limit: int | None,
     exclude_meta_ad_ids: list[str] | None,
     media: str,
     local_competitors: int,
@@ -232,12 +263,17 @@ def _run_brands_fetch_task(
             _callback_success(callback_url, [], enrichment, is_complete=True)
             return
 
-        # Step 2: Download creatives per-ad and callback immediately (incremental save)
+        # When save_limit is set (e.g. 20 for initial fetch), only download creatives and save that many
+        ads_to_save = ads[:save_limit] if save_limit and save_limit > 0 else ads
+        if save_limit:
+            logger.info(f"Fetched {len(ads)} ads from Meta; saving {len(ads_to_save)} (saveLimit={save_limit})")
+
+        # Step 2: Download creatives for ads we will save
         want_image = media in ("image", "both")
         want_video = media in ("video", "both")
         s3_service = S3StorageService()
 
-        for ad in ads:
+        for ad in ads_to_save:
             meta_ad_id = str(ad.get("id") or ad.get("metaAdId") or "").strip()
             ad["creativeImageS3Key"] = None
             ad["creativeVideoS3Key"] = None
@@ -252,7 +288,9 @@ def _run_brands_fetch_task(
                 vid_urls = [ad.get("creativeVideoUrl")]
 
             if want_image and img_urls:
-                s3_key = _download_largest_and_upload_to_s3(s3_service, img_urls, brand_id, meta_ad_id, "image")
+                s3_key = _download_largest_and_upload_to_s3(
+                    s3_service, img_urls, brand_id, meta_ad_id, "image", image_only=True
+                )
                 if s3_key:
                     ad["creativeImageS3Key"] = s3_key
                     print(f"   Uploaded image (max of {len(img_urls)}): {meta_ad_id} -> {s3_key}")
@@ -265,7 +303,11 @@ def _run_brands_fetch_task(
                     print(f"   Uploaded video (max of {len(vid_urls)}): {meta_ad_id} -> {s3_key}")
                     logger.info(f"Uploaded video (max of {len(vid_urls)}): {meta_ad_id} -> {s3_key}")
 
-            # Save to DB as soon as we have at least one creative
+        # Inventory analysis is NOT run during fetch - it runs only when admin approves an ad
+        # (or manually via Run Inventory Analysis button/script)
+
+        # Step 3: Callback each ad we saved
+        for ad in ads_to_save:
             if ad.get("creativeImageS3Key") or ad.get("creativeVideoS3Key"):
                 _callback_success(callback_url, [ad], enrichment, is_complete=False)
 
@@ -312,6 +354,43 @@ def _callback_failed(callback_url: str, brand_id: int, error: str):
         logger.error(f"Failure callback failed: {e}")
 
 
+class RunInventoryAnalysisRequest(BaseModel):
+    """Request body for run-inventory-analysis: list of ads to analyze."""
+    items: list[dict]  # [{ "adId": str, "presignedUrl": str, "category": str | None }]
+
+
+@router.post("/run-inventory-analysis")
+async def run_inventory_analysis(request: RunInventoryAnalysisRequest):
+    """
+    Run Grok inventory analysis on ad images. Used by admin dashboard and scripts
+    to backfill subcategory/inventoryAnalysis for ads that don't have it.
+    items: [{ adId, presignedUrl, category }]
+    Returns: { success, results: { adId: { inventoryAnalysis, subcategory } } }
+    """
+    items = request.items or []
+    if not items:
+        return {"success": True, "results": {}}
+    try:
+        from app.services.brand_ad_inventory_analysis import analyze_ad_images_with_grok
+    except ImportError as e:
+        logger.warning(f"Could not import Grok inventory analysis: {e}")
+        return {"success": False, "error": "Grok module not available", "results": {}}
+    image_items = []
+    for it in items:
+        ad_id = str(it.get("adId") or it.get("ad_id") or "").strip()
+        url = (it.get("presignedUrl") or it.get("presigned_url") or "").strip()
+        if ad_id and url and (url.startswith("http://") or url.startswith("https://")):
+            image_items.append({
+                "ad_id": ad_id,
+                "presigned_url": url,
+                "category": it.get("category") or "Others",
+            })
+    if not image_items:
+        return {"success": True, "results": {}}
+    results = analyze_ad_images_with_grok(image_items)
+    return {"success": True, "results": results}
+
+
 @router.post("/fetch")
 async def start_brands_fetch(request: BrandsFetchRequest, background_tasks: BackgroundTasks):
     """
@@ -345,6 +424,7 @@ async def start_brands_fetch(request: BrandsFetchRequest, background_tasks: Back
         request.callbackUrl.strip(),
         countries_list,
         request.limit,
+        request.saveLimit,
         exclude_ids,
         request.media,
         request.localCompetitors,

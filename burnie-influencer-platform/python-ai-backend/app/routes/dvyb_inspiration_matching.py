@@ -13,6 +13,8 @@ import json
 from openai import OpenAI
 import os
 
+from app.config.settings import settings
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -77,6 +79,27 @@ class MatchWebsiteCategoryResponse(BaseModel):
     """Response from website category matching (for discover ads onboarding)"""
     success: bool
     matched_categories: List[str] = []
+    reasoning: Optional[str] = None
+    error: Optional[str] = None
+
+
+class CategorySubcategoryPair(BaseModel):
+    """Category and subcategory from dvyb_brand_ads"""
+    category: str
+    subcategory: str
+
+
+class MatchProductToAdsRequest(BaseModel):
+    """Request for matching product image to brand ad category+subcategory via Grok"""
+    product_image_url: str  # Presigned S3 URL
+    category_subcategory_pairs: List[CategorySubcategoryPair]
+    brand_context: Optional[BrandContextOptional] = None
+
+
+class MatchProductToAdsResponse(BaseModel):
+    """Response from product-to-ads matching"""
+    success: bool
+    matched_pairs: List[CategorySubcategoryPair] = []
     reasoning: Optional[str] = None
     error: Optional[str] = None
 
@@ -350,6 +373,134 @@ async def match_website_category(request: MatchWebsiteCategoryRequest):
         return MatchWebsiteCategoryResponse(
             success=False,
             matched_categories=[],
+            error=str(e),
+        )
+
+
+@router.post("/match-product-to-ads", response_model=MatchProductToAdsResponse)
+async def match_product_to_ads(request: MatchProductToAdsRequest):
+    """
+    Match product image to brand ad category+subcategory combinations using Grok.
+    Used by unified onboarding inspiration step: user chose a product, we show relevant ads.
+    Grok receives the product image + list of (category, subcategory) pairs from dvyb_brand_ads,
+    and returns which combinations are most relevant for this product.
+    """
+    try:
+        xai_key = (settings.xai_api_key or "").strip()
+        if not xai_key:
+            return MatchProductToAdsResponse(
+                success=False,
+                error="XAI_API_KEY not configured",
+            )
+        if not request.product_image_url or not request.product_image_url.strip().startswith(("http://", "https://")):
+            print("[match-product-to-ads] No valid product image URL, returning empty")
+            return MatchProductToAdsResponse(success=True, matched_pairs=[])
+        if not request.category_subcategory_pairs:
+            print("[match-product-to-ads] No category_subcategory_pairs, returning empty")
+            return MatchProductToAdsResponse(success=True, matched_pairs=[])
+
+        pairs = request.category_subcategory_pairs
+        pairs_str = "\n".join([f"- {p.category} / {p.subcategory}" for p in pairs])
+        print(f"\n[match-product-to-ads] REQUEST: product_image_url={request.product_image_url[:80]}...")
+        print(f"[match-product-to-ads] Pairs ({len(pairs)}): {pairs[:5]}{'...' if len(pairs) > 5 else ''}")
+        print(f"[match-product-to-ads] Brand context: {'yes' if request.brand_context else 'no'}")
+
+        brand_context_section = ""
+        if request.brand_context:
+            parts = []
+            bc = request.brand_context
+            if bc.business_overview and str(bc.business_overview).strip():
+                parts.append(f"- **Business Overview**: {str(bc.business_overview)[:800]}")
+            if bc.popular_products:
+                prods = bc.popular_products
+                prods_str = ", ".join(str(p)[:100] for p in (prods[:10] if isinstance(prods, list) else [prods]))
+                if prods_str:
+                    parts.append(f"- **Popular Products**: {prods_str}")
+            if bc.customer_demographics and str(bc.customer_demographics).strip():
+                parts.append(f"- **Customer Demographics**: {str(bc.customer_demographics)[:600]}")
+            if bc.brand_story and str(bc.brand_story).strip():
+                parts.append(f"- **Brand Story**: {str(bc.brand_story)[:500]}")
+            if parts:
+                brand_context_section = "\n\n## Brand Context\n" + "\n".join(parts)
+
+        system_prompt = """You are an expert at matching products to advertising creative styles. Your role is to identify which ad categories and subcategories would be most relevant for a given product image.
+
+You will receive:
+1. A product image (the user's chosen product)
+2. A list of (category, subcategory) pairs from our ad creative database
+3. Optional brand context
+
+Your task: Select which (category, subcategory) combinations would show ads that are MOST RELEVANT and could be shown to the user based on their chosen product.
+
+Consider: product type, style, target audience, visual coherence. Only select pairs that make sense for this product.
+
+Respond ONLY with valid JSON. No markdown, no explanation outside the JSON."""
+
+        user_prompt = f"""Look at the product image provided. Then select which of these (category, subcategory) pairs from our ad database are most relevant for this product:
+{pairs_str}
+{brand_context_section}
+
+Return a JSON object:
+{{
+  "matched_pairs": [
+    {{ "category": "exact category from list", "subcategory": "exact subcategory from list" }}
+  ],
+  "reasoning": "Brief explanation"
+}}
+
+Select at most 5 pairs. Use EXACT category and subcategory strings from the list above. If none fit well, return empty matched_pairs."""
+
+        try:
+            from xai_sdk import Client
+            from xai_sdk.chat import user, system, image
+        except ImportError:
+            logger.warning("xai_sdk not installed")
+            return MatchProductToAdsResponse(success=False, error="Grok SDK not available")
+
+        client = Client(api_key=xai_key, timeout=60)
+        chat = client.chat.create(model="grok-4-fast-reasoning")
+        chat.append(system(system_prompt))
+        chat.append(user(user_prompt, image(image_url=request.product_image_url.strip(), detail="high")))
+        print("[match-product-to-ads] Calling Grok...")
+        response = chat.sample()
+        response_text = response.content.strip()
+        print(f"[match-product-to-ads] GROK RAW OUTPUT:\n{response_text}\n")
+
+        try:
+            json_str = extract_json_from_response(response_text)
+            data = json.loads(json_str)
+            raw_matched = data.get("matched_pairs") or []
+            reasoning = data.get("reasoning", "")
+            print(f"[match-product-to-ads] PARSED: raw_matched={raw_matched}, reasoning={reasoning[:150] if reasoning else 'nil'}...")
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning(f"Grok match-product-to-ads parse error: {e}")
+            print(f"[match-product-to-ads] PARSE ERROR: {e}")
+            return MatchProductToAdsResponse(success=True, matched_pairs=[], reasoning="Parse error")
+
+        validated: List[CategorySubcategoryPair] = []
+        pair_map = {(p.category.lower(), p.subcategory.lower()): p for p in pairs}
+        for m in raw_matched:
+            if isinstance(m, dict):
+                cat = (m.get("category") or "").strip()
+                sub = (m.get("subcategory") or "").strip()
+                key = (cat.lower(), sub.lower())
+                if key in pair_map:
+                    validated.append(pair_map[key])
+                else:
+                    print(f"[match-product-to-ads] WARN: Grok returned ({cat!r}, {sub!r}) - not in pair_map")
+
+        print(f"[match-product-to-ads] RESULT: {len(validated)} validated pairs -> {[(p.category, p.subcategory) for p in validated]}")
+        logger.info(f"Grok match-product-to-ads: {len(validated)} pairs matched for product image")
+        return MatchProductToAdsResponse(
+            success=True,
+            matched_pairs=validated,
+            reasoning=reasoning,
+        )
+    except Exception as e:
+        logger.error(f"match_product_to_ads error: {e}", exc_info=True)
+        return MatchProductToAdsResponse(
+            success=False,
+            matched_pairs=[],
             error=str(e),
         )
 

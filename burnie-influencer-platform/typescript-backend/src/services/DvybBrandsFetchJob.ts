@@ -5,12 +5,13 @@ import { DvybBrandAd } from '../models/DvybBrandAd';
 import type { CountrySelection } from '../models/DvybBrand';
 
 const ADS_STALE_DAYS = 5;
+const INITIAL_SAVE_LIMIT = 20;
 const DEFAULT_LIMIT = 300;
 const LIMIT_STEP = 300;
 
 /**
- * Compute dynamic fetch limit: default 300, or next multiple of 300 if we already have more.
- * e.g. 350 existing -> 600, 630 existing -> 900, so we always fetch enough to get new ads.
+ * Compute dynamic fetch limit: 300 default, or next multiple of 300 if we already have more.
+ * e.g. 350 existing -> 600, 630 existing -> 900.
  */
 function computeFetchLimit(existingAdCount: number): number {
   if (existingAdCount < DEFAULT_LIMIT) return DEFAULT_LIMIT;
@@ -42,6 +43,7 @@ export async function startDvybBrandsFetchJob(
   const adRepo = AppDataSource.getRepository(DvybBrandAd);
   const existingAdCount = await adRepo.count({ where: { brandId } });
   const limit = computeFetchLimit(existingAdCount);
+  const saveLimit = INITIAL_SAVE_LIMIT;  // Always save 20 new ads per fetch (initial or refetch)
 
   const fullyFetchedAds = await adRepo
     .createQueryBuilder('ad')
@@ -67,6 +69,7 @@ export async function startDvybBrandsFetchJob(
       callbackUrl,
       countries: countries && countries.length > 0 ? countries : null,
       limit,
+      saveLimit,
       excludeMetaAdIds: excludeMetaAdIdsSet,
       media,
       localCompetitors: 5,

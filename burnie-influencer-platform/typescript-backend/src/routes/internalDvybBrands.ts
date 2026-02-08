@@ -46,8 +46,12 @@ router.post('/:brandId/ads-callback', async (req: Request, res: Response) => {
     if (!Array.isArray(ads) || ads.length === 0) {
       if (isComplete) {
         brand.fetchStatus = 'completed';
-        brand.fetchError = ads?.length === 0 && !payload?.error ? 'No ads returned' : brand.fetchError;
         brand.lastAdsFetchedAt = new Date();
+        // Only set "No ads returned" if brand truly has no ads (ads were sent in prior callbacks)
+        const adCount = await AppDataSource.getRepository(DvybBrandAd).count({
+          where: { brandId },
+        });
+        brand.fetchError = adCount === 0 && !payload?.error ? 'No ads returned' : null;
       }
       if (payload.category != null) brand.category = payload.category;
       if (payload.similarCompetitors != null) brand.similarCompetitors = payload.similarCompetitors as never;
@@ -108,6 +112,8 @@ router.post('/:brandId/ads-callback', async (req: Request, res: Response) => {
         landingPage: (ad.landingPage as string) || null,
         reach: reach || null,
         beneficiaryPayers: beneficiaryPayers || null,
+        inventoryAnalysis: (ad.inventoryAnalysis as Record<string, unknown>) || null,
+        subcategory: (ad.subcategory as string) || null,
       });
       await adRepo.save(entity);
       existingIds.add(metaAdId);

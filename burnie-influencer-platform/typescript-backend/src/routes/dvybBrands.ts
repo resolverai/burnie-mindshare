@@ -258,6 +258,48 @@ async function matchWebsiteCategoryToAdCategories(
   }
 }
 
+interface CategorySubcategoryPair {
+  category: string;
+  subcategory: string;
+}
+
+/** Match product image to brand ad (category, subcategory) pairs via Grok (Python backend) */
+async function matchProductToAdsWithGrok(
+  productImagePresignedUrl: string,
+  categorySubcategoryPairs: CategorySubcategoryPair[],
+  brandContext?: BrandContextForMatch | null
+): Promise<CategorySubcategoryPair[]> {
+  if (!productImagePresignedUrl?.trim() || categorySubcategoryPairs.length === 0) return [];
+  const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
+  try {
+    const body: Record<string, unknown> = {
+      product_image_url: productImagePresignedUrl.trim(),
+      category_subcategory_pairs: categorySubcategoryPairs,
+    };
+    if (brandContext && Object.keys(brandContext).length > 0) {
+      body.brand_context = brandContext;
+    }
+    const response = await fetch(`${pythonBackendUrl}/api/dvyb/inspirations/match-product-to-ads`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      logger.warn(`match-product-to-ads failed: ${response.status}`);
+      return [];
+    }
+    const result = (await response.json()) as { success?: boolean; matched_pairs?: CategorySubcategoryPair[] };
+    if (!result.success || !Array.isArray(result.matched_pairs)) return [];
+    return result.matched_pairs.filter(
+      (p): p is CategorySubcategoryPair =>
+        p && typeof p.category === 'string' && typeof p.subcategory === 'string'
+    );
+  } catch (err) {
+    logger.warn('match-product-to-ads error:', err);
+    return [];
+  }
+}
+
 /** Shared handler for discover ads - used by both auth and API-key routes */
 async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
   const page = parseInt(req.query.page as string) || 1;
@@ -268,6 +310,7 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
   const status = ((req.query.status as string) || '').trim();
   const category = ((req.query.category as string) || '').trim();
   const websiteCategory = ((req.query.websiteCategory as string) || '').trim();
+  const productImageS3Key = ((req.query.productImageS3Key as string) || '').trim();
   const brandContextParam = (req.query.brandContext as string) || '';
   const runtime = ((req.query.runtime as string) || '').trim();
   const adCount = ((req.query.adCount as string) || '').trim();
@@ -277,8 +320,10 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
 
   const adRepo = AppDataSource.getRepository(DvybBrandAd);
 
-  // When websiteCategory is passed (onboarding): use GPT-4o to match to brand ad categories
+  // When productImageS3Key is passed (onboarding): use Grok with product image to match (category, subcategory)
+  // When websiteCategory is passed: use GPT-4o to match to brand ad categories (fallback)
   let categoriesToFilter: string[] = [];
+  let categorySubcategoryPairsToFilter: CategorySubcategoryPair[] = [];
   let brandContext: BrandContextForMatch | undefined;
   if (brandContextParam) {
     try {
@@ -288,7 +333,41 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
       /* ignore malformed brandContext */
     }
   }
-  if (websiteCategory) {
+
+  if (productImageS3Key) {
+    // Grok flow: product image + (category, subcategory) pairs
+    const productImagePresignedUrl = await s3Service.generatePresignedUrl(productImageS3Key, 3600, true);
+    if (productImagePresignedUrl) {
+      const distinctPairs = await adRepo
+        .createQueryBuilder('ad')
+        .select('ad.category', 'category')
+        .addSelect('ad.subcategory', 'subcategory')
+        .distinct(true)
+        .where("ad.approvalStatus = 'approved'")
+        .andWhere('ad.category IS NOT NULL')
+        .andWhere("ad.category != ''")
+        .andWhere('ad.subcategory IS NOT NULL')
+        .andWhere("ad.subcategory != ''")
+        .getRawMany();
+      const pairs: CategorySubcategoryPair[] = distinctPairs
+        .map((r) => ({ category: r.category as string, subcategory: r.subcategory as string }))
+        .filter((p) => p.category && p.subcategory);
+      if (pairs.length > 0) {
+        categorySubcategoryPairsToFilter = await matchProductToAdsWithGrok(
+          productImagePresignedUrl,
+          pairs,
+          brandContext
+        );
+        if (categorySubcategoryPairsToFilter.length > 0) {
+          logger.info(
+            `Grok matched product image to ${categorySubcategoryPairsToFilter.length} (category, subcategory) pairs`
+          );
+        }
+      }
+    }
+  }
+
+  if (categorySubcategoryPairsToFilter.length === 0 && websiteCategory) {
     const distinctResult = await adRepo
       .createQueryBuilder('ad')
       .select('DISTINCT ad.category')
@@ -336,7 +415,19 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
     const statusVal = status === 'Active' ? 'active' : status === 'Paused' ? 'inactive' : status.toLowerCase();
     qb = qb.andWhere('LOWER(ad.status) = :statusVal', { statusVal });
   }
-  if (categoriesToFilter.length > 0) {
+  if (categorySubcategoryPairsToFilter.length > 0) {
+    const orConditions = categorySubcategoryPairsToFilter
+      .map(
+        (_, i) =>
+          `(LOWER(COALESCE(ad.category, '')) = :pairCat${i} AND LOWER(COALESCE(ad.subcategory, '')) = :pairSub${i})`
+      )
+      .join(' OR ');
+    qb = qb.andWhere(`(${orConditions})`);
+    categorySubcategoryPairsToFilter.forEach((p, i) => {
+      qb = qb.setParameter(`pairCat${i}`, p.category.toLowerCase());
+      qb = qb.setParameter(`pairSub${i}`, p.subcategory.toLowerCase());
+    });
+  } else if (categoriesToFilter.length > 0) {
     const orConditions = categoriesToFilter
       .map((_, i) => `LOWER(COALESCE(ad.category, '')) LIKE :wcCat${i}`)
       .join(' OR ');

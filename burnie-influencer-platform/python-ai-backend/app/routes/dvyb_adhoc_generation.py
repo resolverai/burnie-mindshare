@@ -4012,9 +4012,51 @@ Analyze the {len(presigned_urls)} image(s) now.
 # LINK ANALYSIS (GROK LIVE SEARCH)
 # ============================================
 
+def _extract_s3_key_from_url(url: str) -> Optional[str]:
+    """Extract S3 key from presigned URL if it contains dvyb_brands path."""
+    if not url or "dvyb_brands/" not in url:
+        return None
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        path = (parsed.path or "").strip()
+        if path.startswith("/"):
+            path = path[1:]
+        idx = path.find("dvyb_brands/")
+        if idx >= 0:
+            key = path[idx:]
+            if "?" in key:
+                key = key.split("?")[0]
+            return key if key else None
+    except Exception:
+        pass
+    return None
+
+
+def _inventory_analysis_to_image_inspiration(inv: dict) -> dict:
+    """Convert dvyb_brand_ads inventory_analysis to image_inspiration format for prompt generation."""
+    if not inv:
+        return {}
+    return {
+        "visual_aesthetics": {
+            "color_palette": inv.get("colors") or [],
+            "color_grading": "",
+            "lighting_style": inv.get("setting", ""),
+            "mood_atmosphere": inv.get("composition", ""),
+        },
+        "composition_framing": {"composition": inv.get("composition", "")},
+        "objects_props": inv.get("objects") or [],
+        "setting_environment": inv.get("setting", ""),
+        "text_or_branding": inv.get("text_or_branding", ""),
+        "product_type": inv.get("product_type", ""),
+        "inventory_analysis": inv,
+    }
+
+
 def get_existing_inspiration_analysis(url: str) -> Optional[Dict]:
     """
     Get existing inspiration analysis from database if it exists.
+    Checks both dvyb_inspiration_links (inspirationAnalysis) and dvyb_brand_ads (inventoryAnalysis).
     Returns the analysis dict if found, None otherwise.
     """
     try:
@@ -4024,8 +4066,7 @@ def get_existing_inspiration_analysis(url: str) -> Optional[Dict]:
         
         session = get_db_session()
         try:
-            # Query database for inspiration link with this URL
-            # Check both url and mediaUrl fields (for custom uploads)
+            # 1. Check dvyb_inspiration_links (url or mediaUrl)
             query = text("""
                 SELECT "inspirationAnalysis" 
                 FROM dvyb_inspiration_links 
@@ -4037,24 +4078,44 @@ def get_existing_inspiration_analysis(url: str) -> Optional[Dict]:
                   AND "inspirationAnalysis" IS NOT NULL
                 LIMIT 1
             """)
-            
             result = session.execute(query, {"url": url}).fetchone()
-            
             if result and result[0]:
-                # Parse JSON string to dict
                 analysis = json.loads(result[0])
-                print(f"  ✅ Found existing analysis in database for: {url[:80]}...")
+                print(f"  ✅ Found existing analysis in dvyb_inspiration_links for: {url[:80]}...")
                 return analysis
-            else:
-                print(f"  ℹ️  No existing analysis found in database for: {url[:80]}...")
-                return None
+
+            # 2. Check dvyb_brand_ads (creativeImageS3Key or creativeVideoS3Key) - for ads from discover/onboarding
+            s3_key = _extract_s3_key_from_url(url) or (url if url.startswith("dvyb_brands/") else None)
+            if s3_key:
+                ad_query = text("""
+                    SELECT "inventoryAnalysis", "mediaType"
+                    FROM dvyb_brand_ads
+                    WHERE ("creativeImageS3Key" = :s3_key OR "creativeVideoS3Key" = :s3_key)
+                      AND "inventoryAnalysis" IS NOT NULL
+                    LIMIT 1
+                """)
+                ad_result = session.execute(ad_query, {"s3_key": s3_key}).fetchone()
+                if ad_result and ad_result[0]:
+                    inv = ad_result[0] if isinstance(ad_result[0], dict) else json.loads(ad_result[0])
+                    media_type = ad_result[1] or "image"
+                    if media_type == "video":
+                        # For video ads, wrap in video_inspiration; downstream may need adaptation
+                        print(f"  ✅ Found existing inventory_analysis in dvyb_brand_ads (video) for: {url[:80]}...")
+                        return {"video_inspiration": {"inventory_analysis": inv}}
+                    else:
+                        # For image ads, convert to image_inspiration format
+                        img_insp = _inventory_analysis_to_image_inspiration(inv)
+                        print(f"  ✅ Found existing inventory_analysis in dvyb_brand_ads (image) for: {url[:80]}...")
+                        return {"image_inspiration": img_insp}
+
+            print(f"  ℹ️  No existing analysis found in database for: {url[:80]}...")
+            return None
                 
         finally:
             session.close()
             
     except Exception as e:
         logger.warning(f"⚠️ Error checking database for existing analysis: {e}")
-        # If database check fails, proceed with Grok analysis
         return None
 
 

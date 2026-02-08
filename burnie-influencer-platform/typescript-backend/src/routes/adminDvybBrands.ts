@@ -3,7 +3,8 @@ import { AppDataSource } from '../config/database';
 import { DvybBrand } from '../models/DvybBrand';
 import { DvybBrandAd } from '../models/DvybBrandAd';
 import { logger } from '../config/logger';
-import { startDvybBrandsFetchJob, ADS_STALE_DAYS } from '../services/DvybBrandsFetchJob';
+import { startDvybBrandsFetchJob } from '../services/DvybBrandsFetchJob';
+import { runInventoryAnalysisForMissingAds } from '../services/DvybBrandsInventoryAnalysisService';
 import { isAdmin } from '../middleware/adminAuth';
 import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
 
@@ -62,16 +63,29 @@ router.get('/', isAdmin, async (req: Request, res: Response) => {
         const approvedAdCount = await adRepo.count({
           where: { brandId: b.id, approvalStatus: 'approved' },
         });
-        return { ...b, adCount, approvedAdCount };
+        const inventoryAnalysedCount = await adRepo
+          .createQueryBuilder('ad')
+          .where('ad.brandId = :brandId', { brandId: b.id })
+          .andWhere('ad.inventoryAnalysis IS NOT NULL')
+          .getCount();
+        // Don't show false "No ads returned" when brand has ads (bug from final empty callback)
+        const fetchError =
+          adCount > 0 && b.fetchError === 'No ads returned' ? null : b.fetchError;
+        return { ...b, fetchError, adCount, approvedAdCount, inventoryAnalysedCount };
       })
     );
 
+    const totalInventoryAnalysed = await adRepo
+      .createQueryBuilder('ad')
+      .where('ad.inventoryAnalysis IS NOT NULL')
+      .getCount();
+
     const stats = {
-      totalPending: await brandRepo.count({ where: { fetchStatus: 'pending' } }),
       totalFetching: await brandRepo.count({ where: { fetchStatus: 'fetching' } }),
       totalCompleted: await brandRepo.count({ where: { fetchStatus: 'completed' } }),
       totalFailed: await brandRepo.count({ where: { fetchStatus: 'failed' } }),
       totalApprovedAds: await adRepo.count({ where: { approvalStatus: 'approved' } }),
+      totalInventoryAnalysed,
     };
 
     return res.json({
@@ -120,24 +134,14 @@ router.post('/', isAdmin, async (req: Request, res: Response) => {
       order: { createdAt: 'DESC' },
     });
 
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - ADS_STALE_DAYS);
-
-    if (brand) {
-      const lastFetched = brand.lastAdsFetchedAt;
-      if (lastFetched && lastFetched >= cutoff && brand.fetchStatus === 'completed') {
-        return res.json({
-          success: true,
-          data: { brand, message: 'Ads already up to date' },
-        });
-      }
-      if (brand.fetchStatus === 'fetching') {
-        return res.json({
-          success: true,
-          data: { brand, message: 'Fetch already in progress' },
-        });
-      }
+    if (brand && brand.fetchStatus === 'fetching') {
+      return res.json({
+        success: true,
+        data: { brand, message: 'Fetch already in progress' },
+      });
     }
+
+    // Refetch: always start fetch. excludeMetaAdIds ensures we only save NEW ads not already in DB.
 
     if (!brand) {
       brand = brandRepo.create({
@@ -171,6 +175,41 @@ router.post('/', isAdmin, async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to add brand',
+    });
+  }
+});
+
+/**
+ * POST /api/admin/dvyb-brands/run-inventory-analysis
+ * Run Grok inventory analysis for all ads missing subcategory/inventoryAnalysis.
+ * Optionally filter by brandId in body: { brandId?: number }
+ */
+router.post('/run-inventory-analysis', isAdmin, async (req: Request, res: Response) => {
+  try {
+    const brandId = req.body?.brandId ? parseInt(String(req.body.brandId), 10) : undefined;
+    const validBrandId = brandId && !isNaN(brandId) ? brandId : undefined;
+
+    const result = await runInventoryAnalysisForMissingAds(
+      validBrandId ? { brandId: validBrandId, approvedOnly: true } : { approvedOnly: true }
+    );
+
+    return res.json({
+      success: true,
+      data: {
+        total: result.total,
+        updated: result.updated,
+        errors: result.errors,
+        message:
+          result.total === 0
+            ? 'No ads need inventory analysis'
+            : `Updated ${result.updated} of ${result.total} ad(s)`,
+      },
+    });
+  } catch (error) {
+    logger.error('Admin run-inventory-analysis error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to run inventory analysis',
     });
   }
 });
@@ -321,6 +360,46 @@ router.get('/:id/ads', isAdmin, async (req: Request, res: Response) => {
   } catch (error) {
     logger.error('Admin DvybBrands ads error:', error);
     return res.status(500).json({ success: false, error: 'Failed to fetch ads' });
+  }
+});
+
+/**
+ * POST /api/admin/dvyb-brands/:brandId/run-inventory-analysis
+ * Run Grok inventory analysis for ads missing subcategory/inventoryAnalysis (for this brand only).
+ */
+router.post('/:brandId/run-inventory-analysis', isAdmin, async (req: Request, res: Response) => {
+  try {
+    const brandId = parseInt(req.params.brandId ?? '', 10);
+    if (isNaN(brandId)) {
+      return res.status(400).json({ success: false, error: 'Invalid brand ID' });
+    }
+
+    const brandRepo = AppDataSource.getRepository(DvybBrand);
+    const brand = await brandRepo.findOne({ where: { id: brandId } });
+    if (!brand) {
+      return res.status(404).json({ success: false, error: 'Brand not found' });
+    }
+
+    const result = await runInventoryAnalysisForMissingAds({ brandId, approvedOnly: true });
+
+    return res.json({
+      success: true,
+      data: {
+        updated: result.updated,
+        total: result.total,
+        errors: result.errors,
+        message:
+          result.total === 0
+            ? 'All ads already have inventory analysis'
+            : `Updated ${result.updated} of ${result.total} ad(s)`,
+      },
+    });
+  } catch (error) {
+    logger.error('Run inventory analysis error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to run inventory analysis',
+    });
   }
 });
 

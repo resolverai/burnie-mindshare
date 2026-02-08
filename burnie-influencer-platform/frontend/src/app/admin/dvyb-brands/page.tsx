@@ -21,6 +21,7 @@ import {
   ExternalLink,
   ThumbsUp,
   ThumbsDown,
+  Sparkles,
 } from 'lucide-react';
 
 interface CountrySelection {
@@ -90,6 +91,7 @@ interface DvybBrand {
   updatedAt: string;
   adCount?: number;
   approvedAdCount?: number;
+  inventoryAnalysedCount?: number;
 }
 
 interface DvybBrandAd {
@@ -132,11 +134,11 @@ interface Pagination {
 }
 
 interface Stats {
-  totalPending: number;
   totalFetching: number;
   totalCompleted: number;
   totalFailed: number;
   totalApprovedAds?: number;
+  totalInventoryAnalysed?: number;
 }
 
 interface ApiResponse {
@@ -161,11 +163,11 @@ export default function DvybBrandsPage() {
   const [brands, setBrands] = useState<DvybBrand[]>([]);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, pages: 0 });
   const [stats, setStats] = useState<Stats>({
-    totalPending: 0,
     totalFetching: 0,
     totalCompleted: 0,
     totalFailed: 0,
     totalApprovedAds: 0,
+    totalInventoryAnalysed: 0,
   });
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -186,6 +188,10 @@ export default function DvybBrandsPage() {
   const [deleteConfirmBrand, setDeleteConfirmBrand] = useState<DvybBrand | null>(null);
   const [refetchModalBrand, setRefetchModalBrand] = useState<DvybBrand | null>(null);
   const [refetchMedia, setRefetchMedia] = useState<'image' | 'video' | 'both'>('image');
+  const [refetchCountries, setRefetchCountries] = useState<CountrySelection[]>([]);
+  const [refetchCountryDropdownOpen, setRefetchCountryDropdownOpen] = useState(false);
+  const [refetchCountrySearchQuery, setRefetchCountrySearchQuery] = useState('');
+  const refetchCountryDropdownRef = useRef<HTMLDivElement>(null);
   const [showAdsModal, setShowAdsModal] = useState(false);
   const [selectedBrand, setSelectedBrand] = useState<DvybBrand | null>(null);
   const [ads, setAds] = useState<DvybBrandAd[]>([]);
@@ -193,6 +199,8 @@ export default function DvybBrandsPage() {
   const [adsPagination, setAdsPagination] = useState<AdsPagination>({ page: 1, limit: 12, total: 0, pages: 0 });
   const [adsApprovalFilter, setAdsApprovalFilter] = useState<'all' | 'approved' | 'pending_approval'>('all');
   const [adsApproving, setAdsApproving] = useState<number | null>(null);
+  const [runningInventoryAnalysis, setRunningInventoryAnalysis] = useState(false);
+  const [runningInventoryAnalysisForBrand, setRunningInventoryAnalysisForBrand] = useState<number | null>(null);
 
   const fetchBrands = async () => {
     try {
@@ -242,10 +250,28 @@ export default function DvybBrandsPage() {
     );
   };
 
+  const toggleRefetchCountry = (country: CountrySelection) => {
+    setRefetchCountries((prev) =>
+      prev.some((c) => c.code === country.code)
+        ? prev.filter((c) => c.code !== country.code)
+        : [...prev, country]
+    );
+  };
+
+  const removeRefetchCountry = (idx: number) => {
+    setRefetchCountries((prev) => prev.filter((_, i) => i !== idx));
+  };
+
   const filteredCountries = META_ADS_COUNTRIES.filter(
     (c) =>
       c.name.toLowerCase().includes(countrySearchQuery.toLowerCase()) ||
       c.code.toLowerCase().includes(countrySearchQuery.toLowerCase())
+  );
+
+  const filteredRefetchCountries = META_ADS_COUNTRIES.filter(
+    (c) =>
+      c.name.toLowerCase().includes(refetchCountrySearchQuery.toLowerCase()) ||
+      c.code.toLowerCase().includes(refetchCountrySearchQuery.toLowerCase())
   );
 
   useEffect(() => {
@@ -257,6 +283,16 @@ export default function DvybBrandsPage() {
     if (countryDropdownOpen) document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [countryDropdownOpen]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (refetchCountryDropdownRef.current && !refetchCountryDropdownRef.current.contains(e.target as Node)) {
+        setRefetchCountryDropdownOpen(false);
+      }
+    };
+    if (refetchCountryDropdownOpen) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [refetchCountryDropdownOpen]);
 
   const removeCountry = (idx: number) => {
     setAddCountries((prev) => prev.filter((_, i) => i !== idx));
@@ -348,6 +384,44 @@ export default function DvybBrandsPage() {
   const openRefetchModal = (brand: DvybBrand) => {
     setRefetchModalBrand(brand);
     setRefetchMedia('image');
+    setRefetchCountries((brand.countries as CountrySelection[]) ?? []);
+    setRefetchCountrySearchQuery('');
+  };
+
+  const handleRunInventoryAnalysis = async (brandId?: number) => {
+    try {
+      if (brandId) {
+        setRunningInventoryAnalysisForBrand(brandId);
+      } else {
+        setRunningInventoryAnalysis(true);
+      }
+      const url = brandId
+        ? `${API_BASE}/api/admin/dvyb-brands/${brandId}/run-inventory-analysis`
+        : `${API_BASE}/api/admin/dvyb-brands/run-inventory-analysis`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: brandId ? undefined : JSON.stringify({}),
+      });
+      const data = await response.json();
+      if (data.success) {
+        const msg = data.data?.message || `Updated ${data.data?.updated ?? 0} ad(s)`;
+        alert(msg);
+        fetchBrands();
+        if (selectedBrand) fetchAdsForModal(selectedBrand.id, adsPagination.page, adsApprovalFilter);
+      } else {
+        alert(data.error || 'Failed to run inventory analysis');
+      }
+    } catch (error) {
+      console.error('Error running inventory analysis:', error);
+      alert('Failed to run inventory analysis');
+    } finally {
+      if (brandId) {
+        setRunningInventoryAnalysisForBrand(null);
+      } else {
+        setRunningInventoryAnalysis(false);
+      }
+    }
   };
 
   const handleRefetch = async () => {
@@ -361,7 +435,7 @@ export default function DvybBrandsPage() {
         body: JSON.stringify({
           brandName: brand.brandName,
           brandDomain: brand.brandDomain,
-          countries: brand.countries,
+          countries: refetchCountries.length > 0 ? refetchCountries : null,
           media: refetchMedia,
         }),
       });
@@ -495,26 +569,32 @@ export default function DvybBrandsPage() {
               </Button>
               <h1 className="text-3xl font-bold text-gray-900">DVYB Brands</h1>
             </div>
-            <Button
-              onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-2 bg-sky-600 hover:bg-sky-700 text-white"
-            >
-              <Plus className="h-4 w-4" />
-              Add Brand
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                onClick={handleRunInventoryAnalysis}
+                disabled={runningInventoryAnalysis}
+                variant="outline"
+                className="flex items-center gap-2 border-sky-600 text-sky-600 hover:bg-sky-50"
+              >
+                {runningInventoryAnalysis ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                Run Inventory Analysis
+              </Button>
+              <Button
+                onClick={() => setShowAddModal(true)}
+                className="flex items-center gap-2 bg-sky-600 hover:bg-sky-700 text-white"
+              >
+                <Plus className="h-4 w-4" />
+                Add Brand
+              </Button>
+            </div>
           </div>
 
           {/* Stats Cards */}
           <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
-            <div className="bg-white rounded-lg shadow p-4 border-l-4 border-gray-400">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Pending</p>
-                  <p className="text-2xl font-bold text-gray-900">{stats.totalPending}</p>
-                </div>
-                <Clock className="h-8 w-8 text-gray-400" />
-              </div>
-            </div>
             <div className="bg-white rounded-lg shadow p-4 border-l-4 border-amber-500">
               <div className="flex items-center justify-between">
                 <div>
@@ -549,6 +629,15 @@ export default function DvybBrandsPage() {
                   <p className="text-2xl font-bold text-gray-900">{stats.totalApprovedAds ?? 0}</p>
                 </div>
                 <ThumbsUp className="h-8 w-8 text-sky-500" />
+              </div>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4 border-l-4 border-purple-500">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Inventory analysed</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats.totalInventoryAnalysed ?? 0}</p>
+                </div>
+                <Sparkles className="h-8 w-8 text-purple-500" />
               </div>
             </div>
           </div>
@@ -617,6 +706,9 @@ export default function DvybBrandsPage() {
                       Ads (Approved)
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Inventory Analysed
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -658,6 +750,23 @@ export default function DvybBrandsPage() {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-sm font-medium text-gray-900">
                           {brand.adCount ?? 0} ({brand.approvedAdCount ?? 0} approved)
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`text-sm font-medium ${
+                            (brand.inventoryAnalysedCount ?? 0) === (brand.approvedAdCount ?? 0) &&
+                            (brand.approvedAdCount ?? 0) > 0
+                              ? 'text-green-600'
+                              : 'text-gray-600'
+                          }`}
+                          title={
+                            (brand.inventoryAnalysedCount ?? 0) < (brand.approvedAdCount ?? 0)
+                              ? `Run Inventory Analysis to analyse remaining ${(brand.approvedAdCount ?? 0) - (brand.inventoryAnalysedCount ?? 0)} ad(s)`
+                              : undefined
+                          }
+                        >
+                          {brand.inventoryAnalysedCount ?? 0} / {brand.approvedAdCount ?? 0}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">{statusBadge(brand.fetchStatus)}</td>
@@ -978,11 +1087,92 @@ export default function DvybBrandsPage() {
       {/* Refetch modal */}
       {refetchModalBrand && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-md w-full p-6">
+          <div className="bg-white rounded-lg max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-bold text-gray-900 mb-2">Re-fetch ads</h2>
             <p className="text-sm text-gray-600 mb-4">
-              Re-fetch ads for <strong>{refetchModalBrand.brandName || refetchModalBrand.brandDomain}</strong>. Choose which creatives to fetch:
+              Re-fetch ads for <strong>{refetchModalBrand.brandName || refetchModalBrand.brandDomain}</strong>. Choose countries and creatives:
             </p>
+            <div className="min-w-0 mb-4" ref={refetchCountryDropdownRef}>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Countries</label>
+              <p className="text-xs text-gray-500 mb-2">Select countries to fetch ads from. Empty = All.</p>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setRefetchCountryDropdownOpen((o) => !o)}
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2 mb-2 border border-gray-300 rounded-lg bg-white text-left text-gray-900 hover:border-gray-400 focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                >
+                  <span className="truncate">
+                    {refetchCountries.length === 0
+                      ? 'Select countries...'
+                      : `${refetchCountries.length} selected`}
+                  </span>
+                  <ChevronDown
+                    className={`h-4 w-4 shrink-0 text-gray-500 transition-transform ${refetchCountryDropdownOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+                {refetchCountryDropdownOpen && (
+                  <div className="absolute z-50 w-full mt-0.5 rounded-lg border border-gray-200 bg-white shadow-lg overflow-hidden">
+                    <div className="p-2 border-b border-gray-100">
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                        <input
+                          type="text"
+                          placeholder="Search countries..."
+                          value={refetchCountrySearchQuery}
+                          onChange={(e) => setRefetchCountrySearchQuery(e.target.value)}
+                          className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-md text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                        />
+                      </div>
+                    </div>
+                    <div className="max-h-48 overflow-y-auto p-1">
+                      {filteredRefetchCountries.length === 0 ? (
+                        <p className="px-3 py-4 text-sm text-gray-500 text-center">No countries match</p>
+                      ) : (
+                        filteredRefetchCountries.map((c) => {
+                          const isSelected = refetchCountries.some((x) => x.code === c.code);
+                          return (
+                            <label
+                              key={c.code}
+                              className="flex items-center gap-2 px-3 py-2 rounded cursor-pointer hover:bg-gray-50 text-sm text-gray-900"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => toggleRefetchCountry(c)}
+                                className="rounded border-gray-300 text-sky-600 focus:ring-sky-500"
+                              />
+                              {c.name} ({c.code})
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              {refetchCountries.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {refetchCountries.map((c, i) => (
+                    <span
+                      key={c.code}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded bg-gray-100 text-gray-800 text-sm"
+                    >
+                      {c.name} ({c.code})
+                      <button
+                        type="button"
+                        onClick={() => removeRefetchCountry(i)}
+                        className="text-red-600 hover:text-red-800 ml-0.5"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="mb-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Creative media type</label>
+            </div>
             <div className="flex gap-4 mb-6">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -1111,9 +1301,10 @@ export default function DvybBrandsPage() {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="px-6 py-3 border-b border-gray-200 flex flex-wrap items-center gap-3">
-              <span className="text-sm font-medium text-gray-700">Filter:</span>
-              <div className="flex gap-2">
+            <div className="px-6 py-3 border-b border-gray-200 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-sm font-medium text-gray-700">Filter:</span>
+                <div className="flex gap-2">
                 {(['all', 'approved', 'pending_approval'] as const).map((f) => (
                   <button
                     key={f}
@@ -1132,6 +1323,21 @@ export default function DvybBrandsPage() {
                   </button>
                 ))}
               </div>
+              </div>
+              <Button
+                onClick={() => handleRunInventoryAnalysis(selectedBrand.id)}
+                disabled={runningInventoryAnalysisForBrand === selectedBrand.id}
+                variant="outline"
+                size="sm"
+                className="flex items-center gap-2 border-sky-600 text-sky-600 hover:bg-sky-50"
+              >
+                {runningInventoryAnalysisForBrand === selectedBrand.id ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                Run Inventory Analysis
+              </Button>
             </div>
             <div className="flex-1 overflow-y-auto p-6">
               {adsLoading ? (

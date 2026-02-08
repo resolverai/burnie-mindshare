@@ -2150,6 +2150,7 @@ export const brandsApi = {
     status?: string;
     category?: string;
     websiteCategory?: string;
+    productImageS3Key?: string;
     brandContext?: BrandContextForMatch | null;
     runtime?: string;
     adCount?: string;
@@ -2165,6 +2166,7 @@ export const brandsApi = {
     if (params?.status && params.status !== 'All') sp.set('status', params.status);
     if (params?.category && params.category !== 'All') sp.set('category', params.category);
     if (params?.websiteCategory) sp.set('websiteCategory', params.websiteCategory);
+    if (params?.productImageS3Key) sp.set('productImageS3Key', params.productImageS3Key);
     if (params?.brandContext && Object.keys(params.brandContext).length > 0) {
       sp.set('brandContext', encodeURIComponent(JSON.stringify(params.brandContext)));
     }
