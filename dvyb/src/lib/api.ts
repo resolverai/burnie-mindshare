@@ -2276,6 +2276,7 @@ export const productsApi = {
         imageS3Key: string;
         imageUrl: string;
         createdAt: string;
+        source?: "account" | "domain";
       }>;
       error?: string;
     }>('/dvyb/products');

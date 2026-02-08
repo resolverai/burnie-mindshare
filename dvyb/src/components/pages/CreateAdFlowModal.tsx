@@ -394,7 +394,7 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
       }
 
       setExpectedImageCount(imageCount);
-      setInitialJobId(response.job_id || null);
+      setInitialJobId(response.job_id || (response as { uuid?: string }).uuid || null);
       setShowGenerateDialog(true);
       onOpenChange(false);
       onCreateAd?.();

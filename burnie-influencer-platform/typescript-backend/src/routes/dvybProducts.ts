@@ -7,8 +7,24 @@ import sharp from 'sharp';
 import { logger } from '../config/logger';
 import { AppDataSource } from '../config/database';
 import { DvybAccountProduct } from '../models/DvybAccountProduct';
+import { DvybContext } from '../models/DvybContext';
+import { DvybDomainProductImage } from '../models/DvybDomainProductImage';
 import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddleware';
 import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
+
+function normalizeDomain(url: string): string {
+  const u = (url || '').trim();
+  if (!u) return '';
+  const withProtocol = u.startsWith('http://') || u.startsWith('https://') ? u : `https://${u}`;
+  try {
+    const parsed = new URL(withProtocol);
+    let host = parsed.hostname.toLowerCase();
+    if (host.startsWith('www.')) host = host.slice(4);
+    return host || u;
+  } catch {
+    return u;
+  }
+}
 
 const router = Router();
 const s3Service = new S3PresignedUrlService();
@@ -32,20 +48,22 @@ const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp
 
 /**
  * GET /api/dvyb/products
- * List products for the current account with presigned image URLs (Redis cached)
+ * List products for the current account with presigned image URLs.
+ * Includes both dvyb_account_products and dvyb_domain_product_images when the account's
+ * website (from dvyb_context) matches the domain from website analysis onboarding.
  */
 router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
   try {
     const accountId = req.dvybAccountId!;
-    const repo = AppDataSource.getRepository(DvybAccountProduct);
+    const productRepo = AppDataSource.getRepository(DvybAccountProduct);
 
-    const products = await repo.find({
+    const accountProducts = await productRepo.find({
       where: { accountId },
       order: { createdAt: 'DESC' },
     });
 
-    const withUrls = await Promise.all(
-      products.map(async (p) => {
+    const accountWithUrls = await Promise.all(
+      accountProducts.map(async (p) => {
         const presignedUrl = await s3Service.generatePresignedUrl(p.imageS3Key, 3600, true);
         return {
           id: p.id,
@@ -53,13 +71,77 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
           imageS3Key: p.imageS3Key,
           imageUrl: presignedUrl || p.imageS3Key,
           createdAt: p.createdAt,
+          source: 'account' as const,
         };
       })
     );
 
+    let domainProducts: Array<{
+      id: number;
+      name: string;
+      imageS3Key: string;
+      imageUrl: string;
+      createdAt: Date;
+      source: 'domain';
+    }> = [];
+
+    const contextRepo = AppDataSource.getRepository(DvybContext);
+    const context = await contextRepo.findOne({ where: { accountId } });
+    if (!context?.website) {
+      logger.info(`📦 Products: no context or website for account ${accountId}, skipping domain product images`);
+    }
+    if (context?.website) {
+      const domain = normalizeDomain(context.website);
+      if (domain) {
+        const domainRepo = AppDataSource.getRepository(DvybDomainProductImage);
+        // Try primary domain first; fallback to www-prefixed if stored that way
+        const domainVariants = [
+          domain,
+          domain.startsWith('www.') ? domain.slice(4) : `www.${domain}`,
+        ].filter((v, i, a) => a.indexOf(v) === i);
+        const domainRows = await domainRepo
+          .createQueryBuilder('img')
+          .where(
+            domainVariants
+              .map((_, i) => `LOWER(TRIM(img.domain)) = LOWER(:domain${i})`)
+              .join(' OR '),
+            Object.fromEntries(domainVariants.map((d, i) => [`domain${i}`, d]))
+          )
+          .orderBy('img.id', 'ASC')
+          .take(20)
+          .getMany();
+        if (domainRows.length === 0) {
+          const distinctDomains = await domainRepo
+            .createQueryBuilder('img')
+            .select('img.domain')
+            .distinct(true)
+            .getRawMany();
+          const domainsList = distinctDomains.map((r) => String(Object.values(r)[0] ?? '')).filter(Boolean).join(', ') || '(none)';
+          logger.info(`📦 Products: context.website=${context.website} -> normalized domain=${domain}, found 0 domain product images. DB has domains: ${domainsList}`);
+        } else {
+          logger.info(`📦 Products: context.website=${context.website} -> normalized domain=${domain}, found ${domainRows.length} domain product images`);
+        }
+        domainProducts = await Promise.all(
+          domainRows.map(async (row) => {
+            const presignedUrl = await s3Service.generatePresignedUrl(row.s3Key, 3600, true);
+            return {
+              id: -row.id,
+              name: 'Product',
+              imageS3Key: row.s3Key,
+              imageUrl: presignedUrl || row.s3Key,
+              createdAt: row.createdAt,
+              source: 'domain' as const,
+            };
+          })
+        );
+      }
+    }
+
+    const data = [...accountWithUrls, ...domainProducts];
+
     return res.json({
       success: true,
-      data: withUrls,
+      data,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {

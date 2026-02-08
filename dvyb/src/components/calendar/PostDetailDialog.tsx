@@ -2506,6 +2506,16 @@ export const PostDetailDialog = ({
                                 Add text overlays or use AI to regenerate.
                               </p>
                             </div>
+
+                            {/* Edit Captions - same as PostDetailDialog Make Changes */}
+                            <Button
+                              variant="outline"
+                              className="w-full"
+                              onClick={() => setShowCaptionEdit(true)}
+                            >
+                              <span className="mr-2">📝</span>
+                              Edit Captions
+                            </Button>
                             
                             {/* Image Versions Gallery - Original + Regenerated - Vertical layout */}
                             <div>
@@ -3092,6 +3102,16 @@ export const PostDetailDialog = ({
             {showEditDesign && (
               <div className="bg-background px-4 py-6 md:px-6">
                 <div className="max-w-md mx-auto space-y-5">
+                  {/* Edit Captions */}
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => setShowCaptionEdit(true)}
+                  >
+                    <span className="mr-2">📝</span>
+                    Edit Captions
+                  </Button>
+
                   {/* AI Chat Panel */}
                   <div className="border rounded-lg p-4">
                     <div className="flex items-center justify-between mb-3">

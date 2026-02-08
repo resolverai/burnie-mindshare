@@ -2660,20 +2660,47 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               return (
                 <div
                   key={post.id}
-                  className={`${commonCardClasses} aspect-[9/16] cursor-pointer hover:shadow-lg transition-shadow`}
+                  className={`${commonCardClasses} w-[200px] sm:w-[220px] cursor-pointer hover:shadow-lg transition-shadow aspect-[9/16] max-h-[min(380px,50vh)]`}
                   onClick={() => setShowDownloadPricingModal(true)}
                 >
-                  <div className="w-full flex flex-col h-full">
-                    <div className="flex items-center gap-2 px-3 py-2.5 border-b border-neutral-100 shrink-0">
-                      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-neutral-900 truncate">{brandDisplay}</p>
-                        <p className="text-xs text-muted-foreground">Sponsored</p>
+                  {/* Reel-style: full image with overlays on top (like real IG Reels) */}
+                  <div className="relative w-full flex-1 min-h-0 flex flex-col">
+                    {/* Full image - full width, natural height */}
+                    <div className="relative w-full bg-neutral-900 overflow-hidden shrink-0">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={post.image} alt={post.title} className="w-full h-auto block object-top" />
+                      {/* Profile overlay - top left */}
+                      <div className="absolute top-2 left-2 right-2 flex items-center gap-2 z-10">
+                        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 flex-shrink-0 ring-2 ring-white/80" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-white truncate drop-shadow-md">{brandDisplay}</p>
+                          <p className="text-xs text-white/90 truncate">Sponsored</p>
+                        </div>
                       </div>
-                    </div>
-                    <div className="relative flex-1 min-h-0 bg-neutral-900">
-                      <img src={post.image} alt={post.title} className="w-full h-full object-cover" />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3 gap-2">
+                      {/* Caption overlay - bottom (on top of image, like real Reels) */}
+                      <div className="absolute bottom-0 left-0 right-0 p-3 pt-12 bg-gradient-to-t from-black/85 via-black/50 to-transparent z-10">
+                        <p className="text-sm text-white line-clamp-3 drop-shadow-sm">
+                          <span className="font-semibold">{brandDisplay}</span> {caption}
+                        </p>
+                        <p className="text-xs text-white/90 mt-1 truncate">{brandDisplay.startsWith("@") ? "instagram.com" : brandDisplay} · Shop Now</p>
+                      </div>
+                      {/* Engagement icons - right side (like real Reels) */}
+                      <div className="absolute right-2 bottom-20 flex flex-col items-center gap-3 z-10">
+                        <div className="flex flex-col items-center text-white drop-shadow-md">
+                          <Heart className="w-6 h-6" />
+                          <span className="text-xs font-medium">2.1K</span>
+                        </div>
+                        <div className="flex flex-col items-center text-white drop-shadow-md">
+                          <MessageCircle className="w-6 h-6" />
+                          <span className="text-xs font-medium">89</span>
+                        </div>
+                        <div className="flex flex-col items-center text-white drop-shadow-md">
+                          <Send className="w-6 h-6" />
+                          <span className="text-xs font-medium">Share</span>
+                        </div>
+                      </div>
+                      {/* Hover overlay - Edit/Download */}
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3 gap-2 z-20">
                         <Button size="sm" variant="secondary" className="w-full gap-2" onClick={handleEditOrDownload}>
                           <Pencil className="w-4 h-4" /> Edit
                         </Button>
@@ -2681,21 +2708,6 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                           <Download className="w-4 h-4" /> Download
                         </Button>
                       </div>
-                    </div>
-                    <div className="px-3 py-2 border-t border-neutral-100 bg-neutral-50/50 shrink-0">
-                      <p className="text-sm font-semibold text-neutral-900">Shop Now</p>
-                      <p className="text-xs text-muted-foreground truncate">{brandDisplay.startsWith("@") ? "instagram.com" : brandDisplay}</p>
-                    </div>
-                    <div className="px-3 py-2.5 shrink-0">
-                      <div className="flex items-center gap-3 mb-1">
-                        <Heart className="w-5 h-5 text-neutral-700" />
-                        <MessageCircle className="w-5 h-5 text-neutral-700" />
-                        <Send className="w-5 h-5 text-neutral-700" />
-                      </div>
-                      <p className="text-sm font-semibold text-neutral-900 mb-0.5">2.1K likes</p>
-                      <p className="text-sm text-neutral-600 line-clamp-2">
-                        <span className="font-semibold text-neutral-900">{brandDisplay}</span> {caption}
-                      </p>
                     </div>
                   </div>
                 </div>
@@ -2724,8 +2736,9 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                         <span className="font-semibold text-neutral-900">{brandDisplay}</span> {caption}
                       </p>
                     </div>
-                    <div className="relative aspect-video bg-neutral-100">
-                      <img src={post.image} alt={post.title} className="w-full h-full object-cover" />
+                    <div className="relative w-full bg-neutral-100 shrink-0 overflow-hidden">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={post.image} alt={post.title} className="w-full h-auto block object-top" />
                       <div className="absolute top-2 right-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                         <Button size="sm" variant="secondary" className="gap-1.5" onClick={handleEditOrDownload}>
                           <Pencil className="w-3.5 h-3.5" /> Edit
@@ -2755,10 +2768,10 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
             return (
               <div
                 key={post.id}
-                className={`${commonCardClasses} aspect-[4/5] cursor-pointer hover:shadow-lg transition-shadow`}
+                className={`${commonCardClasses} cursor-pointer hover:shadow-lg transition-shadow`}
                 onClick={() => setShowDownloadPricingModal(true)}
               >
-                <div className="w-full flex flex-col h-full">
+                <div className="w-full flex flex-col">
                   <div className="flex items-center gap-2 px-3 py-2.5 border-b border-neutral-100 shrink-0">
                     <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400" />
                     <div className="flex-1 min-w-0">
@@ -2766,8 +2779,9 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                       <p className="text-xs text-muted-foreground">Sponsored</p>
                     </div>
                   </div>
-                  <div className="relative flex-1 min-h-0 bg-neutral-900">
-                    <img src={post.image} alt={post.title} className="w-full h-full object-cover" />
+                  <div className="relative w-full bg-neutral-900 shrink-0 overflow-hidden">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={post.image} alt={post.title} className="w-full h-auto block object-top" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3 gap-2">
                       <Button size="sm" variant="secondary" className="w-full gap-2" onClick={handleEditOrDownload}>
                         <Pencil className="w-4 h-4" /> Edit
@@ -2866,7 +2880,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                   Facebook
                 </button>
               </div>
-              <div className="flex-1 min-h-[320px] md:min-h-[400px] flex justify-center items-start gap-4 md:gap-6 overflow-auto">
+              <div className="flex-1 min-h-0 flex justify-center items-center gap-4 md:gap-6 overflow-y-auto py-2">
                 {displayPosts.map((post, index) => renderAdCard(post, index))}
               </div>
               {allComplete && (
@@ -3261,7 +3275,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                 >
                   <X className="h-5 w-5 text-foreground" />
                 </button>
-                <div className={`flex-1 min-h-0 p-6 pt-14 flex flex-col ${step === "results" && (landingStyle || adFlowMode) && initialJobId ? "overflow-hidden" : "overflow-y-auto"}`}>
+                <div className={`flex-1 min-h-0 p-6 pt-14 flex flex-col overflow-y-auto`}>
                   <div className={`mx-auto flex-1 min-h-0 flex flex-col ${step === "results" && (landingStyle || adFlowMode) && initialJobId ? "max-w-6xl w-full" : "max-w-3xl"}`}>
                     {renderStep()}
                   </div>
@@ -3503,11 +3517,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
         open={showDownloadPricingModal}
         onClose={() => {
           setShowDownloadPricingModal(false);
-          onOpenChange(false);
-          onDialogClosed?.();
-          if (isAuthenticated) {
-            router.push("/discover");
-          }
+          // Keep GenerateContentDialog open - only redirect to discover when user explicitly closes it
         }}
         variant="centered"
         currentPlanInfo={usageData ? {

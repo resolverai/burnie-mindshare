@@ -518,8 +518,9 @@ router.post('/domain-product-image-callback', async (req, res) => {
       return res.status(503).json({ success: false, error: 'Database not ready' });
     }
     const repo = AppDataSource.getRepository(DvybDomainProductImage);
+    const normalizedDomain = normalizeDomain(String(domain).trim()) || String(domain).trim();
     await repo.save({
-      domain: String(domain).trim(),
+      domain: normalizedDomain,
       s3Key: s3_key,
       sourceLabel: sourceLabel ?? null,
     });
