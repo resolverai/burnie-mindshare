@@ -616,6 +616,9 @@ router.get('/pricing-plans', async (req: Request, res: Response) => {
         planFlow: plan.planFlow,
         isFreemium: plan.isFreemium,
         freemiumTrialDays: plan.freemiumTrialDays,
+        dealActive: plan.dealActive || false,
+        dealMonthlyPrice: plan.dealMonthlyPrice != null ? Number(plan.dealMonthlyPrice) : null,
+        dealAnnualPrice: plan.dealAnnualPrice != null ? Number(plan.dealAnnualPrice) : null,
       })),
       timestamp: new Date().toISOString(),
     });

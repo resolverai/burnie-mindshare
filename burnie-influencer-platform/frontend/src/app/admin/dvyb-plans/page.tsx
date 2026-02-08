@@ -15,6 +15,7 @@ import {
   Image as ImageIcon,
   Video,
   Gift,
+  Tag,
   ToggleLeft,
   ToggleRight,
   Loader2
@@ -40,6 +41,9 @@ interface PricingPlan {
   stripeProductId: string | null;
   stripeMonthlyPriceId: string | null;
   stripeAnnualPriceId: string | null;
+  dealActive: boolean;
+  dealMonthlyPrice: number | null;
+  dealAnnualPrice: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -85,6 +89,9 @@ export default function DvybPlansPage() {
     stripeMonthlyPriceId: '',
     stripeAnnualPriceId: '',
     createStripeProduct: true, // Auto-create Stripe product for new non-free plans
+    dealActive: false,
+    dealMonthlyPrice: '',
+    dealAnnualPrice: '',
   });
   const [submitting, setSubmitting] = useState(false);
   const [togglingPlanId, setTogglingPlanId] = useState<number | null>(null);
@@ -141,6 +148,9 @@ export default function DvybPlansPage() {
         stripeMonthlyPriceId: plan.stripeMonthlyPriceId || '',
         stripeAnnualPriceId: plan.stripeAnnualPriceId || '',
         createStripeProduct: false, // Don't auto-create when editing existing plan
+        dealActive: plan.dealActive || false,
+        dealMonthlyPrice: plan.dealMonthlyPrice != null ? plan.dealMonthlyPrice.toString() : '',
+        dealAnnualPrice: plan.dealAnnualPrice != null ? plan.dealAnnualPrice.toString() : '',
       });
     } else {
       setEditingPlan(null);
@@ -163,6 +173,9 @@ export default function DvybPlansPage() {
         stripeMonthlyPriceId: '',
         stripeAnnualPriceId: '',
         createStripeProduct: true, // Auto-create Stripe product for new non-free plans
+        dealActive: false,
+        dealMonthlyPrice: '',
+        dealAnnualPrice: '',
       });
     }
     setShowModal(true);
@@ -171,6 +184,11 @@ export default function DvybPlansPage() {
   // Handle submit
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (formData.dealActive && (!formData.dealMonthlyPrice || !formData.dealAnnualPrice)) {
+      alert('When deal is enabled, both deal monthly and annual prices are required.');
+      return;
+    }
     
     try {
       setSubmitting(true);
@@ -203,6 +221,9 @@ export default function DvybPlansPage() {
           stripeMonthlyPriceId: formData.stripeMonthlyPriceId || null,
           stripeAnnualPriceId: formData.stripeAnnualPriceId || null,
           createStripeProduct: formData.createStripeProduct && !formData.isFreeTrialPlan,
+          dealActive: formData.dealActive,
+          dealMonthlyPrice: formData.dealActive && formData.dealMonthlyPrice ? parseFloat(formData.dealMonthlyPrice) : null,
+          dealAnnualPrice: formData.dealActive && formData.dealAnnualPrice ? parseFloat(formData.dealAnnualPrice) : null,
         }),
       });
 
@@ -710,6 +731,68 @@ export default function DvybPlansPage() {
                     placeholder="0.00"
                   />
                 </div>
+
+                {/* Deal / Promotional Pricing */}
+                {!formData.isFreeTrialPlan && (
+                  <div className="col-span-2 mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                    <label className="flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.dealActive}
+                        onChange={(e) => setFormData({ 
+                          ...formData, 
+                          dealActive: e.target.checked,
+                          ...(e.target.checked ? {} : { dealMonthlyPrice: '', dealAnnualPrice: '' })
+                        })}
+                        className="w-4 h-4 text-amber-600 bg-gray-100 border-gray-300 rounded focus:ring-amber-500 focus:ring-2"
+                      />
+                      <span className="ml-2 text-sm font-medium text-gray-900 flex items-center gap-1">
+                        <Tag className="h-4 w-4 text-amber-600" />
+                        Enable Deal / Promotional Pricing
+                      </span>
+                    </label>
+                    <p className="text-xs text-gray-500 mt-1 ml-6">
+                      Show a discounted price to users. Original price above is used when deal is off. Stripe deal prices are auto-created on save when the plan has Stripe connected. When you turn off the deal, new checkouts use original price; existing subscribers are automatically switched to the original price at their next renewal.
+                    </p>
+                    {formData.dealActive && (
+                      <div className="mt-4 ml-6 grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">
+                            Deal Monthly Price ($) *
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            required={formData.dealActive}
+                            value={formData.dealMonthlyPrice}
+                            onChange={(e) => setFormData({ ...formData, dealMonthlyPrice: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent text-gray-900"
+                            placeholder="Deal price"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">
+                            Deal Annual Price ($) *
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            required={formData.dealActive}
+                            value={formData.dealAnnualPrice}
+                            onChange={(e) => setFormData({ ...formData, dealAnnualPrice: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent text-gray-900"
+                            placeholder="Deal price"
+                          />
+                        </div>
+                        {formData.monthlyPrice && formData.dealMonthlyPrice && parseFloat(formData.dealMonthlyPrice) < parseFloat(formData.monthlyPrice) && (
+                          <div className="col-span-2 text-xs text-green-600">
+                            Discount: ~{Math.round((1 - parseFloat(formData.dealMonthlyPrice) / parseFloat(formData.monthlyPrice)) * 100)}% off monthly
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Monthly Limits */}
                 <div className="col-span-2 mt-4">

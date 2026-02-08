@@ -47,6 +47,9 @@ interface PricingPlan {
   isFreemium?: boolean;
   freemiumTrialDays?: number;
   planFlow?: 'website_analysis' | 'product_photoshot';
+  dealActive?: boolean;
+  dealMonthlyPrice?: number | null;
+  dealAnnualPrice?: number | null;
 }
 
 interface CurrentPlanInfo {
@@ -175,8 +178,11 @@ const PlanCard = ({
   const imageLabel = isProductFlow ? 'Images' : 'Image Posts';
   const videoLabel = isProductFlow ? 'Videos' : 'Video Posts';
 
-  // Free plan always uses monthly values
-  const getPrice = () => isFree ? 0 : (billingCycle === 'monthly' ? plan.monthlyPrice : plan.annualPrice);
+  const hasDeal = !isFree && plan.dealActive && (plan.dealMonthlyPrice != null) && (plan.dealAnnualPrice != null);
+  const originalPrice = billingCycle === 'monthly' ? plan.monthlyPrice : plan.annualPrice;
+  const dealPrice = billingCycle === 'monthly' ? (plan.dealMonthlyPrice ?? 0) : (plan.dealAnnualPrice ?? 0);
+  const getPrice = () => isFree ? 0 : (hasDeal ? dealPrice : originalPrice);
+  const getDealDiscountPercent = () => hasDeal && originalPrice > 0 ? Math.round((1 - dealPrice / originalPrice) * 100) : 0;
   const getImageLimit = () => isFree ? plan.monthlyImageLimit : (billingCycle === 'monthly' ? plan.monthlyImageLimit : plan.annualImageLimit);
   const getVideoLimit = () => isFree ? plan.monthlyVideoLimit : (billingCycle === 'monthly' ? plan.monthlyVideoLimit : plan.annualVideoLimit);
   
@@ -228,12 +234,22 @@ const PlanCard = ({
             </span>
           </div>
         )}
+        {hasDeal && !popular && (
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+            <span className="px-4 py-1 bg-green-500 text-white rounded-full text-xs font-semibold">
+              {getDealDiscountPercent()}% OFF
+            </span>
+          </div>
+        )}
         <div className="mb-4">
           <h3 className="text-xl font-semibold mb-1 text-foreground">{plan.planName}</h3>
           {plan.description && (
             <p className="text-sm text-muted-foreground mb-2">{plan.description}</p>
           )}
-          <div className="flex items-baseline gap-1">
+          <div className="flex items-baseline gap-1 flex-wrap">
+            {hasDeal && (
+              <span className="text-lg line-through text-muted-foreground">${originalPrice}</span>
+            )}
             <span className="text-3xl font-bold text-foreground">{isFree ? "Free" : `$${getPrice()}`}</span>
             {!isFree && (
               <span className="text-muted-foreground text-sm">{getPeriod()}</span>
@@ -336,6 +352,15 @@ const PlanCard = ({
         </div>
       )}
 
+      {/* Deal Badge */}
+      {hasDeal && !isCurrent && (
+        <div className="absolute -top-4 left-1/2 -translate-x-1/2">
+          <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-green-500 text-white text-sm font-semibold shadow-lg">
+            {getDealDiscountPercent()}% OFF
+          </div>
+        </div>
+      )}
+
       {/* Plan Name */}
       <h3 className="text-2xl font-bold text-foreground mb-2 mt-2">
         {plan.planName}
@@ -349,7 +374,10 @@ const PlanCard = ({
 
       {/* Price */}
       <div className="mb-6">
-        <div className="flex items-baseline gap-1">
+        <div className="flex items-baseline gap-1 flex-wrap">
+          {hasDeal && (
+            <span className="text-xl line-through text-muted-foreground">${originalPrice}</span>
+          )}
           <span className="text-5xl font-bold text-foreground">
             {isFree ? 'Free' : `$${getPrice()}`}
           </span>

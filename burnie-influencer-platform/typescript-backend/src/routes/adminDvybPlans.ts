@@ -1,11 +1,55 @@
 import { Router, Request, Response } from 'express';
+import Stripe from 'stripe';
 import { AppDataSource } from '../config/database';
 import { DvybPricingPlan } from '../models/DvybPricingPlan';
+import { DvybAccountSubscription } from '../models/DvybAccountSubscription';
 import { logger } from '../config/logger';
 import { StripeService } from '../services/StripeService';
 import { env } from '../config/env';
 
 const router = Router();
+
+/**
+ * When deal is turned off, schedule all subscriptions on deal prices to switch to original price at next renewal.
+ */
+async function scheduleDealSubscriptionsToOriginalPrice(plan: DvybPricingPlan): Promise<void> {
+  if (!plan.stripeDealMonthlyPriceId && !plan.stripeDealAnnualPriceId) return;
+  if (!plan.stripeMonthlyPriceId || !plan.stripeAnnualPriceId) return;
+  if (!env.stripe.secretKey) return;
+
+  const stripe = new Stripe(env.stripe.secretKey);
+  const subscriptionRepo = AppDataSource.getRepository(DvybAccountSubscription);
+  const dealPriceIds = [plan.stripeDealMonthlyPriceId, plan.stripeDealAnnualPriceId].filter(Boolean) as string[];
+  if (dealPriceIds.length === 0) return;
+
+  const subsOnDeal = await subscriptionRepo
+    .createQueryBuilder('sub')
+    .where('sub.status = :status', { status: 'active' })
+    .andWhere('sub.stripePriceId IN (:...ids)', { ids: dealPriceIds })
+    .getMany();
+
+  for (const sub of subsOnDeal) {
+    try {
+      const newPriceId =
+        sub.stripePriceId === plan.stripeDealMonthlyPriceId
+          ? plan.stripeMonthlyPriceId!
+          : plan.stripeAnnualPriceId!;
+      const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+      const itemId = stripeSub.items.data[0]?.id;
+      if (!itemId) continue;
+
+      await stripe.subscriptions.update(sub.stripeSubscriptionId, {
+        items: [{ id: itemId, price: newPriceId }],
+        proration_behavior: 'none', // No immediate charge; new price applies at next renewal
+      });
+      sub.stripePriceId = newPriceId;
+      await subscriptionRepo.save(sub);
+      logger.info(`✅ Scheduled subscription ${sub.id} to switch from deal to original price at next renewal`);
+    } catch (err) {
+      logger.error(`⚠️ Failed to schedule deal→original switch for subscription ${sub.id}:`, err);
+    }
+  }
+}
 
 /**
  * GET /api/admin/dvyb-plans
@@ -97,6 +141,9 @@ router.post('/', async (req: Request, res: Response) => {
       isFreemium, // Freemium flag: 7-day trial before charging
       freemiumTrialDays, // Number of trial days (default 7)
       createStripeProduct, // Flag to auto-create Stripe product
+      dealActive, // Deal/promotional pricing
+      dealMonthlyPrice,
+      dealAnnualPrice,
     } = req.body;
 
     if (!planName || monthlyPrice === undefined || annualPrice === undefined) {
@@ -130,6 +177,9 @@ router.post('/', async (req: Request, res: Response) => {
       planFlow: planFlow || 'website_analysis',
       isFreemium: isFreemium || false,
       freemiumTrialDays: freemiumTrialDays || 7,
+      dealActive: dealActive || false,
+      dealMonthlyPrice: dealActive ? (dealMonthlyPrice ?? null) : null,
+      dealAnnualPrice: dealActive ? (dealAnnualPrice ?? null) : null,
     });
 
     await planRepo.save(newPlan);
@@ -206,6 +256,9 @@ router.patch('/:id', async (req: Request, res: Response) => {
       planFlow, // Flow type: 'website_analysis' or 'product_photoshot'
       isFreemium, // Freemium flag: 7-day trial before charging
       freemiumTrialDays, // Number of trial days (default 7)
+      dealActive,
+      dealMonthlyPrice,
+      dealAnnualPrice,
       // Stripe fields - can be manually updated
       stripeProductId,
       stripeMonthlyPriceId,
@@ -235,6 +288,41 @@ router.patch('/:id', async (req: Request, res: Response) => {
     if (planFlow !== undefined) plan.planFlow = planFlow;
     if (isFreemium !== undefined) plan.isFreemium = isFreemium;
     if (freemiumTrialDays !== undefined) plan.freemiumTrialDays = freemiumTrialDays;
+    if (dealActive !== undefined) {
+      plan.dealActive = dealActive;
+      if (!dealActive) {
+        plan.dealMonthlyPrice = null;
+        plan.dealAnnualPrice = null;
+        // Schedule existing subscriptions on deal prices to switch to original price at next renewal
+        if (plan.stripeDealMonthlyPriceId || plan.stripeDealAnnualPriceId) {
+          await scheduleDealSubscriptionsToOriginalPrice(plan);
+        }
+        plan.stripeDealMonthlyPriceId = null;
+        plan.stripeDealAnnualPriceId = null;
+      }
+    }
+    if (dealMonthlyPrice !== undefined && plan.dealActive) plan.dealMonthlyPrice = dealMonthlyPrice ?? null;
+    if (dealAnnualPrice !== undefined && plan.dealActive) plan.dealAnnualPrice = dealAnnualPrice ?? null;
+
+    // If deal prices changed, clear existing Stripe deal IDs so we create new ones (Stripe prices are immutable)
+    if (plan.dealActive && (dealMonthlyPrice !== undefined || dealAnnualPrice !== undefined) &&
+        (plan.stripeDealMonthlyPriceId || plan.stripeDealAnnualPriceId)) {
+      plan.stripeDealMonthlyPriceId = null;
+      plan.stripeDealAnnualPriceId = null;
+    }
+
+    // Create Stripe deal prices when deal is enabled and we have product but no deal price IDs
+    if (plan.dealActive && plan.dealMonthlyPrice != null && plan.dealAnnualPrice != null &&
+        plan.stripeProductId && !plan.stripeDealMonthlyPriceId && !plan.isFreeTrialPlan && env.stripe.secretKey) {
+      try {
+        const dealPrices = await StripeService.createDealPrices(plan);
+        plan.stripeDealMonthlyPriceId = dealPrices.monthlyPriceId;
+        plan.stripeDealAnnualPriceId = dealPrices.annualPriceId;
+        logger.info(`✅ Created Stripe deal prices for plan ${plan.id}`);
+      } catch (stripeError) {
+        logger.error('⚠️ Failed to create Stripe deal prices:', stripeError);
+      }
+    }
 
     // Update Stripe IDs (manual entry)
     if (stripeProductId !== undefined) plan.stripeProductId = stripeProductId || null;

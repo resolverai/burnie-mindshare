@@ -571,7 +571,7 @@ export default function DvybBrandsPage() {
             </div>
             <div className="flex gap-2">
               <Button
-                onClick={handleRunInventoryAnalysis}
+                onClick={() => handleRunInventoryAnalysis()}
                 disabled={runningInventoryAnalysis}
                 variant="outline"
                 className="flex items-center gap-2 border-sky-600 text-sky-600 hover:bg-sky-50"

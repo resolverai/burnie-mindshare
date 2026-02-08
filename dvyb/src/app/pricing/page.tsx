@@ -27,6 +27,9 @@ interface PricingPlan {
   extraVideoPostPrice: number;
   isFreeTrialPlan: boolean;
   planFlow?: 'website_analysis' | 'product_photoshot';
+  dealActive?: boolean;
+  dealMonthlyPrice?: number | null;
+  dealAnnualPrice?: number | null;
 }
 
 // Billing toggle — aligned with new frontend pill style (landing)
@@ -109,8 +112,12 @@ const PlanCard = ({
   const isPopular = !plan.isFreeTrialPlan && paidPlans.length > 1 && paidPlans[Math.floor(paidPlans.length / 2)]?.id === plan.id;
   const isFree = plan.isFreeTrialPlan;
 
-  const getPrice = () => isFree ? 0 : (billingCycle === 'monthly' ? plan.monthlyPrice : plan.annualPrice);
+  const hasDeal = !isFree && plan.dealActive && (plan.dealMonthlyPrice != null) && (plan.dealAnnualPrice != null);
+  const originalPrice = billingCycle === 'monthly' ? plan.monthlyPrice : plan.annualPrice;
+  const dealPrice = billingCycle === 'monthly' ? (plan.dealMonthlyPrice ?? 0) : (plan.dealAnnualPrice ?? 0);
+  const getPrice = () => isFree ? 0 : (hasDeal ? dealPrice : originalPrice);
   const getPeriod = () => (isFree ? "" : billingCycle === 'monthly' ? "/month" : "/year");
+  const getDealDiscountPercent = () => hasDeal && originalPrice > 0 ? Math.round((1 - dealPrice / originalPrice) * 100) : 0;
   const getAnnualSavings = () => {
     if (isFree) return 0;
     const monthlyCost = plan.monthlyPrice * 12;
@@ -145,10 +152,22 @@ const PlanCard = ({
           </span>
         </div>
       )}
+      {hasDeal && !popular && (
+        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+          <span className="px-4 py-1 bg-green-500 text-white rounded-full text-xs font-semibold">
+            {getDealDiscountPercent()}% OFF
+          </span>
+        </div>
+      )}
 
       <div className="mb-6">
         <h3 className="text-xl font-semibold mb-2">{plan.planName}</h3>
-        <div className="flex items-baseline gap-1">
+        <div className="flex items-baseline gap-1 flex-wrap">
+          {hasDeal && (
+            <span className={`text-lg line-through ${popular ? "text-white/50" : "text-muted-foreground"}`}>
+              ${originalPrice}
+            </span>
+          )}
           <span className="text-4xl font-bold">{isFree ? "Free" : `$${getPrice()}`}</span>
           {!isFree && (
             <span className={popular ? "text-white/70" : "text-muted-foreground"}>

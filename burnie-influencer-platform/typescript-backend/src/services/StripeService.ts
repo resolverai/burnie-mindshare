@@ -80,6 +80,40 @@ export class StripeService {
   }
 
   /**
+   * Create Stripe deal prices on existing product (for promotional pricing)
+   */
+  static async createDealPrices(plan: DvybPricingPlan): Promise<{ monthlyPriceId: string; annualPriceId: string }> {
+    if (!plan.stripeProductId || plan.dealMonthlyPrice == null || plan.dealAnnualPrice == null) {
+      throw new Error('Plan must have stripeProductId and deal prices to create deal Stripe prices');
+    }
+    try {
+      logger.info(`📦 Creating Stripe deal prices for plan: ${plan.planName}`);
+
+      const monthlyPrice = await stripe.prices.create({
+        product: plan.stripeProductId,
+        currency: 'usd',
+        unit_amount: Math.round(Number(plan.dealMonthlyPrice) * 100),
+        recurring: { interval: 'month' },
+        metadata: { dvybPlanId: plan.id.toString(), frequency: 'monthly', deal: 'true' },
+      });
+
+      const annualPrice = await stripe.prices.create({
+        product: plan.stripeProductId,
+        currency: 'usd',
+        unit_amount: Math.round(Number(plan.dealAnnualPrice) * 100),
+        recurring: { interval: 'year' },
+        metadata: { dvybPlanId: plan.id.toString(), frequency: 'annual', deal: 'true' },
+      });
+
+      logger.info(`✅ Created Stripe deal prices: ${monthlyPrice.id}, ${annualPrice.id}`);
+      return { monthlyPriceId: monthlyPrice.id, annualPriceId: annualPrice.id };
+    } catch (error) {
+      logger.error('❌ Error creating Stripe deal prices:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Update Stripe product details when plan is modified
    */
   static async updateStripeProduct(productId: string, updates: { name?: string; description?: string }): Promise<void> {
@@ -367,7 +401,11 @@ export class StripeService {
       throw new Error(`Plan ${planId} not found`);
     }
 
-    const priceId = frequency === 'monthly' ? plan.stripeMonthlyPriceId : plan.stripeAnnualPriceId;
+    // Use deal price IDs when deal is active, else original prices
+    const useDealPrices = plan.dealActive && plan.stripeDealMonthlyPriceId && plan.stripeDealAnnualPriceId;
+    const priceId = frequency === 'monthly'
+      ? (useDealPrices ? plan.stripeDealMonthlyPriceId : plan.stripeMonthlyPriceId)
+      : (useDealPrices ? plan.stripeDealAnnualPriceId : plan.stripeAnnualPriceId);
     if (!priceId) {
       throw new Error(`Stripe price not configured for plan ${planId} (${frequency})`);
     }

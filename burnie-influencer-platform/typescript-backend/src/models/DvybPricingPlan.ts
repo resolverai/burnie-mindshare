@@ -75,6 +75,23 @@ export class DvybPricingPlan {
   })
   freemiumTrialDays!: number;
 
+  // Deal / promotional pricing
+  @Column({ type: 'boolean', default: false, comment: 'If true, deal prices are shown and charged. When turned off, renewals use original price.' })
+  dealActive!: boolean;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, comment: 'Discounted monthly price when deal is active' })
+  dealMonthlyPrice!: number | null;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, comment: 'Discounted annual price when deal is active' })
+  dealAnnualPrice!: number | null;
+
+  /** Stripe Price IDs for deal pricing (created when deal is enabled) */
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  stripeDealMonthlyPriceId!: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  stripeDealAnnualPriceId!: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 
