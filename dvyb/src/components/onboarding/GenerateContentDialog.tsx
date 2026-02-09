@@ -2660,15 +2660,15 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               return (
                 <div
                   key={post.id}
-                  className={`${commonCardClasses} w-[200px] sm:w-[220px] cursor-pointer hover:shadow-lg transition-shadow aspect-[9/16] max-h-[min(380px,50vh)]`}
+                  className={`${commonCardClasses} w-[260px] sm:w-[280px] cursor-pointer hover:shadow-lg transition-shadow aspect-[9/16] max-h-[min(520px,60vh)] overflow-hidden`}
                   onClick={() => setShowDownloadPricingModal(true)}
                 >
                   {/* Reel-style: full image with overlays on top (like real IG Reels) */}
-                  <div className="relative w-full flex-1 min-h-0 flex flex-col">
-                    {/* Full image - full width, natural height */}
-                    <div className="relative w-full bg-neutral-900 overflow-hidden shrink-0">
+                  <div className="relative w-full h-full flex flex-col">
+                    {/* Full image - fills card, object-cover prevents white padding */}
+                    <div className="relative w-full h-full min-h-0 flex-1 overflow-hidden">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={post.image} alt={post.title} className="w-full h-auto block object-top" />
+                      <img src={post.image} alt={post.title} className="w-full h-full object-cover object-top" />
                       {/* Profile overlay - top left */}
                       <div className="absolute top-2 left-2 right-2 flex items-center gap-2 z-10">
                         <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 flex-shrink-0 ring-2 ring-white/80" />
@@ -2701,10 +2701,10 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                       </div>
                       {/* Hover overlay - Edit/Download */}
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3 gap-2 z-20">
-                        <Button size="sm" variant="secondary" className="w-full gap-2" onClick={handleEditOrDownload}>
+                        <Button size="sm" variant="secondary" className="w-full gap-2 !bg-white hover:!bg-gray-100" onClick={handleEditOrDownload}>
                           <Pencil className="w-4 h-4" /> Edit
                         </Button>
-                        <Button size="sm" variant="outline" className="w-full gap-2 bg-background/80 backdrop-blur-sm" onClick={handleEditOrDownload}>
+                        <Button size="sm" variant="outline" className="w-full gap-2 bg-background/80 backdrop-blur-sm hover:bg-accent hover:text-accent-foreground" onClick={handleEditOrDownload}>
                           <Download className="w-4 h-4" /> Download
                         </Button>
                       </div>
@@ -2736,11 +2736,11 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                         <span className="font-semibold text-neutral-900">{brandDisplay}</span> {caption}
                       </p>
                     </div>
-                    <div className="relative w-full bg-neutral-100 shrink-0 overflow-hidden">
+                    <div className="relative w-full bg-neutral-100 shrink-0 overflow-visible">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={post.image} alt={post.title} className="w-full h-auto block object-top" />
-                      <div className="absolute top-2 right-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                        <Button size="sm" variant="secondary" className="gap-1.5" onClick={handleEditOrDownload}>
+                      <img src={post.image} alt={post.title} className="w-full h-auto block object-top rounded-none" />
+                      <div className="absolute top-3 right-3 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity z-10">
+                        <Button size="sm" variant="secondary" className="gap-1.5 shadow-sm !bg-white hover:!bg-gray-100" onClick={handleEditOrDownload}>
                           <Pencil className="w-3.5 h-3.5" /> Edit
                         </Button>
                       </div>
@@ -2783,10 +2783,10 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={post.image} alt={post.title} className="w-full h-auto block object-top" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3 gap-2">
-                      <Button size="sm" variant="secondary" className="w-full gap-2" onClick={handleEditOrDownload}>
+                      <Button size="sm" variant="secondary" className="w-full gap-2 !bg-white hover:!bg-gray-100" onClick={handleEditOrDownload}>
                         <Pencil className="w-4 h-4" /> Edit
                       </Button>
-                      <Button size="sm" variant="outline" className="w-full gap-2 bg-background/80 backdrop-blur-sm" onClick={handleEditOrDownload}>
+                      <Button size="sm" variant="outline" className="w-full gap-2 bg-background/80 backdrop-blur-sm hover:bg-accent hover:text-accent-foreground" onClick={handleEditOrDownload}>
                         <Download className="w-4 h-4" /> Download
                       </Button>
                     </div>
@@ -2880,11 +2880,11 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                   Facebook
                 </button>
               </div>
-              <div className="flex-1 min-h-0 flex justify-center items-center gap-4 md:gap-6 overflow-y-auto py-2">
+              <div className="flex-none flex justify-center items-center gap-4 md:gap-6 py-4 px-1">
                 {displayPosts.map((post, index) => renderAdCard(post, index))}
               </div>
               {allComplete && (
-                <div className="flex flex-col items-center mt-4 shrink-0 gap-1">
+                <div className="flex flex-col items-center mt-4 mb-10 pb-6 shrink-0 gap-1">
                   <p className="text-xs text-muted-foreground">Download includes all formats (IG Post, IG Reel, Facebook)</p>
                   <Button
                     onClick={() => setShowDownloadPricingModal(true)}
@@ -3261,10 +3261,12 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               }`}
             >
               <div 
-                className={`relative flex flex-col overflow-hidden bg-[hsl(0,0%,98%)] border border-neutral-200/80 text-neutral-900 rounded-2xl shadow-xl ${
-                  adFlowMode 
-                    ? "w-[90vw] max-w-[90vw] h-[min(90vh,820px)] min-h-[min(90vh,820px)] max-h-[90vh]" 
-                    : "max-w-[95vw] w-full h-[min(90vh,780px)] min-h-[min(90vh,780px)] max-h-[90vh]"
+                className={`relative flex flex-col bg-[hsl(0,0%,98%)] border border-neutral-200/80 text-neutral-900 rounded-2xl shadow-xl ${
+                  step === "results" && (landingStyle || adFlowMode) && initialJobId
+                    ? `max-h-[95vh] overflow-y-auto ${adFlowMode ? "w-[90vw] max-w-[90vw] h-[min(95vh,920px)] min-h-[min(95vh,920px)]" : "max-w-[95vw] w-full h-[min(95vh,920px)] min-h-[min(95vh,920px)]"}`
+                    : adFlowMode 
+                      ? "w-[90vw] max-w-[90vw] h-[min(90vh,820px)] min-h-[min(90vh,820px)] max-h-[90vh] overflow-hidden" 
+                      : "max-w-[95vw] w-full h-[min(90vh,780px)] min-h-[min(90vh,780px)] max-h-[90vh] overflow-hidden"
                 }`}
                 onClick={(e) => e.stopPropagation()}
               >
@@ -3275,7 +3277,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                 >
                   <X className="h-5 w-5 text-foreground" />
                 </button>
-                <div className={`flex-1 min-h-0 p-6 pt-14 flex flex-col overflow-y-auto`}>
+                <div className={`flex-1 min-h-0 p-6 pt-14 pb-8 flex flex-col ${step === "results" && (landingStyle || adFlowMode) && initialJobId ? "overflow-y-auto" : "overflow-y-auto"}`}>
                   <div className={`mx-auto flex-1 min-h-0 flex flex-col ${step === "results" && (landingStyle || adFlowMode) && initialJobId ? "max-w-6xl w-full" : "max-w-3xl"}`}>
                     {renderStep()}
                   </div>

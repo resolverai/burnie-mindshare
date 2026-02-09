@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { useAuth } from "@/contexts/AuthContext";
 import { NavigationLanding } from "./NavigationLanding";
 import { HeroSection } from "./HeroSection";
 import { NotRegisteredModal } from "./NotRegisteredModal";
@@ -39,6 +40,7 @@ interface LandingPageNewProps {
  */
 export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: LandingPageNewProps) {
   const router = useRouter();
+  const { isAuthenticated, isLoading } = useAuth();
   const { completeStep } = useOnboardingGuide();
   const [websiteModalOpen, setWebsiteModalOpen] = useState(false);
   const [onboardingModalOpen, setOnboardingModalOpen] = useState(false);
@@ -70,6 +72,17 @@ export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: 
     }, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // Redirect logged-in users to discover (safety net in case page.tsx redirect didn't run)
+  // Skip redirect when user has onboarding generation job - they need to see their content modal
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
+      const hasOnboardingJob = localStorage.getItem("dvyb_onboarding_generation_job_id");
+      if (!hasOnboardingJob) {
+        router.replace("/discover");
+      }
+    }
+  }, [isAuthenticated, isLoading, router]);
 
   // Show "not registered" modal when user returns from Sign In with unregistered Google account
   useEffect(() => {

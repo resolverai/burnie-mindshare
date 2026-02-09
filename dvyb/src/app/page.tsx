@@ -106,7 +106,7 @@ function HomePageContent() {
       }
 
       // PRIORITY 1: Logged-in user visiting landing directly → redirect to discover
-      if (isAuthenticated && accountId) {
+      if (isAuthenticated) {
         console.log("✅ User already logged in - redirecting to /discover");
         localStorage.removeItem("dvyb_website_analysis");
         router.replace("/discover");
@@ -124,7 +124,7 @@ function HomePageContent() {
     };
 
     checkAndRedirect();
-  }, [isAuthenticated, accountId, isLoading, isMounted, router, flowType, searchParams]);
+  }, [isAuthenticated, isLoading, isMounted, router, flowType, searchParams]);
 
   const handleAnalysisComplete = (url: string) => {
     // User will be redirected to /onboarding/analysis-details from WebsiteAnalysis component
