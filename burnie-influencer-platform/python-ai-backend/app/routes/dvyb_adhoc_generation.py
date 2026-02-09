@@ -4034,22 +4034,179 @@ def _extract_s3_key_from_url(url: str) -> Optional[str]:
 
 
 def _inventory_analysis_to_image_inspiration(inv: dict) -> dict:
-    """Convert dvyb_brand_ads inventory_analysis to image_inspiration format for prompt generation."""
+    """
+    Convert dvyb_brand_ads inventory_analysis to image_inspiration format for prompt generation.
+    Produces the same structure as dvyb_inspiration_links inspirationAnalysis so Grok gets
+    identical enforcement (replication_tips, composition, etc.) for both sources.
+    """
     if not inv:
         return {}
+    colors = inv.get("colors") or []
+    if isinstance(colors, str):
+        colors = [c.strip() for c in colors.split(",") if c.strip()]
+    setting_str = (inv.get("setting") or "").lower()
+    composition_str = (inv.get("composition") or "").lower()
+    objects = inv.get("objects") or []
+    if isinstance(objects, str):
+        objects = [o.strip() for o in objects.split(",") if o.strip()]
+    materials = inv.get("materials") or []
+    if isinstance(materials, str):
+        materials = [m.strip() for m in materials.split(",") if m.strip()]
+    product_type = inv.get("product_type") or ""
+    text_or_branding = inv.get("text_or_branding") or ""
+
+    # Infer human presence from setting/composition (e.g. "模特 wearing", "lifestyle shot", "model")
+    human_keywords = ["model", "模特", "person", "human", "wear", "wearing", "lifestyle", "portrait"]
+    has_humans = any(kw in setting_str or kw in composition_str for kw in human_keywords)
+
+    # Infer shot type from composition/setting
+    if "product on white" in setting_str or "white background" in setting_str:
+        shot_type = "close-up or product shot"
+    elif "flatlay" in setting_str or "flat lay" in setting_str:
+        shot_type = "overhead/flatlay"
+    elif "lifestyle" in setting_str or "lifestyle" in composition_str:
+        shot_type = "medium shot"
+    else:
+        shot_type = composition_str or "medium shot" if has_humans else "product shot"
+
+    # Build replication_tips - CRITICAL for Grok to enforce inspiration replication
+    replication_parts = []
+    if composition_str:
+        replication_parts.append(f"replicate the composition and mood: {composition_str}")
+    if setting_str:
+        replication_parts.append(f"match the setting/context: {setting_str}")
+    if colors:
+        replication_parts.append(f"use color palette: {', '.join(colors)}")
+    if objects:
+        replication_parts.append(f"incorporate similar visual elements: {', '.join(objects[:5])}")
+    if product_type:
+        replication_parts.append(f"feature the brand's product as {product_type}")
+    if text_or_branding:
+        replication_parts.append(f"consider text/branding style: {text_or_branding}")
+
+    replication_tips = (
+        "DETAILED replication guide: " + "; ".join(replication_parts)
+        if replication_parts
+        else "Replicate the exact aesthetic, composition, lighting, and mood. Replace products with the brand's product while maintaining identical style."
+    )
+
     return {
         "visual_aesthetics": {
-            "color_palette": inv.get("colors") or [],
-            "color_grading": "",
-            "lighting_style": inv.get("setting", ""),
-            "mood_atmosphere": inv.get("composition", ""),
+            "color_palette": colors,
+            "color_treatment": "Match the original" if colors else "N/A",
+            "lighting_style": setting_str or "N/A",
+            "mood_atmosphere": composition_str or "N/A",
+            "visual_quality": "Professional ad creative",
+            "filters_effects": "Match original treatment",
         },
-        "composition_framing": {"composition": inv.get("composition", "")},
-        "objects_props": inv.get("objects") or [],
-        "setting_environment": inv.get("setting", ""),
-        "text_or_branding": inv.get("text_or_branding", ""),
-        "product_type": inv.get("product_type", ""),
+        "composition": {
+            "shot_type": shot_type,
+            "angle": "eye-level" if "overhead" not in setting_str else "overhead",
+            "framing_techniques": ["center product", "match original layout"] if objects else [],
+            "compositional_rules": [],
+            "depth_of_field": "Shallow DOF for product focus" if "product" in setting_str else "N/A",
+            "perspective": "Match original perspective",
+        },
+        "human_presence": {
+            "has_humans": has_humans,
+            "count": 1 if has_humans else 0,
+            "visibility": "Full or partial" if has_humans else "None",
+            "description": "Model wearing/product interaction" if has_humans else "Product-only shot",
+            "poses_and_gestures": [],
+            "positioning": "N/A",
+            "interactions": "N/A",
+        },
+        "characters_and_beings": {
+            "has_animals": False,
+            "animals": [],
+            "has_characters": False,
+            "characters": [],
+            "description": "None",
+        },
+        "objects_and_props": {
+            "all_objects": objects,
+            "main_subjects": objects[:3] if objects else [],
+            "supporting_props": objects[3:] if len(objects) > 3 else [],
+            "arrangement": composition_str or "N/A",
+            "styling": "N/A",
+            "textures": materials,
+        },
+        "setting": {
+            "location_type": "Studio" if "white" in setting_str or "product" in setting_str else "Lifestyle/contextual",
+            "specific_setting": setting_str or "N/A",
+            "background": setting_str or "N/A",
+            "environment": "N/A",
+            "weather_time": "N/A",
+        },
+        "styling_aesthetics": {
+            "overall_style": composition_str or "Professional ad creative",
+            "patterns": [],
+            "materials": materials,
+            "finishes": [],
+        },
+        "technical_creative": {
+            "motion_elements": "N/A",
+            "focus_techniques": "N/A",
+            "lens_effects": [],
+            "post_processing": "N/A",
+            "unique_techniques": [],
+        },
+        "action_movement": {"has_action": False, "description": "Static image"},
+        "replication_tips": replication_tips,
         "inventory_analysis": inv,
+    }
+
+
+def _inventory_analysis_to_video_inspiration(inv: dict) -> dict:
+    """
+    Convert dvyb_brand_ads inventory_analysis (for video ads) to video_inspiration format.
+    Enables same replication enforcement for video ads from discover as dvyb_inspiration_links.
+    """
+    if not inv:
+        return {}
+    setting_str = (inv.get("setting") or "")
+    composition_str = (inv.get("composition") or "")
+    objects = inv.get("objects") or []
+    if isinstance(objects, str):
+        objects = [o.strip() for o in objects.split(",") if o.strip()]
+    colors = inv.get("colors") or []
+    if isinstance(colors, str):
+        colors = [c.strip() for c in colors.split(",") if c.strip()]
+
+    replication_parts = []
+    if composition_str:
+        replication_parts.append(f"match mood and composition: {composition_str}")
+    if setting_str:
+        replication_parts.append(f"replicate setting/context: {setting_str}")
+    if colors:
+        replication_parts.append(f"use color palette: {', '.join(colors)}")
+    if objects:
+        replication_parts.append(f"incorporate elements: {', '.join(objects[:5])}")
+
+    replication_tips = (
+        "Replicate the video aesthetic: " + "; ".join(replication_parts)
+        if replication_parts
+        else "Replicate the exact aesthetic, composition, and mood. Feature the brand's product with same style."
+    )
+
+    return {
+        "storyline": f"Ad creative style: {composition_str} in {setting_str}".strip() or "N/A",
+        "hook": "Match the opening visual style and pacing",
+        "creative_elements": objects if isinstance(objects, list) else [objects],
+        "visual_techniques": ["Match original ad creative style"],
+        "visual_subjects": {
+            "humans": "Consider if model/lifestyle" if "model" in str(setting_str).lower() or "wear" in str(setting_str).lower() else "Product-centric",
+            "objects_props": objects[:5] if objects else [],
+            "setting_location": setting_str or "N/A",
+            "actions_interactions": [],
+            "environmental_elements": "N/A",
+        },
+        "mood_atmosphere": composition_str or "Professional ad creative",
+        "pacing": "Match original",
+        "key_moments": ["Opening product reveal", "Style showcase"] if objects else [],
+        "product_showcase_style": inv.get("product_type") or "Hero product focus",
+        "replication_tips": replication_tips,
+        "transcript": "",
     }
 
 
@@ -4953,9 +5110,13 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
     has_image_inspiration = False
     
     if link_analysis:
-        # Check for video inspiration (from YouTube/Instagram/Twitter reel analysis)
+        # Check for video inspiration (from YouTube/Instagram/Twitter reel analysis OR dvyb_brand_ads)
         video_inspiration = link_analysis.get("video_inspiration")
         if video_inspiration:
+            # dvyb_brand_ads returns {inventory_analysis: inv} - convert to full video_inspiration format
+            inv = video_inspiration.get("inventory_analysis")
+            if inv and not video_inspiration.get("storyline"):
+                video_inspiration = _inventory_analysis_to_video_inspiration(inv)
             has_video_inspiration = True
             import json
             # Extract visual subjects (new detailed element analysis)
@@ -7288,6 +7449,12 @@ INSPIRATION LINKS ANALYSIS:
 
 A video reel/short inspiration has been provided above. Generate clip prompts that replicate the inspiration's storytelling approach while adapting for this brand.
 
+🚨 **WHEN INSPIRATION HAS HUMANS - CHANGE MODEL APPEARANCE**:
+- If the video inspiration shows people/models, describe DIFFERENT models in your clip prompts
+- Capture: poses, actions, composition, pacing, storytelling - from the inspiration
+- Change: ethnicity, age, hair, facial features - specify a diverse/varied appearance in each prompt
+- Your model descriptions must be specific enough for generation but always different from the inspiration
+
 🚨 **PROMPT LENGTH LIMIT**: Each CLIP prompt MUST be UNDER 4000 characters. Capture the ESSENCE of the timeline and key moments - don't describe every micro-detail.
 ''' if has_video_inspiration else ''}
 
@@ -7330,6 +7497,16 @@ An image inspiration has been provided above. Create content with the SAME AESTH
   * Each inspiration's aesthetic (including whether it has models or not) should be preserved in its mapped image
   * Cover ALL provided inspirations - every inspiration must be used in the generated prompts
 
+- **🚨 MANDATORY - CHANGE MODEL/APPEARANCE WHEN INSPIRATION HAS HUMANS**:
+  * When ANY inspiration shows a human/model, you MUST describe a DIFFERENT model in your prompt
+  * Do NOT replicate the inspiration's model appearance (ethnicity, age, facial features, hair, skin)
+  * You MUST explicitly describe the model's appearance so the image can be generated - but with a CHANGED appearance
+  * CAPTURE from inspiration: pose, composition, clothing style, positioning, mood, body language
+  * CHANGE in your prompt: ethnicity, age range, hair style/color, facial features - specify a diverse/varied appearance
+  * Example: Inspiration shows "young Caucasian woman, blond hair, blue eyes" → Your prompt: "Black woman, late 20s, natural afro hair, warm smile, same confident pose and urban street style..."
+  * Example: Inspiration shows "Asian man, 30s, short dark hair" → Your prompt: "Latino man, early 40s, salt-and-pepper hair, same relaxed professional pose..."
+  * Your model description must be SPECIFIC ENOUGH for generation (e.g. "woman in her 20s, curly brown hair, casual modern style") - but ALWAYS different from the inspiration
+
 🚨 **PROMPT LENGTH LIMIT**: Each prompt MUST be UNDER 4000 characters. Be CONCISE - capture the ESSENCE, not every detail.
 
 **CAPTURE THE ESSENCE (SUMMARIZE, don't list everything)**:
@@ -7340,8 +7517,9 @@ An image inspiration has been provided above. Create content with the SAME AESTH
 ✅ **COMPOSITION** (1 sentence):
    - Shot type, angle, depth of field
 
-✅ **HUMAN PRESENCE** (if applicable - be brief):
-   - Simple description of pose, clothing style, positioning
+✅ **HUMAN PRESENCE** (if applicable - DESCRIBE NEW APPEARANCE):
+   - Describe pose, clothing style, positioning FROM inspiration
+   - Specify a DIFFERENT model appearance (ethnicity, age, hair) - do not copy inspiration's model
 
 ✅ **SETTING** (1 sentence max):
    - Location type and atmosphere
@@ -7350,8 +7528,8 @@ An image inspiration has been provided above. Create content with the SAME AESTH
 
 ❌ **DO NOT**: List every single object, every accessory, every background element. Focus on what makes the image FEEL the way it does.
 
-✅ **GOOD EXAMPLE** (under 800 chars):
-"Reference product (Floral Sweater) worn by confident young woman, urban street style, sunny outdoor setting with bokeh city background, medium shot eye-level, shallow depth of field, warm natural lighting, edgy fashion vibe with leather jacket layered over sweater, relaxed confident pose, bustling city atmosphere, professional candid photography style"
+✅ **GOOD EXAMPLE** (under 800 chars - note: model appearance is described, different from inspiration):
+"Reference product (Floral Sweater) worn by South Asian woman mid-20s with long dark hair, urban street style, sunny outdoor setting with bokeh city background, medium shot eye-level, shallow depth of field, warm natural lighting, edgy fashion vibe with leather jacket layered over sweater, relaxed confident pose, bustling city atmosphere, professional candid photography style"
 
 ❌ **BAD EXAMPLE** (too long - over 5000 chars):
 "Reference product worn by young woman in her 20s, Caucasian or mixed ethnicity with fair skin and olive undertones, dark brown hair in messy updo with loose strands falling over face..." [continues for 4000+ more characters listing every detail]
@@ -8491,123 +8669,49 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
     else:
         print(f"ℹ️ No product images detected in inventory analysis")
     
-    # STEP 2: Generate image-only posts
+    # STEP 2: Generate image-only posts (PARALLEL for gpt-1.5 / nano-banana-pro edit - prompts & image_urls known upfront)
     print("\n" + "=" * 80)
-    print("🎨 IMAGE-ONLY POSTS (Nano Banana Edit, 1:1)")
+    print("🎨 IMAGE-ONLY POSTS (Nano Banana / GPT 1.5 Edit - PARALLEL)")
     print("=" * 80)
     
-    for idx in sorted(image_only_indices):
-        prompt = image_only_prompts.get(idx)
+    is_product_shot_flow = context.get("is_product_shot_flow", False)
+    use_photographer_persona = context.get("use_photographer_persona", False)
+    
+    def _build_image_urls_for_idx(idx: int) -> list:
+        """Build reference image_urls for a given image index."""
         logo_needed = image_logo_decisions.get(idx, False)
-        product_mapping = image_product_mappings.get(idx)  # NEW: e.g., "image_1", "image_2", or None
-        
-        if not prompt:
-            print(f"⚠️ No prompt for image index {idx}, skipping")
-            continue
-        
-        # Safety: Truncate prompt if over FAL's 5000 character limit
-        if len(prompt) > 4500:
-            print(f"  ⚠️ Image prompt too long ({len(prompt)} chars), truncating to 4500 chars")
-            prompt = prompt[:4500] + "..."
-        
-        # FALLBACK: Force logo inclusion for ALL image-only posts (even if Grok forgot)
-        if not logo_needed:
-            print(f"⚠️ Grok forgot to set logo_needed=true for image post {idx}, forcing logo inclusion")
-            logo_needed = True
-        
-        print(f"\n📝 Image {idx} ({len(prompt)} chars): {prompt[:80]}...")
-        print(f"🏷️ Logo needed: {logo_needed} (always true for image posts)")
-        print(f"🛍️ Product mapping: {product_mapping if product_mapping else 'None'}")
-        
-        try:
-            # Build reference images based on priority: Inspiration → Product → Logo → Model
-            # Inspiration image is FIRST so the model treats it as the primary style reference
-            image_urls = []
-            
-            # 1. INSPIRATION IMAGE (FIRST - for exact style fusion)
-            # When inspiration is provided, it should be the primary style reference
-            if inspiration_image_urls:
-                # Use only the first inspiration image per generated image to avoid confusion
-                # For 1:1 mapping with multiple inspirations, use corresponding index
-                insp_idx = idx - 1  # Convert to 0-based index
-                if insp_idx < len(inspiration_image_urls):
-                    image_urls.append(inspiration_image_urls[insp_idx])
-                    print(f"  🎨 Including inspiration image {insp_idx + 1} for EXACT style fusion")
-                else:
-                    # Fallback to first inspiration if index out of range
-                    image_urls.append(inspiration_image_urls[0])
-                    print(f"  🎨 Including inspiration image 1 (fallback) for style fusion")
-            
-            # 2. Product (if mapped for this specific image - FRAME-SPECIFIC)
-            # Product comes AFTER inspiration so it's fused INTO the inspiration style
-            if product_mapping and product_mapping in product_presigned_urls:
-                image_urls.append(product_presigned_urls[product_mapping])
-                print(f"  🛍️ Including product image: {product_mapping} (to fuse into inspiration style)")
-                # Log product details
-                if product_mapping in product_images_data:
-                    product_info = product_images_data[product_mapping]
-                    print(f"     📦 {product_info.get('category', 'N/A')} - {product_info.get('angle', 'N/A')}")
-            elif product_mapping:
-                print(f"  ⚠️ Product mapping '{product_mapping}' not found in available products")
-            
-            # 3. Logo (included if no inspiration - for branding)
-            if logo_needed and presigned_logo_url and not inspiration_image_urls:
+        product_mapping = image_product_mappings.get(idx)
+        image_urls = []
+        if inspiration_image_urls:
+            insp_idx = idx - 1
+            if insp_idx < len(inspiration_image_urls):
+                image_urls.append(inspiration_image_urls[insp_idx])
+            else:
+                image_urls.append(inspiration_image_urls[0])
+        if product_mapping and product_mapping in product_presigned_urls:
+            image_urls.append(product_presigned_urls[product_mapping])
+        if logo_needed and presigned_logo_url and not inspiration_image_urls:
+            image_urls.append(presigned_logo_url)
+        if video_type == "ugc_influencer" and has_model_image and presigned_model_url:
+            image_urls.append(presigned_model_url)
+        if not image_urls:
+            if presigned_logo_url:
                 image_urls.append(presigned_logo_url)
-                print(f"  🏷️ Including logo image (no inspiration provided)")
-            
-            # 4. Model (if UGC and available - GLOBAL for all UGC images)
-            if video_type == "ugc_influencer" and has_model_image and presigned_model_url:
-                image_urls.append(presigned_model_url)
-                print(f"  👤 Including model image for UGC character consistency")
-            
-            # Ensure at least one image is passed (Nano Banana Edit requirement)
-            # Priority: already added images > logo > any available product
-            if not image_urls:
-                if presigned_logo_url:
-                    image_urls.append(presigned_logo_url)
-                    print(f"  🏷️ Fallback: Including logo image (no other images available)")
-                elif product_presigned_urls:
-                    # Use the first available product image as fallback
-                    first_product_key = list(product_presigned_urls.keys())[0]
-                    image_urls.append(product_presigned_urls[first_product_key])
-                    print(f"  🛍️ Fallback: Including product image {first_product_key} (no logo available)")
-            
-            # Model selection: Force GPT 1.5 for product shot flow or when product images detected, otherwise 50/50 random
-            is_product_shot_flow = context.get("is_product_shot_flow", False)
-            use_photographer_persona = context.get("use_photographer_persona", False)
-            if is_product_shot_flow or use_photographer_persona:
-                # Flow 2: Always use GPT 1.5 Image for high-quality product photography
-                selected_image_model = "gpt-1.5-image"
-                selected_image_model_fal = "fal-ai/gpt-image-1.5/edit"
-                print(f"  🎨 Image model selection: {selected_image_model.upper()} (FORCED - Product Shot Flow)")
-            else:
-                # Flow 1: Random selection 50% Nano Banana Pro Edit, 50% GPT 1.5 Image Edit
-                image_model_random = random.random()
-                if image_model_random > 0.5:
-                    selected_image_model = "nano-banana"
-                    selected_image_model_fal = "fal-ai/nano-banana-pro/edit"
-                else:
-                    selected_image_model = "gpt-1.5-image"
-                    selected_image_model_fal = "fal-ai/gpt-image-1.5/edit"
-                print(f"  🎲 Image model selection: {selected_image_model.upper()} (random: {image_model_random:.2f})")
-            
-            # Log reference images being used (after model selection)
-            print(f"📸 [{selected_image_model.upper()}] Image {idx} - Reference images ({len(image_urls)}):")
-            if image_urls:
-                for i, url in enumerate(image_urls):
-                    print(f"   {i+1}. {url[:80]}...")
-            else:
-                print(f"   ⚠️ No reference images provided - image edit models require at least 1 image!")
-                print(f"   ❌ Skipping image {idx} generation - no reference images available")
-                continue
-            
-            def on_queue_update(update):
-                if isinstance(update, fal_client.InProgress):
-                    for log in update.logs:
-                        print(log["message"])
-            
-            if selected_image_model == "nano-banana":
-                result = fal_client.subscribe(
+            elif product_presigned_urls:
+                first_product_key = list(product_presigned_urls.keys())[0]
+                image_urls.append(product_presigned_urls[first_product_key])
+        return image_urls
+    
+    async def _generate_single_image(idx: int, prompt: str, image_urls: list, selected_model: str, selected_model_fal: str):
+        """Generate one image via FAL (runs in thread pool). Returns (idx, s3_url, selected_model_fal) or (idx, None, None) on failure."""
+        def on_queue_update(update):
+            if isinstance(update, fal_client.InProgress):
+                for log in update.logs:
+                    print(f"  📋 [{selected_model.upper()}] Image {idx}: {log.get('message', str(log))}")
+        try:
+            if selected_model == "nano-banana":
+                result = await asyncio.to_thread(
+                    fal_client.subscribe,
                     "fal-ai/nano-banana-pro/edit",
                     arguments={
                         "prompt": prompt,
@@ -8622,55 +8726,78 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                     on_queue_update=on_queue_update
                 )
             else:
-                # GPT 1.5 Image Edit model
-                result = fal_client.subscribe(
+                result = await asyncio.to_thread(
+                    fal_client.subscribe,
                     "fal-ai/gpt-image-1.5/edit",
                     arguments={
                         "prompt": prompt,
                         "image_urls": image_urls,
-                        "image_size": "1024x1536",  # Portrait orientation to avoid head cropping
+                        "image_size": "1024x1536",
                         "background": "auto",
                         "quality": "high",
                         "input_fidelity": "high",
                         "num_images": 1,
                         "output_format": "png"
-                },
-                with_logs=True,
-                on_queue_update=on_queue_update
-            )
-            
+                    },
+                    with_logs=True,
+                    on_queue_update=on_queue_update
+                )
             if result and "images" in result and result["images"]:
                 fal_url = result["images"][0]["url"]
-                print(f"  📥 FAL URL received: {fal_url[:100]}...")
-                
-                # Upload to S3
-                print(f"  📤 Uploading to S3...")
                 s3_url = web2_s3_helper.upload_from_url(
                     url=fal_url,
                     folder=f"dvyb/generated/{request.account_id}/{generation_uuid}",
                     filename=f"image_{idx}.png"
                 )
-                
-                if s3_url:
-                    print(f"  ✅ S3 upload successful: {s3_url}")
-                else:
-                    print(f"  ❌ S3 upload failed")
-                
-                all_generated_content[idx] = {
-                    "type": "image",
-                    "url": s3_url
-                }
-                
-                # Track model usage
-                model_usage["imageGeneration"].append({
-                    "post_index": idx,
-                    "model": selected_image_model_fal,
-                    "type": "image_post"
-                })
-                
+                return (idx, s3_url, selected_model_fal)
+        except Exception as e:
+            print(f"❌ Failed to generate image {idx}: {e}")
+            logger.error(f"Image generation error for index {idx}: {e}")
+        return (idx, None, None)
+    
+    # Pre-build all image tasks (prompt, image_urls, model) - all use gpt-1.5 or nano-banana
+    image_tasks = []
+    for idx in sorted(image_only_indices):
+        prompt = image_only_prompts.get(idx)
+        logo_needed = image_logo_decisions.get(idx, False)
+        product_mapping = image_product_mappings.get(idx)
+        if not prompt:
+            print(f"⚠️ No prompt for image index {idx}, skipping")
+            continue
+        if len(prompt) > 4500:
+            prompt = prompt[:4500] + "..."
+        if not logo_needed:
+            logo_needed = True  # Fallback
+        image_urls = _build_image_urls_for_idx(idx)
+        if not image_urls:
+            print(f"   ❌ Skipping image {idx} - no reference images available")
+            continue
+        if is_product_shot_flow or use_photographer_persona:
+            selected_image_model = "gpt-1.5-image"
+            selected_image_model_fal = "fal-ai/gpt-image-1.5/edit"
+        else:
+            if random.random() > 0.5:
+                selected_image_model = "nano-banana"
+                selected_image_model_fal = "fal-ai/nano-banana-pro/edit"
+            else:
+                selected_image_model = "gpt-1.5-image"
+                selected_image_model_fal = "fal-ai/gpt-image-1.5/edit"
+        print(f"📝 Image {idx}: [{selected_image_model.upper()}] {prompt[:60]}... ({len(image_urls)} refs)")
+        image_tasks.append((idx, prompt, image_urls, selected_image_model, selected_image_model_fal))
+    
+    # Run all image generations in parallel
+    if image_tasks:
+        tasks = [_generate_single_image(idx, prompt, urls, model, model_fal) for idx, prompt, urls, model, model_fal in image_tasks]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, Exception):
+                print(f"❌ Image generation exception: {r}")
+                continue
+            idx, s3_url, selected_model_fal = r
+            if s3_url and selected_model_fal:
+                all_generated_content[idx] = {"type": "image", "url": s3_url}
+                model_usage["imageGeneration"].append({"post_index": idx, "model": selected_model_fal, "type": "image_post"})
                 print(f"✅ Image {idx} generation complete")
-                
-                # Progressive update: Send this image to database immediately
                 platform_text = prompts["platform_texts"][idx] if idx < len(prompts["platform_texts"]) else {}
                 await update_progressive_content(
                     account_id=request.account_id,
@@ -8680,20 +8807,9 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                     content_url=s3_url,
                     platform_text=platform_text
                 )
-                
-                # Update progress
                 total_items = len(image_only_indices) + len(video_indices)
                 progress = 40 + int((len(all_generated_content) / total_items) * 30)
-                await update_progress_in_db(
-                    request.account_id,
-                    progress,
-                    f"Generated image {idx}",
-                    generation_uuid
-                )
-                
-        except Exception as e:
-            print(f"❌ Failed to generate image {idx}: {e}")
-            logger.error(f"Image generation error for index {idx}: {e}")
+                await update_progress_in_db(request.account_id, progress, f"Generated image {idx}", generation_uuid)
     
     # STEP 3: Generate multi-clip videos with Kling v2.6 / Veo3.1 (60:40 ratio)
     print("\n" + "=" * 80)

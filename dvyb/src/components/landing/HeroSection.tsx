@@ -11,8 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { trackWebsiteAnalysisStarted, trackWebsiteAnalysisCompleted } from "@/lib/mixpanel";
 import { tileImages } from "@/lib/tileImages";
 
-// Exact copy from wander-discover-connect
-const rotatingWords = ["ad research", "ad agencies", "designers"];
+const rotatingWords = ["ad research", "ad agencies", "ad designers"];
 
 const analysisSteps = [
   { percent: 0, label: "Analyzing your brand identity" },
@@ -161,13 +160,25 @@ export function HeroSection({
           <div className="text-center max-w-4xl mx-auto">
             <div className="text-lg md:text-xl lg:text-2xl font-medium mb-6 animate-fade-up flex items-center justify-center gap-2">
               <span className="text-cta font-display">Skip</span>
-              <span className="relative inline-block h-[1.6em] w-[140px] md:w-[160px] lg:w-[180px] overflow-hidden">
-                {/* Simple vertical text rotation */}
-                <span className="absolute inset-0 flex flex-col animate-text-rotate">
-                  {[...rotatingWords, rotatingWords[0]].map((word, index) => (
+              <span
+                className="relative inline-flex items-center justify-center w-[140px] md:w-[160px] lg:w-[180px] h-[1.8em]"
+                style={{ perspective: "300px" }}
+              >
+                {/* 3D Prism rotation */}
+                <span
+                  className="absolute animate-prism-rotate"
+                  style={{
+                    transformStyle: "preserve-3d",
+                  }}
+                >
+                  {rotatingWords.map((word, index) => (
                     <span
-                      key={`${word}-${index}`}
-                      className="h-[1.6em] flex items-center justify-center bg-foreground text-background px-3 py-1 rounded-lg font-display shrink-0"
+                      key={word}
+                      className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center bg-foreground text-background px-3 py-1 rounded-lg font-display whitespace-nowrap"
+                      style={{
+                        transform: `translateX(-50%) translateY(-50%) rotateX(${index * -120}deg) translateZ(28px)`,
+                        backfaceVisibility: "hidden",
+                      }}
                     >
                       {word}
                     </span>

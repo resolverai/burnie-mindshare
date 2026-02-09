@@ -9,6 +9,7 @@ import { AppDataSource } from '../config/database';
 import { DvybAccountProduct } from '../models/DvybAccountProduct';
 import { DvybContext } from '../models/DvybContext';
 import { DvybDomainProductImage } from '../models/DvybDomainProductImage';
+import { DvybAccountHiddenDomainProduct } from '../models/DvybAccountHiddenDomainProduct';
 import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddleware';
 import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
 
@@ -99,6 +100,13 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
           domain,
           domain.startsWith('www.') ? domain.slice(4) : `www.${domain}`,
         ].filter((v, i, a) => a.indexOf(v) === i);
+        const hiddenRepo = AppDataSource.getRepository(DvybAccountHiddenDomainProduct);
+        const hiddenRows = await hiddenRepo.find({
+          where: { accountId },
+          select: { domainProductImageId: true },
+        });
+        const hiddenIds = new Set(hiddenRows.map((r) => r.domainProductImageId));
+
         const domainRows = await domainRepo
           .createQueryBuilder('img')
           .where(
@@ -110,6 +118,7 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
           .orderBy('img.id', 'ASC')
           .take(20)
           .getMany();
+        const filteredDomainRows = domainRows.filter((row) => !hiddenIds.has(row.id));
         if (domainRows.length === 0) {
           const distinctDomains = await domainRepo
             .createQueryBuilder('img')
@@ -119,10 +128,10 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
           const domainsList = distinctDomains.map((r) => String(Object.values(r)[0] ?? '')).filter(Boolean).join(', ') || '(none)';
           logger.info(`📦 Products: context.website=${context.website} -> normalized domain=${domain}, found 0 domain product images. DB has domains: ${domainsList}`);
         } else {
-          logger.info(`📦 Products: context.website=${context.website} -> normalized domain=${domain}, found ${domainRows.length} domain product images`);
+          logger.info(`📦 Products: context.website=${context.website} -> normalized domain=${domain}, found ${filteredDomainRows.length} domain product images (${domainRows.length} total, ${hiddenIds.size} hidden)`);
         }
         domainProducts = await Promise.all(
-          domainRows.map(async (row) => {
+          filteredDomainRows.map(async (row) => {
             const presignedUrl = await s3Service.generatePresignedUrl(row.s3Key, 3600, true);
             return {
               id: -row.id,
@@ -390,6 +399,151 @@ router.delete('/:id', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Resp
     return res.status(500).json({
       success: false,
       error: 'Failed to delete product',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * POST /api/dvyb/products/domain/:id/hide
+ * Hide a domain product from the account's My Products list.
+ * Domain products are shared by domain; hiding only affects this account's view.
+ */
+router.post('/domain/:id/hide', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+  try {
+    const accountId = req.dvybAccountId!;
+    const id = parseInt(req.params.id ?? '', 10);
+
+    if (isNaN(id) || id <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid domain product ID',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const domainRepo = AppDataSource.getRepository(DvybDomainProductImage);
+    const domainRow = await domainRepo.findOne({ where: { id } });
+    if (!domainRow) {
+      return res.status(404).json({
+        success: false,
+        error: 'Domain product not found',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const hiddenRepo = AppDataSource.getRepository(DvybAccountHiddenDomainProduct);
+    const existing = await hiddenRepo.findOne({ where: { accountId, domainProductImageId: id } });
+    if (existing) {
+      return res.json({
+        success: true,
+        message: 'Already hidden',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const hidden = hiddenRepo.create({
+      accountId,
+      domainProductImageId: id,
+    });
+    await hiddenRepo.save(hidden);
+    logger.info(`✅ Hidden domain product ${id} for DVYB account ${accountId}`);
+
+    return res.json({
+      success: true,
+      message: 'Product hidden',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error('❌ DVYB domain product hide error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to hide product',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * POST /api/dvyb/products/from-domain
+ * "Rename" a domain product: create an account product with the same image + new name, then hide the domain product.
+ * Body: { domainProductImageId: number, name: string }
+ */
+router.post('/from-domain', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+  try {
+    const accountId = req.dvybAccountId!;
+    const { domainProductImageId: domainId, name } = req.body || {};
+
+    const id = typeof domainId === 'number' ? domainId : parseInt(String(domainId ?? ''), 10);
+    if (isNaN(id) || id <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid domainProductImageId',
+        timestamp: new Date().toISOString(),
+      });
+    }
+    if (!name || typeof name !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'name is required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const trimmedName = name.trim().slice(0, 500);
+    if (!trimmedName) {
+      return res.status(400).json({
+        success: false,
+        error: 'name cannot be empty',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const domainRepo = AppDataSource.getRepository(DvybDomainProductImage);
+    const domainRow = await domainRepo.findOne({ where: { id } });
+    if (!domainRow) {
+      return res.status(404).json({
+        success: false,
+        error: 'Domain product not found',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const productRepo = AppDataSource.getRepository(DvybAccountProduct);
+    const product = productRepo.create({
+      accountId,
+      name: trimmedName,
+      imageS3Key: domainRow.s3Key,
+    });
+    await productRepo.save(product);
+
+    const hiddenRepo = AppDataSource.getRepository(DvybAccountHiddenDomainProduct);
+    const existing = await hiddenRepo.findOne({ where: { accountId, domainProductImageId: id } });
+    if (!existing) {
+      const hidden = hiddenRepo.create({ accountId, domainProductImageId: id });
+      await hiddenRepo.save(hidden);
+    }
+
+    const presignedUrl = await s3Service.generatePresignedUrl(product.imageS3Key, 3600, true);
+
+    logger.info(`✅ Promoted domain product ${id} to account product ${product.id} for DVYB account ${accountId}`);
+
+    return res.json({
+      success: true,
+      data: {
+        id: product.id,
+        name: product.name,
+        imageS3Key: product.imageS3Key,
+        imageUrl: presignedUrl || product.imageS3Key,
+        createdAt: product.createdAt,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error('❌ DVYB product from-domain error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to create product from domain',
       timestamp: new Date().toISOString(),
     });
   }

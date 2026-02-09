@@ -82,21 +82,23 @@ function HomePageContent() {
       const openModalParam = searchParams.get("openModal");
 
       // PRIORITY 0: OAuth return flows - must show landing/product (user just completed signup)
+      // openModal=contentGeneration is ONLY set by the Google callback - when present, always show
+      // landing so GenerateContentDialog can open (job_id in localStorage). Never redirect here.
       const onboardingJobId = localStorage.getItem("dvyb_onboarding_generation_job_id");
       const pendingGeneration = localStorage.getItem("dvyb_product_flow_pending_generation");
       const productS3Key = localStorage.getItem("dvyb_product_shot_s3_key");
       const isProductOAuthReturn = pendingGeneration === "true" && !!productS3Key;
 
-      if (onboardingJobId) {
-        console.log("🎉 Onboarding generation job detected - showing landing with content modal");
+      if (openModalParam === "contentGeneration") {
+        // OAuth callback sent us here - show landing so GenerateContentDialog can poll & display
+        console.log("🎯 OAuth return with contentGeneration - showing landing");
         setShouldShowLanding(true);
         return;
       }
 
-      // User closed modal or reloaded during onboarding content generation → redirect to discover
-      if (openModalParam === "contentGeneration" && isAuthenticated && accountId) {
-        console.log("🔄 Content generation flow closed/reloaded - redirecting to discover");
-        router.replace("/discover");
+      if (onboardingJobId) {
+        console.log("🎉 Onboarding generation job detected - showing landing with content modal");
+        setShouldShowLanding(true);
         return;
       }
       if (isProductOAuthReturn) {

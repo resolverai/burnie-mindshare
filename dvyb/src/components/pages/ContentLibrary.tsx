@@ -58,6 +58,8 @@ type ContentStateTab = "all" | "draft" | "scheduled" | "published";
 
 interface ContentLibraryProps {
   onEditDesignModeChange?: (isEditMode: boolean) => void;
+  hasActiveSubscription?: boolean;
+  onShowPricingModal?: () => void;
 }
 
 export interface ContentLibraryRef {
@@ -115,7 +117,7 @@ const downloadMedia = async (item: {
   }
 };
 
-const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>(({ onEditDesignModeChange }, ref) => {
+const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>(({ onEditDesignModeChange, hasActiveSubscription = true, onShowPricingModal }, ref) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [contentStateTab, setContentStateTab] = useState<ContentStateTab>("all");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
@@ -150,6 +152,8 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
   // Trial limit exceeded dialog
   const [showTrialLimitDialog, setShowTrialLimitDialog] = useState(false);
   const [isEndingTrial, setIsEndingTrial] = useState(false);
+  // Upgrade modal for edit/regeneration (when user has subscription but over plan limit)
+  const [showUpgradeModalForEdit, setShowUpgradeModalForEdit] = useState(false);
   
   // Onboarding guide
   const { completeStep } = useOnboardingGuide();
@@ -467,6 +471,14 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
     fetchContentLibrary(1, false);
   }, [fetchContentLibrary]);
 
+  // When design is saved: close dialog, wait for backend to process, then refetch (user returns to My Ads with updated content)
+  const handleDesignSaved = useCallback(() => {
+    setShowPostDetail(false);
+    setSelectedPost(null);
+    setOpenInEditDesignMode(false);
+    setTimeout(() => handleRefreshAfterSchedule(), 2500);
+  }, [handleRefreshAfterSchedule]);
+
   // Initial load - reset when filters change
   useEffect(() => {
     setPage(1);
@@ -588,6 +600,10 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
 
   const handleCreateNewClick = useCallback(async () => {
     trackGenerateContentClicked('content_library');
+    if (hasActiveSubscription !== true && onShowPricingModal) {
+      onShowPricingModal();
+      return;
+    }
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/usage`, {
         credentials: 'include',
@@ -617,19 +633,11 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
           setShowTrialLimitDialog(true);
           return;
         }
+        // Video limits bypassed for now - only check image quota
         const noImagesLeft = data.data.remainingImages === 0;
-        const noVideosLeft = data.data.remainingVideos === 0;
-        if (noImagesLeft && noVideosLeft) {
+        if (noImagesLeft) {
           setQuotaType('both');
           setCanSkipPricingModal(false);
-          setShowPricingModal(true);
-        } else if (noImagesLeft && !noVideosLeft) {
-          setQuotaType('image');
-          setCanSkipPricingModal(true);
-          setShowPricingModal(true);
-        } else if (noVideosLeft && !noImagesLeft) {
-          setQuotaType('video');
-          setCanSkipPricingModal(true);
           setShowPricingModal(true);
         } else {
           setShowCreateAdFlow(true);
@@ -639,11 +647,38 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
       console.error('Failed to check usage:', error);
       setShowCreateAdFlow(true);
     }
-  }, []);
+  }, [hasActiveSubscription, onShowPricingModal]);
 
   useImperativeHandle(ref, () => ({
     openCreateNew: handleCreateNewClick,
   }), [handleCreateNewClick]);
+
+  const handleShowUpgradeModalForEdit = useCallback(async () => {
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || "https://mindshareapi.burnie.io"}/dvyb/account/usage`,
+        {
+          credentials: "include",
+          headers: {
+            ...(() => {
+              const accountId = localStorage.getItem("dvyb_account_id");
+              return accountId ? { "X-DVYB-Account-ID": accountId } : {};
+            })(),
+          },
+        }
+      );
+      const data = await response.json();
+      if (data.success && data.data) {
+        setUsageData(data.data);
+        setQuotaType("image");
+        setCanSkipPricingModal(false);
+        setMustSubscribeToFreemium(false);
+        setShowUpgradeModalForEdit(true);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   // Flatten content by state tab for display
   // Draft = Pending Review + Selected + Not Selected
@@ -735,6 +770,10 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
                     key={item.id}
                     className="hover:bg-secondary/30 transition-colors cursor-pointer"
                     onClick={() => {
+                      if (hasActiveSubscription !== true && onShowPricingModal) {
+                        onShowPricingModal();
+                        return;
+                      }
                       const isPosted = item.status === "published" || item.status === "posted";
                       trackContentItemClicked(item.contentId, item.image?.includes('.mp4') ? 'video' : 'image', isPosted ? 'posted' : 'scheduled');
                       setSelectedPost(item);
@@ -770,6 +809,10 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
               const isVideo = item.image?.includes('.mp4') || item.image?.includes('video');
               const handleEdit = (e: React.MouseEvent) => {
                 e.stopPropagation();
+                if (hasActiveSubscription !== true && onShowPricingModal) {
+                  onShowPricingModal();
+                  return;
+                }
                 trackContentItemClicked(item.contentId, isVideo ? 'video' : 'image', isPosted ? 'posted' : 'scheduled');
                 setSelectedPost(item);
                 if (isPosted) setShowAnalyticsDialog(true);
@@ -829,6 +872,10 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
                           className="w-full gap-2 bg-background/80 backdrop-blur-sm"
                           onClick={(e) => {
                             e.stopPropagation();
+                            if (hasActiveSubscription !== true && onShowPricingModal) {
+                              onShowPricingModal();
+                              return;
+                            }
                             if (item.image) downloadMedia(item);
                           }}
                         >
@@ -903,6 +950,7 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
         initialEditDesignMode={openInEditDesignMode}
         onEditDesignModeChange={onEditDesignModeChange}
         onScheduleComplete={handleRefreshAfterSchedule}
+        onDesignSaved={handleDesignSaved}
         // Pending review functionality
         pendingReviewItems={pendingReviewContent.map(item => ({
           ...item,
@@ -928,6 +976,7 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
           // Refresh content library after all items reviewed
           handleRefreshAfterSchedule();
         }}
+        onShowUpgradeModal={handleShowUpgradeModalForEdit}
       />
 
       {/* Analytics Dialog */}
@@ -1055,6 +1104,7 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
         parentPage="content_library"
         initialJobId={onboardingJobId}
         expectedImageCount={onboardingJobId ? 2 : undefined}
+        landingStyle={!!onboardingJobId}
         onDialogClosed={() => {
           // Ensure onboarding steps are marked as completed
           completeStep('auto_content_viewed');
@@ -1073,6 +1123,7 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
             handleGenerationComplete();
           }
         }}
+        onDesignSaved={handleRefreshAfterSchedule}
       />
 
       {/* Mobile: Floating Create button - Bottom right */}
@@ -1086,14 +1137,16 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
         </Button>
       </div>
       
-      {/* Full-screen Pricing Modal */}
+      {/* Full-screen Pricing Modal (Create flow + Edit/Regenerate flow) */}
       <PricingModal
-        open={showPricingModal}
+        open={showPricingModal || showUpgradeModalForEdit}
         onClose={() => {
+          const wasCreateFlow = showPricingModal;
           setShowPricingModal(false);
+          setShowUpgradeModalForEdit(false);
           // If user can skip (only one quota exhausted), proceed to Create Ad flow
           // Note: When mustSubscribeToFreemium is true, we don't auto-open
-          if (canSkipPricingModal && !mustSubscribeToFreemium) {
+          if (wasCreateFlow && canSkipPricingModal && !mustSubscribeToFreemium) {
             setShowCreateAdFlow(true);
           }
         }}

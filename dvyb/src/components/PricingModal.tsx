@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { dvybApi } from "@/lib/api";
 import {
@@ -21,7 +21,6 @@ import {
   Image as ImageIcon, 
   Video, 
   Zap,
-  Crown,
   Loader2,
   ArrowUp,
   ArrowDown,
@@ -73,72 +72,68 @@ interface PricingModalProps {
   mustSubscribe?: boolean; // If true, user MUST subscribe (no close/skip option) - for freemium enforcement
   /** When 'centered', shows a compact centered modal (like OnboardingFlowModal). Default 'fullscreen' for backward compatibility. */
   variant?: 'fullscreen' | 'centered';
+  /** When true, Stripe success→My Ads, cancel→Discover. Otherwise redirect to same page. */
+  isOnboardingFlow?: boolean;
 }
 
-// Animated Toggle Switch Component
+// Billing Toggle — aligned with /pricing page (landing style)
+function getAnnualSavingsPercent(plans: PricingPlan[]): number | null {
+  const paidPlans = plans.filter((p) => !p.isFreeTrialPlan && p.monthlyPrice > 0);
+  if (paidPlans.length === 0) return null;
+  // If any plan has an annual deal, use the max deal % off
+  const dealAnnualPcts = paidPlans
+    .filter((p) => p.dealActive && p.dealAnnualPrice != null && p.annualPrice > 0)
+    .map((p) => Math.round((1 - (p.dealAnnualPrice as number) / p.annualPrice) * 100));
+  if (dealAnnualPcts.length > 0) return Math.max(...dealAnnualPcts);
+  // No deal: use calculated annual savings from first paid plan
+  const p = paidPlans[0];
+  const monthlyCost = p.monthlyPrice * 12;
+  if (monthlyCost <= 0) return null;
+  const savings = Math.round(((monthlyCost - p.annualPrice) / monthlyCost) * 100);
+  return savings > 0 ? savings : null;
+}
+
 const BillingToggle = ({ 
   billingCycle, 
   onChange,
-  landingStyle = false,
+  plans,
 }: { 
   billingCycle: 'monthly' | 'annual'; 
   onChange: (cycle: 'monthly' | 'annual') => void;
-  landingStyle?: boolean;
+  plans: PricingPlan[];
 }) => {
-  if (landingStyle) {
-    return (
-      <div className="inline-flex items-center gap-1 rounded-full p-1 bg-[hsl(var(--landing-explore-pill-bg))] border border-[hsl(var(--landing-nav-bar-border))]">
-        <button
-          type="button"
-          onClick={() => onChange('monthly')}
-          className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
-            billingCycle === 'monthly'
-              ? "bg-[hsl(var(--landing-cta-bg))] text-white shadow-soft"
-              : "text-foreground hover:bg-[hsl(var(--landing-explore-pill-hover))]"
-          }`}
-        >
-          Monthly
-        </button>
-        <button
-          type="button"
-          onClick={() => onChange('annual')}
-          className={`px-4 py-2 rounded-full text-sm font-medium transition-all flex items-center gap-2 ${
-            billingCycle === 'annual'
-              ? "bg-[hsl(var(--landing-cta-bg))] text-white shadow-soft"
-              : "text-foreground hover:bg-[hsl(var(--landing-explore-pill-hover))]"
-          }`}
-        >
-          Annual
-          <span className={`px-2 py-0.5 text-xs rounded-full font-semibold ${
-            billingCycle === 'annual' ? "bg-white/20 text-white" : "bg-[hsl(var(--landing-accent-orange))] text-white"
-          }`}>
-            Save 20%
-          </span>
-        </button>
-      </div>
-    );
-  }
+  const annualSavings = getAnnualSavingsPercent(plans);
+  const savingsLabel = annualSavings != null ? `Save ${annualSavings}%` : null;
   return (
-    <div className="inline-flex items-center p-1 rounded-full bg-primary/10 border border-primary/20">
+    <div className="inline-flex items-center gap-1 rounded-full p-1 bg-[hsl(var(--landing-explore-pill-bg))] border border-[hsl(var(--landing-nav-bar-border))]">
       <button
+        type="button"
         onClick={() => onChange('monthly')}
-        className={`relative px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-300 ${
+        className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
           billingCycle === 'monthly'
-            ? 'bg-primary text-primary-foreground shadow-md'
-            : 'text-foreground hover:text-foreground/80'
+            ? "bg-[hsl(var(--landing-cta-bg))] text-white shadow-soft"
+            : "text-foreground hover:bg-[hsl(var(--landing-explore-pill-hover))]"
         }`}
       >
         Monthly
       </button>
       <button
+        type="button"
         onClick={() => onChange('annual')}
-        className={`relative px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-300 ${
+        className={`px-4 py-2 rounded-full text-sm font-medium transition-all flex items-center gap-2 ${
           billingCycle === 'annual'
-            ? 'bg-primary text-primary-foreground shadow-md'
-            : 'text-foreground hover:text-foreground/80'
+            ? "bg-[hsl(var(--landing-cta-bg))] text-white shadow-soft"
+            : "text-foreground hover:bg-[hsl(var(--landing-explore-pill-hover))]"
         }`}
       >
         Annual
+        {savingsLabel && (
+          <span className={`px-2 py-0.5 text-xs rounded-full font-semibold ${
+            billingCycle === 'annual' ? "bg-white/20 text-white" : "bg-[hsl(var(--landing-accent-orange))] text-white"
+          }`}>
+            {savingsLabel}
+          </span>
+        )}
       </button>
     </div>
   );
@@ -198,7 +193,7 @@ const PlanCard = ({
 
   // Landing style: wanderlust Download All modal (light popular card, black CTAs, pills for posts)
   if (landingStyle) {
-    const popular = isPopular;
+    const popular = isPopular && !isCurrent && !isUsersPlanDifferentCycle;
     const isProductFlow = plan.planFlow === 'product_photoshot';
     const imageLabel = isProductFlow ? "Image Posts" : "Image Posts";
     const videoLabel = isProductFlow ? "Video Posts" : "Video Posts";
@@ -214,11 +209,31 @@ const PlanCard = ({
     return (
       <div
         className={`relative rounded-3xl p-6 h-full flex flex-col ${
-          popular
+          isCurrent
+            ? "bg-emerald-50 dark:bg-emerald-950/30 border-2 border-emerald-400 shadow-xl"
+            : isUsersPlanDifferentCycle
+            ? "bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-300 shadow-lg"
+            : popular
             ? "bg-[hsl(var(--landing-accent-orange)/0.12)] border border-[hsl(var(--landing-accent-orange)/0.3)] shadow-card"
             : "bg-card border border-border shadow-soft"
         }`}
       >
+        {isCurrent && (
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+            <span className="inline-flex items-center gap-1.5 px-4 py-1 rounded-full bg-emerald-500 text-white text-xs font-semibold">
+              <Check className="h-4 w-4" />
+              Current Plan
+            </span>
+          </div>
+        )}
+        {isUsersPlanDifferentCycle && (
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+            <span className="inline-flex items-center gap-1.5 px-4 py-1 rounded-full bg-amber-500 text-white text-xs font-semibold">
+              <ArrowRightLeft className="h-4 w-4" />
+              Your Plan
+            </span>
+          </div>
+        )}
         {popular && (
           <div className="absolute -top-3 left-1/2 -translate-x-1/2">
             <span className="px-4 py-1 bg-[hsl(var(--landing-accent-orange))] text-white rounded-full text-xs font-semibold flex items-center gap-1">
@@ -227,14 +242,14 @@ const PlanCard = ({
             </span>
           </div>
         )}
-        {isFree && !popular && (
+        {isFree && !popular && !isCurrent && !isUsersPlanDifferentCycle && (
           <div className="absolute -top-3 left-1/2 -translate-x-1/2">
             <span className="px-4 py-1 bg-[hsl(var(--landing-accent-orange))] text-white rounded-full text-xs font-semibold">
               Free Trial
             </span>
           </div>
         )}
-        {hasDeal && !popular && (
+        {hasDeal && !popular && !isCurrent && !isUsersPlanDifferentCycle && (
           <div className="absolute -top-3 left-1/2 -translate-x-1/2">
             <span className="px-4 py-1 bg-green-500 text-white rounded-full text-xs font-semibold">
               {getDealDiscountPercent()}% OFF
@@ -255,20 +270,26 @@ const PlanCard = ({
               <span className="text-muted-foreground text-sm">{getPeriod()}</span>
             )}
           </div>
-          <p className="text-xs text-muted-foreground mt-1">
-            {isFree ? "7-day trial, no credit card required" : "7-day free trial"}
-          </p>
+          {(isFree || plan.isFreemium) && (
+            <p className="text-xs text-muted-foreground mt-1">
+              {isFree ? "7-day trial, no credit card required" : `${plan.freemiumTrialDays || 7}-day free trial, cancel anytime`}
+            </p>
+          )}
         </div>
-        {/* Image/Video posts as pills with icons */}
-        <div className="flex flex-wrap gap-2 mb-4">
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/80 text-sm text-foreground">
-            <ImageIcon className="w-4 h-4 text-muted-foreground" />
-            {imageLimit} {imageLabel}
-          </span>
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/80 text-sm text-foreground">
-            <Video className="w-4 h-4 text-muted-foreground" />
-            {videoLimit} {videoLabel}
-          </span>
+        {/* Image/Video posts as pills with icons - hide when limit is 0, center when only one */}
+        <div className={`flex flex-wrap gap-2 mb-4 ${(imageLimit > 0) !== (videoLimit > 0) ? 'justify-center' : ''}`}>
+          {imageLimit > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/80 text-sm text-foreground">
+              <ImageIcon className="w-4 h-4 text-muted-foreground" />
+              {imageLimit} {imageLabel}
+            </span>
+          )}
+          {videoLimit > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/80 text-sm text-foreground">
+              <Video className="w-4 h-4 text-muted-foreground" />
+              {videoLimit} {videoLabel}
+            </span>
+          )}
         </div>
         <ul className="space-y-2 mb-6 flex-1">
           {otherFeatures.map((feature) => (
@@ -282,11 +303,34 @@ const PlanCard = ({
           type="button"
           onClick={() => !isCurrent && onSelect(plan, changeType)}
           disabled={isCurrent}
-          className="w-full py-3 rounded-full font-medium bg-[hsl(var(--landing-cta-bg))] text-white hover:opacity-90 transition-all"
+          className={`w-full py-3 rounded-full font-medium transition-all ${
+            isCurrent
+              ? "bg-muted text-muted-foreground cursor-not-allowed"
+              : "bg-[hsl(var(--landing-cta-bg))] text-white hover:opacity-90"
+          }`}
         >
           <span className="inline-flex items-center gap-2">
-            <Gift className="w-4 h-4" />
-            {isFree ? "Start Free Trial" : "Start 7-Day Trial"}
+            {isCurrent ? (
+              <>
+                <Check className="w-4 h-4" />
+                Current Plan
+              </>
+            ) : changeType === "switch_to_annual" ? (
+              <>
+                <ArrowRightLeft className="w-4 h-4" />
+                Switch to Annual
+              </>
+            ) : changeType === "switch_to_monthly" ? (
+              <>
+                <ArrowRightLeft className="w-4 h-4" />
+                Switch to Monthly
+              </>
+            ) : (
+              <>
+                <Gift className="w-4 h-4" />
+                {isFree ? "Start Free Trial" : plan.isFreemium ? `Start ${plan.freemiumTrialDays || 7}-Day Trial` : (changeType === "upgrade" ? "Upgrade" : "Get Started")}
+              </>
+            )}
           </span>
         </button>
         {!isFree && (plan.extraImagePostPrice > 0 || plan.extraVideoPostPrice > 0) && (
@@ -300,74 +344,72 @@ const PlanCard = ({
 
   return (
     <div
-      className={`relative rounded-2xl p-6 md:p-8 transition-all duration-200 h-full ${
+      className={`relative rounded-3xl p-6 md:p-8 transition-all duration-200 h-full flex flex-col ${
         isCurrent
-          ? 'bg-emerald-50 border-2 border-emerald-400 shadow-xl ring-1 ring-emerald-200'
+          ? 'bg-emerald-50 dark:bg-emerald-950/30 border-2 border-emerald-400 shadow-xl'
           : isUsersPlanDifferentCycle
-          ? 'bg-amber-50 border-2 border-amber-300 shadow-lg ring-1 ring-amber-200'
+          ? 'bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-300 shadow-lg'
           : isPopular
-          ? 'bg-primary/5 border-2 border-primary/50 shadow-lg'
+          ? 'bg-[hsl(var(--landing-cta-bg))] text-white shadow-card scale-105'
           : isFree
-          ? 'bg-green-50 border-2 border-green-200'
-          : 'bg-card border border-border hover:border-primary/30 hover:shadow-lg'
+          ? 'bg-card border border-border shadow-soft'
+          : 'bg-card border border-border shadow-soft hover:shadow-lg'
       }`}
     >
       {/* Current Plan Badge - Green to distinguish from Most Popular */}
       {isCurrent && (
-        <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-          <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-emerald-500 text-white text-sm font-semibold shadow-lg">
+        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+          <span className="inline-flex items-center gap-1.5 px-4 py-1 rounded-full bg-emerald-500 text-white text-xs font-semibold">
             <Check className="h-4 w-4" />
             Current Plan
-          </div>
+          </span>
         </div>
       )}
 
       {/* User's Plan (different billing cycle) Badge */}
       {isUsersPlanDifferentCycle && (
-        <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-          <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-amber-500 text-white text-sm font-semibold shadow-lg">
+        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+          <span className="inline-flex items-center gap-1.5 px-4 py-1 rounded-full bg-amber-500 text-white text-xs font-semibold">
             <ArrowRightLeft className="h-4 w-4" />
             Your Plan
-          </div>
+          </span>
         </div>
       )}
 
-      {/* Popular Badge */}
+      {/* Popular Badge - aligned with pricing page */}
       {isPopular && !isCurrent && !isUsersPlanDifferentCycle && (
-        <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-          <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-primary text-primary-foreground text-sm font-semibold shadow-lg">
-            <Crown className="h-4 w-4" />
+        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+          <span className="px-4 py-1 bg-[hsl(var(--landing-accent-orange))] text-white rounded-full text-xs font-semibold">
             Most Popular
-          </div>
+          </span>
         </div>
       )}
 
       {/* Free Badge */}
       {isFree && !isCurrent && (
-        <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-          <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-green-500 text-white text-sm font-semibold shadow-lg">
-            <Gift className="h-4 w-4" />
+        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+          <span className="px-4 py-1 bg-[hsl(var(--landing-accent-orange))] text-white rounded-full text-xs font-semibold">
             Free Trial
-          </div>
+          </span>
         </div>
       )}
 
       {/* Deal Badge */}
       {hasDeal && !isCurrent && (
-        <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-          <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-green-500 text-white text-sm font-semibold shadow-lg">
+        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+          <span className="px-4 py-1 bg-green-500 text-white rounded-full text-xs font-semibold">
             {getDealDiscountPercent()}% OFF
-          </div>
+          </span>
         </div>
       )}
 
       {/* Plan Name */}
-      <h3 className="text-2xl font-bold text-foreground mb-2 mt-2">
+      <h3 className={`text-2xl font-bold mb-2 mt-2 ${isPopular ? 'text-white' : 'text-foreground'}`}>
         {plan.planName}
       </h3>
       
       {plan.description && (
-        <p className="text-muted-foreground text-sm mb-5">
+        <p className={`text-sm mb-5 ${isPopular ? 'text-white/80' : 'text-muted-foreground'}`}>
           {plan.description}
         </p>
       )}
@@ -376,105 +418,93 @@ const PlanCard = ({
       <div className="mb-6">
         <div className="flex items-baseline gap-1 flex-wrap">
           {hasDeal && (
-            <span className="text-xl line-through text-muted-foreground">${originalPrice}</span>
+            <span className={`text-xl line-through ${isPopular ? 'text-white/50' : 'text-muted-foreground'}`}>${originalPrice}</span>
           )}
-          <span className="text-5xl font-bold text-foreground">
+          <span className={`text-4xl font-bold ${isPopular ? 'text-white' : 'text-foreground'}`}>
             {isFree ? 'Free' : `$${getPrice()}`}
           </span>
           {!isFree && (
-            <span className="text-muted-foreground">
+            <span className={isPopular ? 'text-white/70' : 'text-muted-foreground'}>
               /{billingCycle === 'monthly' ? 'mo' : 'yr'}
             </span>
           )}
         </div>
         {!isFree && billingCycle === 'annual' && getAnnualSavings() > 0 && (
-          <p className="text-green-600 text-sm mt-2 font-medium">
+          <p className={`text-sm mt-2 font-medium ${isPopular ? 'text-white/90' : 'text-[hsl(var(--landing-accent-orange))]'}`}>
             Save {getAnnualSavings()}% vs monthly
           </p>
         )}
         {/* Only show trial messaging if user does NOT have an active paid subscription */}
         {!isFree && plan.isFreemium && !hasActiveSubscription && (
-          <p className="text-[hsl(var(--landing-accent-orange))] text-sm mt-2 font-medium">
+          <p className={`text-sm mt-2 font-medium ${isPopular ? 'text-white/90' : 'text-[hsl(var(--landing-accent-orange))]'}`}>
             {plan.freemiumTrialDays || 7}-day free trial, cancel anytime
           </p>
         )}
         {isFree && (
-          <p className="text-green-600 text-sm mt-2 font-medium">
+          <p className={`text-sm mt-2 font-medium ${isPopular ? 'text-white/90' : 'text-muted-foreground'}`}>
             7-day trial, no credit card required
           </p>
         )}
       </div>
 
-      {/* Features */}
-      <div className="space-y-4 mb-8">
-        <div className="flex items-center gap-3">
-          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-            <ImageIcon className="h-5 w-5 text-primary" />
+      {/* Features - hide Image/Video when limit is 0, center when only one */}
+      <div className={`space-y-4 mb-8 flex-1 flex flex-col ${(getImageLimit() > 0) !== (getVideoLimit() > 0) ? 'items-center' : ''}`}>
+        {getImageLimit() > 0 && (
+          <div className="flex items-center gap-3">
+            <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${isPopular ? 'bg-white/20' : 'bg-[hsl(var(--landing-accent-orange)/0.15)]'}`}>
+              <ImageIcon className={`h-5 w-5 ${isPopular ? 'text-white' : 'text-[hsl(var(--landing-accent-orange))]'}`} />
+            </div>
+            <div>
+              <p className={isPopular ? 'text-white font-semibold' : 'text-foreground font-semibold'}>
+                {getImageLimit()} {imageLabel}
+              </p>
+              <p className={`text-sm ${isPopular ? 'text-white/70' : 'text-muted-foreground'}`}>
+                {isFree ? 'during trial' : `per ${billingCycle === 'monthly' ? 'month' : 'year'}`}
+              </p>
+            </div>
           </div>
-          <div>
-            <p className="text-foreground font-semibold">
-              {getImageLimit()} {imageLabel}
-            </p>
-            <p className="text-muted-foreground text-sm">
-              {isFree ? 'during trial' : `per ${billingCycle === 'monthly' ? 'month' : 'year'}`}
-            </p>
-          </div>
-        </div>
+        )}
 
-        <div className="flex items-center gap-3">
-          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-pink-500/10 flex items-center justify-center">
-            <Video className="h-5 w-5 text-pink-500" />
+        {getVideoLimit() > 0 && (
+          <div className="flex items-center gap-3">
+            <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${isPopular ? 'bg-white/20' : 'bg-[hsl(var(--landing-accent-orange)/0.15)]'}`}>
+              <Video className={`h-5 w-5 ${isPopular ? 'text-white' : 'text-[hsl(var(--landing-accent-orange))]'}`} />
+            </div>
+            <div>
+              <p className={isPopular ? 'text-white font-semibold' : 'text-foreground font-semibold'}>
+                {getVideoLimit()} {videoLabel}
+              </p>
+              <p className={`text-sm ${isPopular ? 'text-white/70' : 'text-muted-foreground'}`}>
+                {isFree ? 'during trial' : `per ${billingCycle === 'monthly' ? 'month' : 'year'}`}
+              </p>
+            </div>
           </div>
-          <div>
-            <p className="text-foreground font-semibold">
-              {getVideoLimit()} {videoLabel}
-            </p>
-            <p className="text-muted-foreground text-sm">
-              {isFree ? 'during trial' : `per ${billingCycle === 'monthly' ? 'month' : 'year'}`}
-            </p>
-          </div>
-        </div>
+        )}
 
         {/* Additional Features */}
-        <div className="pt-4 border-t border-border space-y-3">
-          <div className="flex items-center gap-2">
-            <Check className="h-5 w-5 text-green-500 flex-shrink-0" />
-            <span className="text-foreground">AI-powered content generation</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Check className="h-5 w-5 text-green-500 flex-shrink-0" />
-            <span className="text-foreground">Multi-platform scheduling</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Check className="h-5 w-5 text-green-500 flex-shrink-0" />
-            <span className="text-foreground">Brand kit & content library</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Check className="h-5 w-5 text-green-500 flex-shrink-0" />
-            <span className="text-foreground">Analytics dashboard</span>
-          </div>
-          {!isFree && (
-            <div className="flex items-center gap-2">
-              <Check className="h-5 w-5 text-green-500 flex-shrink-0" />
-              <span className="text-foreground">Priority support</span>
+        <div className={`pt-4 space-y-3 ${isPopular ? 'border-t border-white/20' : 'border-t border-border'}`}>
+          {['AI-powered content generation', 'Multi-platform scheduling', 'Brand kit & content library', 'Analytics dashboard', ...(!isFree ? ['Priority support'] : [])].map((feature) => (
+            <div key={feature} className="flex items-center gap-2">
+              <Check className={`h-5 w-5 flex-shrink-0 ${isPopular ? 'text-[hsl(var(--landing-accent-orange))]' : 'text-[hsl(var(--landing-accent-orange))]'}`} />
+              <span className={isPopular ? 'text-white/90' : 'text-foreground'}>{feature}</span>
             </div>
-          )}
+          ))}
         </div>
       </div>
 
-      {/* CTA Button */}
+      {/* CTA Button - aligned with pricing page */}
       <Button
         onClick={() => onSelect(plan, changeType)}
         disabled={isCurrent}
-        className={`w-full py-6 text-base font-semibold transition-all ${
+        className={`w-full py-6 text-base font-semibold rounded-full transition-all ${
           isCurrent
             ? 'bg-muted text-muted-foreground cursor-not-allowed'
             : isFree
-            ? 'bg-green-500 hover:bg-green-600 text-white shadow-lg'
-            : changeType === 'upgrade' || changeType === 'get_started' || changeType === 'switch_to_annual'
-            ? 'btn-gradient-cta'
-            : changeType === 'switch_to_monthly'
-            ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-lg'
+            ? 'bg-[hsl(var(--landing-cta-bg))] hover:opacity-90 text-white'
+            : changeType === 'upgrade' || changeType === 'get_started' || changeType === 'switch_to_annual' || changeType === 'switch_to_monthly'
+            ? isPopular
+              ? 'bg-card text-foreground hover:shadow-soft'
+              : 'bg-[hsl(var(--landing-cta-bg))] text-white hover:opacity-90'
             : 'bg-foreground hover:bg-foreground/90 text-background'
         }`}
       >
@@ -520,7 +550,7 @@ const PlanCard = ({
 
       {/* Extra post pricing */}
       {!isFree && (plan.extraImagePostPrice > 0 || plan.extraVideoPostPrice > 0) && (
-        <p className="text-center text-muted-foreground text-sm mt-4">
+        <p className={`text-center text-sm mt-4 ${isPopular ? 'text-white/70' : 'text-muted-foreground'}`}>
           Extra {isProductFlow ? 'content' : 'posts'}: ${plan.extraImagePostPrice}/{isProductFlow ? 'image' : 'image post'}, ${plan.extraVideoPostPrice}/{isProductFlow ? 'video' : 'video post'}
         </p>
       )}
@@ -576,35 +606,36 @@ const ModalPlanCarousel = ({
   // Gap sizes in pixels
   const gapSize = visibleCount === 3 ? 24 : 16; // lg:gap-6 = 24px, gap-4 = 16px
 
-  // If all plans fit, just show grid
+  // If all plans fit, just show grid (parent has pt-10 for badge clearance)
   if (plans.length <= visibleCount) {
     return (
-      <div className={`hidden md:block ${landingStyle ? 'pt-2' : 'pt-5'}`}>
+      <div className="hidden md:block overflow-visible">
         <div className={`grid ${landingStyle ? 'gap-4' : 'gap-4 lg:gap-6'} ${
           plans.length === 1 ? 'grid-cols-1 max-w-md mx-auto' :
           plans.length === 2 ? 'grid-cols-2 max-w-3xl mx-auto' :
           'grid-cols-3'
-        }`}>
+        } pt-4`}>
           {plans.map((plan) => (
-            <PlanCard 
-              key={plan.id} 
-              plan={plan} 
-              displayPlans={plans}
-              billingCycle={billingCycle}
-              changeType={getPlanChangeType(plan)}
-              onSelect={onSelect}
-              hasActiveSubscription={hasActiveSubscription}
-              landingStyle={landingStyle}
-            />
+            <div key={plan.id} className="overflow-visible pt-4">
+              <PlanCard 
+                plan={plan} 
+                displayPlans={plans}
+                billingCycle={billingCycle}
+                changeType={getPlanChangeType(plan)}
+                onSelect={onSelect}
+                hasActiveSubscription={hasActiveSubscription}
+                landingStyle={landingStyle}
+              />
+            </div>
           ))}
         </div>
       </div>
     );
   }
 
-  // Carousel view with arrows
+  // Carousel view with arrows (parent has pt-10 for badge clearance)
   return (
-    <div className={`hidden md:block relative ${landingStyle ? 'pt-2' : 'pt-5'}`}>
+    <div className="hidden md:block relative overflow-visible">
       {/* Left Arrow */}
       <button
         onClick={goLeft}
@@ -633,8 +664,8 @@ const ModalPlanCarousel = ({
         <ChevronRight className="h-5 w-5 lg:h-6 lg:w-6 text-foreground" />
       </button>
 
-      {/* Carousel Container */}
-      <div className={`overflow-hidden ${landingStyle ? 'pt-2' : 'pt-5'}`}>
+      {/* Carousel Container - pt-4 for badge clearance */}
+      <div className="overflow-hidden pt-4">
         <div 
           className="flex transition-transform duration-300 ease-out"
           style={{ 
@@ -645,7 +676,7 @@ const ModalPlanCarousel = ({
           {plans.map((plan) => (
             <div 
               key={plan.id} 
-              className="flex-shrink-0"
+              className="flex-shrink-0 overflow-visible pt-4"
               style={{ 
                 width: `calc((100% - ${(visibleCount - 1) * gapSize}px) / ${visibleCount})` 
               }}
@@ -695,8 +726,10 @@ export const PricingModal = ({
   userFlow = 'website_analysis',
   mustSubscribe = false,
   variant = 'fullscreen',
+  isOnboardingFlow = false,
 }: PricingModalProps) => {
   const router = useRouter();
+  const pathname = usePathname() ?? '/home';
   const [plans, setPlans] = useState<PricingPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
@@ -1052,10 +1085,18 @@ export const PricingModal = ({
         hasPromoCode: !!promoCode,
       });
 
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const search = typeof window !== 'undefined' ? window.location.search : '';
+      const successPath = isOnboardingFlow ? '/content-library?tab=my-ads' : (pathname + search);
+      const cancelPath = isOnboardingFlow ? '/discover' : (pathname + search);
       const data = await dvybApi.subscription.createCheckout(
         plan.id, 
         billingCycle, 
-        promoCode || undefined
+        promoCode || undefined,
+        {
+          successUrl: `${origin}${successPath.startsWith('/') ? successPath : '/' + successPath}`,
+          cancelUrl: `${origin}${cancelPath.startsWith('/') ? cancelPath : '/' + cancelPath}`,
+        }
       );
       
       if (data.success && data.checkoutUrl) {
@@ -1092,11 +1133,13 @@ export const PricingModal = ({
 
   if (!open) return null;
 
-  // Sort plans: Free trial first, then by price
+  // Sort plans: Free trial first, then by effective price (lowest value including deals)
+  const effectiveMonthlyPrice = (p: PricingPlan) =>
+    p.dealActive && p.dealMonthlyPrice != null ? p.dealMonthlyPrice : p.monthlyPrice;
   const sortedPlans = [...plans].sort((a, b) => {
     if (a.isFreeTrialPlan && !b.isFreeTrialPlan) return -1;
     if (!a.isFreeTrialPlan && b.isFreeTrialPlan) return 1;
-    return a.monthlyPrice - b.monthlyPrice;
+    return effectiveMonthlyPrice(a) - effectiveMonthlyPrice(b);
   });
 
   // For authenticated users, always hide free/trial plans - show only paid plans
@@ -1123,10 +1166,10 @@ export const PricingModal = ({
   
   const modalContent = (
     <>
-      {/* Close Button - always visible */}
+      {/* Close Button - aligned with landing style */}
       <button
         onClick={handleClose}
-        className={`z-[112] p-2.5 rounded-full bg-muted hover:bg-muted/80 transition-colors border border-border ${
+        className={`z-[112] p-2.5 rounded-full bg-[hsl(var(--landing-explore-pill-bg))] hover:bg-[hsl(var(--landing-explore-pill-hover))] transition-colors border border-[hsl(var(--landing-nav-bar-border))] ${
           variant === 'centered' ? 'absolute top-4 right-4' : 'fixed top-4 right-4 md:top-6 md:right-6'
         }`}
         aria-label="Close pricing"
@@ -1134,25 +1177,21 @@ export const PricingModal = ({
         <X className="h-5 w-5 text-foreground" />
       </button>
 
-      <div className={`flex-1 min-h-0 flex flex-col ${variant === 'centered' ? 'py-8 px-4 pt-14 pb-10 overflow-hidden' : 'py-8 md:py-16 px-4'}`}>
+      <div className={`flex-1 min-h-0 flex flex-col ${variant === 'centered' ? 'py-8 px-4 pt-14 pb-10 overflow-hidden' : 'py-6 md:py-10 px-4'}`}>
         <div className={`flex-1 min-h-0 flex flex-col ${variant === 'centered' ? 'max-w-6xl mx-auto w-full' : 'max-w-6xl mx-auto'}`}>
               {/* Header */}
-              <div className={`text-center shrink-0 ${variant === 'centered' ? 'mb-3' : 'mb-8 md:mb-12'}`}>
+              <div className={`text-center shrink-0 ${variant === 'centered' ? 'mb-3' : 'mb-6 md:mb-8'}`}>
                 {mustSubscribe ? (
-                  <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full mb-4 ${
-                    variant === 'centered' ? 'bg-[hsl(var(--landing-accent-orange)/0.15)]' : 'bg-purple-100'
-                  }`}>
-                    <Gift className={`h-4 w-4 ${variant === 'centered' ? 'text-[hsl(var(--landing-accent-orange))]' : 'text-orange-600'}`} />
-                    <span className={`text-sm font-medium ${variant === 'centered' ? 'text-[hsl(var(--landing-accent-orange))]' : 'text-orange-600'}`}>
+                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full mb-4 bg-[hsl(var(--landing-accent-orange)/0.15)]">
+                    <Gift className="h-4 w-4 text-[hsl(var(--landing-accent-orange))]" />
+                    <span className="text-sm font-medium text-[hsl(var(--landing-accent-orange))]">
                       Start your free trial to continue
                     </span>
                   </div>
                 ) : reason === 'quota_exhausted' && quotaType && isAuthenticated && (
-                  <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full mb-4 ${
-                    variant === 'centered' ? 'bg-[hsl(var(--landing-accent-orange)/0.15)]' : 'bg-primary/10'
-                  }`}>
-                    <Sparkles className={`h-4 w-4 ${variant === 'centered' ? 'text-[hsl(var(--landing-accent-orange))]' : 'text-primary'}`} />
-                    <span className={`text-sm font-medium ${variant === 'centered' ? 'text-[hsl(var(--landing-accent-orange))]' : 'text-primary'}`}>
+                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full mb-4 bg-[hsl(var(--landing-accent-orange)/0.15)]">
+                    <Sparkles className="h-4 w-4 text-[hsl(var(--landing-accent-orange))]" />
+                    <span className="text-sm font-medium text-[hsl(var(--landing-accent-orange))]">
                       {quotaType === 'image' 
                         ? 'Image quota reached' 
                         : quotaType === 'video' 
@@ -1181,9 +1220,7 @@ export const PricingModal = ({
 
                 {/* Current Plan Info - hidden when centered+user_initiated (Download All flow) or mustSubscribe */}
                 {isAuthenticated && currentPlanInfo && !mustSubscribe && !(variant === 'centered' && reason === 'user_initiated') && (
-                  <div className={`mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg ${
-                    variant === 'centered' ? 'bg-[hsl(var(--landing-explore-pill-bg))] border border-[hsl(var(--landing-nav-bar-border))]' : 'bg-muted border border-border'
-                  }`}>
+                  <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[hsl(var(--landing-explore-pill-bg))] border border-[hsl(var(--landing-nav-bar-border))]">
                     <span className="text-sm text-muted-foreground">Current plan:</span>
                     <span className="text-sm font-semibold text-foreground">
                       {currentPlanInfo.planName}
@@ -1198,11 +1235,11 @@ export const PricingModal = ({
               </div>
 
               {/* Billing Toggle */}
-              <div className={`flex justify-center shrink-0 ${variant === 'centered' ? 'mb-3' : 'mb-6'}`}>
+              <div className={`flex justify-center shrink-0 ${variant === 'centered' ? 'mb-3' : 'mb-4'}`}>
                 <BillingToggle 
                   billingCycle={billingCycle} 
                   onChange={setBillingCycle}
-                  landingStyle={variant === 'centered'}
+                  plans={displayPlans}
                 />
               </div>
 
@@ -1212,20 +1249,21 @@ export const PricingModal = ({
                   <Loader2 className={`h-10 w-10 animate-spin ${variant === 'centered' ? 'text-foreground' : 'text-primary'}`} />
                 </div>
               ) : (
-                <div className={`flex-1 min-h-0 flex flex-col ${variant === 'centered' ? 'overflow-hidden' : ''}`}>
+                <div className={`flex-1 min-h-0 flex flex-col ${variant === 'centered' ? 'overflow-hidden' : ''} pt-4`}>
                   {/* Mobile: Vertical stack */}
-                  <div className={`md:hidden flex flex-col flex-1 min-h-0 overflow-hidden ${variant === 'centered' ? 'gap-4' : 'gap-6'}`}>
+                  <div className={`md:hidden flex flex-col flex-1 min-h-0 overflow-y-auto overflow-x-visible ${variant === 'centered' ? 'gap-4' : 'gap-6'}`}>
                     {displayPlans.map((plan) => (
-                      <PlanCard 
-                        key={plan.id} 
-                        plan={plan} 
-                        displayPlans={displayPlans}
-                        billingCycle={billingCycle}
-                        changeType={getPlanChangeType(plan)}
-                        onSelect={handleSelectPlan}
-                        hasActiveSubscription={hasActiveStripeSubscription}
-                        landingStyle={variant === 'centered'}
-                      />
+                      <div key={plan.id} className="overflow-visible pt-4">
+                        <PlanCard 
+                          plan={plan} 
+                          displayPlans={displayPlans}
+                          billingCycle={billingCycle}
+                          changeType={getPlanChangeType(plan)}
+                          onSelect={handleSelectPlan}
+                          hasActiveSubscription={hasActiveStripeSubscription}
+                          landingStyle={variant === 'centered'}
+                        />
+                      </div>
                     ))}
                   </div>
                   
@@ -1237,14 +1275,14 @@ export const PricingModal = ({
                       getPlanChangeType={getPlanChangeType}
                       onSelect={handleSelectPlan}
                       hasActiveSubscription={hasActiveStripeSubscription}
-                      landingStyle={variant === 'centered'}
+                      landingStyle={true}
                     />
                   </div>
                 </div>
               )}
 
               {/* Footer */}
-              <div className={`text-center shrink-0 ${variant === 'centered' ? 'mt-4' : 'mt-10'}`}>
+              <div className={`text-center shrink-0 ${variant === 'centered' ? 'mt-4' : 'mt-6'}`}>
                 {mustSubscribe || reason === 'freemium_required' ? (
                   // User MUST subscribe (opt-out trial enforcement) - no skip option
                   <div className="space-y-2">
@@ -1264,7 +1302,7 @@ export const PricingModal = ({
                   // Only one quota exhausted - can skip and generate the other type
                   <button
                     onClick={handleClose}
-                    className="text-primary hover:text-primary/80 text-sm font-medium underline underline-offset-4 transition-colors"
+                    className="text-[hsl(var(--landing-accent-orange))] hover:opacity-80 text-sm font-medium underline underline-offset-4 transition-colors"
                   >
                     Continue with {quotaType === 'image' ? 'videos' : 'images'} only →
                   </button>
@@ -1272,11 +1310,7 @@ export const PricingModal = ({
                   // User-initiated modal or other case - show maybe later
                   <button
                     onClick={handleClose}
-                    className={`text-sm underline underline-offset-4 transition-colors ${
-                      variant === 'centered' 
-                        ? 'text-muted-foreground hover:text-[hsl(var(--landing-accent-orange))]' 
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
+                    className="text-sm underline underline-offset-4 transition-colors text-muted-foreground hover:text-[hsl(var(--landing-accent-orange))]"
                   >
                     {variant === 'centered' && reason === 'user_initiated' ? 'Skip for now' : 'Maybe later'}
                   </button>
@@ -1317,7 +1351,7 @@ export const PricingModal = ({
             isVisible ? 'translate-y-0' : 'translate-y-full'
           }`}
         >
-          <div className="min-h-screen bg-background">
+          <div className="min-h-screen bg-[hsl(var(--landing-hero-bg))]">
             {modalContent}
           </div>
         </div>

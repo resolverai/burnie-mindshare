@@ -40,6 +40,8 @@ interface AppSidebarProps {
   forceCollapsed?: boolean;
   onboardingHighlight?: 'content_library' | 'brand_kit' | null;
   onHighlightClick?: (item: string) => void;
+  /** When provided, shows "Create your ad" button; called when user clicks it (same flow as Discover "Create my own ad") */
+  onCreateAd?: () => void;
 }
 
 // Wanderlust-style nav: Discover, Brands, My Content (collapsible), Brand Kit (collapsible), Settings
@@ -59,7 +61,7 @@ const brandKitSubItems = [
 ];
 // Settings moved to bottom section with Dark Mode, Upgrade, Log out (wanderlust style)
 
-export const AppSidebar = ({ activeView, activeSubView, onViewChange, isMobileOpen = false, onMobileClose, forceCollapsed = false, onboardingHighlight = null, onHighlightClick }: AppSidebarProps) => {
+export const AppSidebar = ({ activeView, activeSubView, onViewChange, isMobileOpen = false, onMobileClose, forceCollapsed = false, onboardingHighlight = null, onHighlightClick, onCreateAd }: AppSidebarProps) => {
   const [myContentExpanded, setMyContentExpanded] = useState(() => activeView === "content-library");
   const [brandKitExpanded, setBrandKitExpanded] = useState(() => activeView === "brand-kit");
   // Collapsed by default on mobile/tablet, expanded on desktop
@@ -290,6 +292,24 @@ export const AppSidebar = ({ activeView, activeSubView, onViewChange, isMobileOp
 
         {/* Navigation - Wanderlust style */}
         <nav className="app-sidebar-nav flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+          {onCreateAd && (
+            <button
+              type="button"
+              onClick={() => {
+                onCreateAd();
+                onMobileClose?.();
+              }}
+              className={cn(
+                "w-full flex items-center justify-center gap-2 px-4 py-3 mb-3 rounded-xl text-sm font-semibold bg-[hsl(var(--landing-cta-orange))] text-white hover:scale-[1.02] transition-all duration-300",
+                collapsed && "md:px-2"
+              )}
+              style={{ boxShadow: "0 0 20px -5px hsl(25 100% 55% / 0.4)" }}
+              title={collapsed ? "Create your ad" : undefined}
+            >
+              <Sparkles className="w-5 h-5 flex-shrink-0" />
+              {!collapsed && <span>Create your ad</span>}
+            </button>
+          )}
           {topLevelItems.map((item) => (
             <button
               key={item.id}

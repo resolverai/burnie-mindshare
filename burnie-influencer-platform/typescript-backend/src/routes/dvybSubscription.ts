@@ -19,7 +19,7 @@ const router = Router();
 router.post('/checkout', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
   try {
     const accountId = req.dvybAccountId!;
-    const { planId, frequency, promoCode } = req.body;
+    const { planId, frequency, promoCode, successUrl: customSuccessUrl, cancelUrl: customCancelUrl } = req.body;
 
     if (!planId || !frequency) {
       return res.status(400).json({ success: false, error: 'planId and frequency are required' });
@@ -52,15 +52,24 @@ router.post('/checkout', dvybAuthMiddleware, async (req: DvybAuthRequest, res: R
       });
     }
 
-    // Create checkout session
+    // Create checkout session - use custom URLs if provided and valid (same origin)
     const frontendUrl = env.dvybOAuth.frontendUrl || 'http://localhost:3005';
+    const baseUrl = frontendUrl.replace(/\/$/, '');
+    const isValidUrl = (url: string) => typeof url === 'string' && url.startsWith(baseUrl);
+    const successUrl = (customSuccessUrl && isValidUrl(customSuccessUrl))
+      ? customSuccessUrl
+      : `${frontendUrl}/subscription/success?session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl = (customCancelUrl && isValidUrl(customCancelUrl))
+      ? customCancelUrl
+      : `${frontendUrl}/subscription/cancel`;
+
     const checkoutUrl = await StripeService.createCheckoutSession({
       accountId,
       planId,
       frequency,
       promoCode,
-      successUrl: `${frontendUrl}/subscription/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancelUrl: `${frontendUrl}/subscription/cancel`,
+      successUrl,
+      cancelUrl,
     });
 
     return res.json({ success: true, checkoutUrl });

@@ -402,7 +402,9 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
         LOWER(ad.brandName) LIKE :search OR
         LOWER(COALESCE(ad.landingPage, '')) LIKE :search OR
         LOWER(COALESCE(ad.category, '')) LIKE :search OR
-        COALESCE("ad"."adCopy"::text, '') ILIKE :search
+        LOWER(COALESCE(ad.subcategory, '')) LIKE :search OR
+        COALESCE("ad"."adCopy"::text, '') ILIKE :search OR
+        COALESCE("ad"."inventoryAnalysis"::text, '') ILIKE :search
       )`,
       { search: searchPattern }
     );

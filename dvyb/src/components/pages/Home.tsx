@@ -562,27 +562,13 @@ export const Home = () => {
                           return;
                         }
                         
-                        // Check quota limits
+                        // Video limits bypassed for now - only check image quota
                         const noImagesLeft = data.data.remainingImages === 0;
-                        const noVideosLeft = data.data.remainingVideos === 0;
-                        
-                        if (noImagesLeft && noVideosLeft) {
-                          // BOTH quotas exhausted - must upgrade, cannot skip
+                        if (noImagesLeft) {
                           setQuotaType('both');
                           setCanSkipPricingModal(false);
                           setShowPricingModal(true);
-                        } else if (noImagesLeft && !noVideosLeft) {
-                          // Only image quota exhausted - can skip and generate videos
-                          setQuotaType('image');
-                          setCanSkipPricingModal(true);
-                          setShowPricingModal(true);
-                        } else if (noVideosLeft && !noImagesLeft) {
-                          // Only video quota exhausted - can skip and generate images
-                          setQuotaType('video');
-                          setCanSkipPricingModal(true);
-                          setShowPricingModal(true);
                         } else {
-                          // Has some posts remaining - proceed with generation
                           setShowGenerateDialog(true);
                         }
                       }

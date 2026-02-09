@@ -60,12 +60,19 @@ interface MyContentPageProps {
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
   onEditDesignModeChange?: (isEditMode: boolean) => void;
+  hasActiveSubscription?: boolean;
+  onShowPricingModal?: () => void;
+  /** Ref to register the create-ad trigger (opens Create Ad flow from My Ads tab) */
+  createAdTriggerRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 export function MyContentPage({
   activeTab,
   onTabChange,
   onEditDesignModeChange,
+  hasActiveSubscription = true,
+  onShowPricingModal,
+  createAdTriggerRef,
 }: MyContentPageProps) {
   const [savedAds, setSavedAds] = useState<SavedAdCard[]>([]);
   const [savedLoading, setSavedLoading] = useState(false);
@@ -146,12 +153,27 @@ export function MyContentPage({
     if (!product || !name.trim()) return;
     setIsUpdatingProduct(true);
     try {
-      const res = await productsApi.update(product.id, name.trim());
-      if (res.success && res.data) {
-        setProducts((prev) =>
-          prev.map((p) => (p.id === product.id ? res.data! : p))
+      if (product.source === "domain") {
+        const res = await productsApi.createFromDomain(
+          Math.abs(product.id),
+          name.trim()
         );
-        setRenameProductDialog({ open: false, product: null, name: "" });
+        if (res.success && res.data) {
+          setProducts((prev) =>
+            prev
+              .filter((p) => p.id !== product.id)
+              .concat([{ ...res.data!, source: "account" }])
+          );
+          setRenameProductDialog({ open: false, product: null, name: "" });
+        }
+      } else {
+        const res = await productsApi.update(product.id, name.trim());
+        if (res.success && res.data) {
+          setProducts((prev) =>
+            prev.map((p) => (p.id === product.id ? res.data! : p))
+          );
+          setRenameProductDialog({ open: false, product: null, name: "" });
+        }
       }
     } catch (e) {
       console.error("Failed to rename product:", e);
@@ -160,20 +182,31 @@ export function MyContentPage({
     }
   }, [renameProductDialog]);
 
-  const handleDeleteProduct = useCallback(async (id: number) => {
-    setDeleteConfirmProduct(null);
-    setIsDeletingId(id);
-    try {
-      const res = await productsApi.delete(id);
-      if (res.success) {
-        setProducts((prev) => prev.filter((p) => p.id !== id));
+  const handleDeleteProduct = useCallback(
+    async (product: { id: number; source?: string }) => {
+      const id = product.id;
+      setDeleteConfirmProduct(null);
+      setIsDeletingId(id);
+      try {
+        if (product.source === "domain") {
+          const res = await productsApi.hideDomainProduct(Math.abs(id));
+          if (res.success) {
+            setProducts((prev) => prev.filter((p) => p.id !== id));
+          }
+        } else {
+          const res = await productsApi.delete(id);
+          if (res.success) {
+            setProducts((prev) => prev.filter((p) => p.id !== id));
+          }
+        }
+      } catch (e) {
+        console.error("Failed to delete product:", e);
+      } finally {
+        setIsDeletingId(null);
       }
-    } catch (e) {
-      console.error("Failed to delete product:", e);
-    } finally {
-      setIsDeletingId(null);
-    }
-  }, []);
+    },
+    []
+  );
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -247,6 +280,15 @@ export function MyContentPage({
     }
   }, [activeTab, fetchProducts]);
 
+  useEffect(() => {
+    if (createAdTriggerRef && activeTab === "my-ads") {
+      createAdTriggerRef.current = () => contentLibraryCreateNewRef.current?.openCreateNew();
+      return () => {
+        createAdTriggerRef.current = null;
+      };
+    }
+  }, [createAdTriggerRef, activeTab]);
+
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {/* Header - Row 1: My Content + Create New */}
@@ -309,6 +351,8 @@ export function MyContentPage({
           <ContentLibrary
             ref={contentLibraryCreateNewRef}
             onEditDesignModeChange={onEditDesignModeChange}
+            hasActiveSubscription={hasActiveSubscription}
+            onShowPricingModal={onShowPricingModal}
           />
         )}
 
@@ -364,8 +408,7 @@ export function MyContentPage({
                         alt={product.name}
                         className="w-full h-full object-cover"
                       />
-                      {product.source !== "domain" && product.id > 0 && (
-                        <DropdownMenu>
+                      <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <button
                               onClick={(e) => e.stopPropagation()}
@@ -402,7 +445,6 @@ export function MyContentPage({
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
-                      )}
                     </div>
                     <div className="p-3 flex items-center justify-between gap-2">
                       {product.name.length > 12 ? (
@@ -575,7 +617,7 @@ export function MyContentPage({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => deleteConfirmProduct && handleDeleteProduct(deleteConfirmProduct.id)}
+              onClick={() => deleteConfirmProduct && handleDeleteProduct(deleteConfirmProduct)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Delete

@@ -102,7 +102,12 @@ const META_ADS_COUNTRIES: CountrySelection[] = [
   { code: "NZ", name: "New Zealand" },
 ].sort((a, b) => a.name.localeCompare(b.name));
 
-export function BrandsScreen() {
+interface BrandsScreenProps {
+  hasActiveSubscription?: boolean;
+  onShowPricingModal?: () => void;
+}
+
+export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal }: BrandsScreenProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"all" | "following">("all");
   const [filterCategory, setFilterCategory] = useState("All");
@@ -209,6 +214,14 @@ export function BrandsScreen() {
     setCountryDropdownOpen(false);
   };
 
+  const handleRequestBrandClick = () => {
+    if (hasActiveSubscription !== true && onShowPricingModal) {
+      onShowPricingModal();
+      return;
+    }
+    setShowRequestModal(true);
+  };
+
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (countryDropdownRef.current && !countryDropdownRef.current.contains(e.target as Node)) {
@@ -293,6 +306,10 @@ export function BrandsScreen() {
 
   const handleFollowBrand = async (brand: BrandRow) => {
     if (followLoadingId === brand.id) return;
+    if (!brand.isFollowing && hasActiveSubscription !== true && onShowPricingModal) {
+      onShowPricingModal();
+      return;
+    }
     try {
       setFollowLoadingId(brand.id);
       if (brand.isFollowing) {
@@ -326,7 +343,7 @@ export function BrandsScreen() {
           <h1 className="text-2xl md:text-3xl font-bold text-foreground">Brands</h1>
           <button
             type="button"
-            onClick={() => setShowRequestModal(true)}
+            onClick={handleRequestBrandClick}
             className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-[hsl(var(--landing-cta-orange))] text-white hover:opacity-90 text-sm font-medium shrink-0"
           >
             <UserPlus className="w-4 h-4" />
@@ -541,7 +558,7 @@ export function BrandsScreen() {
               <p className="text-xs mt-1">Request a brand to see competitor ads from Meta Ad Library</p>
               <button
                 type="button"
-                onClick={() => setShowRequestModal(true)}
+                onClick={handleRequestBrandClick}
                 className="mt-4 flex items-center gap-2 px-4 py-2 rounded-full bg-[hsl(var(--landing-cta-orange))] text-white hover:opacity-90 text-sm font-medium"
               >
                 <UserPlus className="w-4 h-4" />

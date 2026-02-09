@@ -1800,7 +1800,12 @@ export const assetsApi = {
 
 // Subscription API
 export const subscriptionApi = {
-  async createCheckout(planId: number, frequency: 'monthly' | 'annual', promoCode?: string) {
+  async createCheckout(
+    planId: number,
+    frequency: 'monthly' | 'annual',
+    promoCode?: string,
+    options?: { successUrl?: string; cancelUrl?: string }
+  ) {
     return apiRequest<{
       success: boolean;
       checkoutUrl?: string;
@@ -1808,7 +1813,7 @@ export const subscriptionApi = {
       error?: string;
     }>('/dvyb/subscription/checkout', {
       method: 'POST',
-      body: JSON.stringify({ planId, frequency, promoCode }),
+      body: JSON.stringify({ planId, frequency, promoCode, ...options }),
     });
   },
 
@@ -2217,6 +2222,7 @@ export const brandsApi = {
     status?: string;
     category?: string;
     websiteCategory?: string;
+    productImageS3Key?: string;
     brandContext?: BrandContextForMatch | null;
     runtime?: string;
     adCount?: string;
@@ -2232,6 +2238,7 @@ export const brandsApi = {
     if (params?.status && params.status !== 'All') sp.set('status', params.status);
     if (params?.category && params.category !== 'All') sp.set('category', params.category);
     if (params?.websiteCategory) sp.set('websiteCategory', params.websiteCategory);
+    if (params?.productImageS3Key) sp.set('productImageS3Key', params.productImageS3Key);
     if (params?.brandContext && Object.keys(params.brandContext).length > 0) {
       sp.set('brandContext', encodeURIComponent(JSON.stringify(params.brandContext)));
     }
@@ -2361,6 +2368,32 @@ export const productsApi = {
       `/dvyb/products/${id}`,
       { method: 'DELETE' }
     );
+  },
+
+  /** Hide a domain product from My Products list (domain products use negative id in list response) */
+  async hideDomainProduct(domainProductImageId: number) {
+    return apiRequest<{ success: boolean; message?: string; error?: string }>(
+      `/dvyb/products/domain/${domainProductImageId}/hide`,
+      { method: 'POST' }
+    );
+  },
+
+  /** Rename a domain product: creates account product with new name and hides the domain product */
+  async createFromDomain(domainProductImageId: number, name: string) {
+    return apiRequest<{
+      success: boolean;
+      data?: {
+        id: number;
+        name: string;
+        imageS3Key: string;
+        imageUrl: string;
+        createdAt: string;
+      };
+      error?: string;
+    }>('/dvyb/products/from-domain', {
+      method: 'POST',
+      body: JSON.stringify({ domainProductImageId, name }),
+    });
   },
 };
 

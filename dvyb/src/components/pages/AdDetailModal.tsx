@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import {
   Download,
-  Share2,
   Clock,
   Calendar,
   Globe,
@@ -49,9 +48,13 @@ interface AdDetailModalProps {
   onClose: () => void;
   /** Called when "Create ad using template" is clicked. Pass inspiration to skip the ad selection step. */
   onCreateAd?: (inspiration?: PreselectedInspiration) => void;
+  /** If false, show pricing modal instead of allowing download. */
+  hasActiveSubscription?: boolean;
+  /** Called when user tries to download without subscription. */
+  onShowPricingModal?: () => void;
 }
 
-export function AdDetailModal({ card, isOpen, onClose, onCreateAd }: AdDetailModalProps) {
+export function AdDetailModal({ card, isOpen, onClose, onCreateAd, hasActiveSubscription = true, onShowPricingModal }: AdDetailModalProps) {
   const [activeTab, setActiveTab] = useState<"overview" | "ads">("overview");
   const [downloading, setDownloading] = useState(false);
   const [saveLoading, setSaveLoading] = useState(false);
@@ -110,6 +113,10 @@ export function AdDetailModal({ card, isOpen, onClose, onCreateAd }: AdDetailMod
   const displayVideoSrc = freshUrls?.videoSrc ?? card.videoSrc;
 
   const handleDownload = async () => {
+    if (hasActiveSubscription !== true && onShowPricingModal) {
+      onShowPricingModal();
+      return;
+    }
     const url = card.isVideo ? displayVideoSrc : displayImage;
     if (!url) return;
     setDownloading(true);
@@ -400,10 +407,10 @@ export function AdDetailModal({ card, isOpen, onClose, onCreateAd }: AdDetailMod
             )}
 
             {/* Action Buttons */}
-            <div className="flex items-center gap-3 mt-6">
+            <div className="flex justify-center mt-6">
               <Button
                 variant="outline"
-                className="flex-1 gap-2"
+                className="w-full gap-2"
                 onClick={handleDownload}
                 disabled={downloading || (!displayImage && !displayVideoSrc)}
               >
@@ -415,10 +422,6 @@ export function AdDetailModal({ card, isOpen, onClose, onCreateAd }: AdDetailMod
                     Download
                   </>
                 )}
-              </Button>
-              <Button variant="outline" className="flex-1 gap-2">
-                <Share2 className="w-4 h-4" />
-                Share
               </Button>
             </div>
             <DrawerClose asChild>

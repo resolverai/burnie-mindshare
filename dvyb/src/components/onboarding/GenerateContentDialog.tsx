@@ -1,7 +1,7 @@
 "use client";
 
 
-import { useState, useEffect, useLayoutEffect, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,12 +17,14 @@ import { format } from "date-fns";
 import { useRouter } from "next/navigation";
 import { Play, ChevronDown } from "lucide-react";
 import { StrategyQuestionnaire } from "@/components/onboarding/StrategyQuestionnaire";
+import { AdCardGenerating } from "@/components/onboarding/AdCardGenerating";
 import { saveOAuthFlowState, getOAuthFlowState, clearOAuthFlowState, updateOAuthFlowState } from "@/lib/oauthFlowState";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { TikTokIcon } from "@/components/icons/TikTokIcon";
 import { FileDropZone } from "@/components/ui/file-drop-zone";
 import { PricingModal } from "@/components/PricingModal";
+import { OnboardingPricingModal } from "@/components/OnboardingPricingModal";
 import { getWebsiteDomainDisplay } from "@/lib/utils";
 import { 
   trackGenerateDialogOpened,
@@ -60,6 +62,8 @@ interface GenerateContentDialogProps {
   adFlowMode?: boolean;
   /** Number of images expected (Create Ad flow - matches inspirations count) */
   expectedImageCount?: number;
+  /** Called when user saves design edits - parent can refetch content library */
+  onDesignSaved?: () => void;
 }
 
 type Step = "topic" | "platform" | "content_type" | "context" | "review" | "generating" | "results";
@@ -243,7 +247,7 @@ const analyzeCustomLink = (url: string): {
   return { type: 'unknown', embedUrl: url };
 };
 
-export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDialogClosed, parentPage = 'home', landingStyle = false, adFlowMode = false, expectedImageCount }: GenerateContentDialogProps) => {
+export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDialogClosed, parentPage = 'home', landingStyle = false, adFlowMode = false, expectedImageCount, onDesignSaved }: GenerateContentDialogProps) => {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [step, setStep] = useState<Step>("topic");
@@ -303,6 +307,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
   const [questionnaireCompleted, setQuestionnaireCompleted] = useState(false);
   const [strategyGenerating, setStrategyGenerating] = useState(false);
   const [adPreviewTab, setAdPreviewTab] = useState<"ig_post" | "ig_reel" | "facebook">("ig_post");
+  const [generationElapsedTime, setGenerationElapsedTime] = useState(0);
+  const [openInEditDesignMode, setOpenInEditDesignMode] = useState(false);
   
   // Inspiration selection state
   const [inspirationCategories, setInspirationCategories] = useState<string[]>([]);
@@ -473,6 +479,21 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
       setShowCategoryDropdown(false);
     }
   }, [open]);
+
+  // Elapsed timer for wander-style per-card animation (starts when generating, stops when content arrives)
+  useEffect(() => {
+    if (!open) {
+      setGenerationElapsedTime(0);
+      return;
+    }
+    const isGenerating = generatedPosts.some((p) => p.isGenerating);
+    if (!isGenerating) return;
+
+    const interval = setInterval(() => {
+      setGenerationElapsedTime((prev) => prev + 0.1);
+    }, 100);
+    return () => clearInterval(interval);
+  }, [open, generatedPosts]);
 
   // Handle onboarding/ad-flow auto-generation (useLayoutEffect to avoid flash of topic step)
   useLayoutEffect(() => {
@@ -763,6 +784,15 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
     const numberOfImages = imagePostCount[0];
     const numberOfVideos = videoPostCount[0];
     const totalPosts = numberOfImages + numberOfVideos;
+    
+    // Video limits bypassed for now - only check image quota
+    const remainingImages = usageData?.remainingImages ?? 0;
+    if (numberOfImages > remainingImages) {
+      console.log('🚫 [GenerateContentDialog] Image quota exceeds plan limits - showing upgrade modal');
+      setUpgradeQuotaType('image');
+      setShowUpgradePricingModal(true);
+      return;
+    }
     
     // Track generation started
     trackGenerateStarted({
@@ -1423,6 +1453,36 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
     setQuestionnaireCompleted(false);
     setStrategyGenerating(false);
   };
+
+  // Called when user saves design in PostDetailDialog - refetch content library and update displayed posts
+  const handleDesignSaved = useCallback(() => {
+    onDesignSaved?.();
+    const contentId = selectedPost?.generatedContentId || generatedContentId;
+    const postIndex = selectedPost?.postIndex;
+    if (contentId == null || postIndex === undefined) return;
+    // Refetch after delay (backend processes image async)
+    setTimeout(async () => {
+      try {
+        const res = await contentLibraryApi.getContentLibrary({ page: 1, limit: 50, showAll: true });
+        if (!res.success || !res.data) return;
+        const { scheduled = [], selected = [], pendingReview = [], notSelected = [], posted = [] } = res.data;
+        const allItems = [...scheduled, ...selected, ...pendingReview, ...notSelected, ...posted];
+        const updated = allItems.find((item: any) => item.contentId === contentId && item.postIndex === postIndex);
+        if (updated?.mediaUrl) {
+          setGeneratedPosts(prev => prev.map(p => {
+            const pContentId = p.generatedContentId || generatedContentId;
+            const pPostIndex = p.postIndex !== undefined ? p.postIndex : parseInt(p.id) - 1;
+            if (pContentId === contentId && pPostIndex === postIndex) {
+              return { ...p, image: updated.mediaUrl };
+            }
+            return p;
+          }));
+        }
+      } catch (e) {
+        console.warn('Failed to refetch after design save:', e);
+      }
+    }, 2500);
+  }, [onDesignSaved, selectedPost, generatedContentId]);
 
   const handleClose = () => {
     // Track dialog closed
@@ -2623,27 +2683,78 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
             ? generatedPosts.slice(0, expectedImageCount ?? generatedPosts.length)
             : generatedPosts.slice(0, 4);
 
+          const hasActiveSubscription = usageData?.hasActiveSubscription === true;
           const renderAdCard = (post: any, index: number) => {
             const isLoading = post.isGenerating || post.isFailed;
             const caption = post.platformTexts?.instagram || post.description || sampleCaptions[index % sampleCaptions.length];
-            const handleEditOrDownload = (e: React.MouseEvent) => {
+            const contentId = post.generatedContentId || generatedContentId;
+            const postIdx = post.postIndex !== undefined ? post.postIndex : parseInt(post.id) - 1;
+            const isVideo = post.image && (post.image.includes('.mp4') || post.image.includes('video'));
+            const handleEdit = (e: React.MouseEvent) => {
               e.stopPropagation();
-              setShowDownloadPricingModal(true);
+              if (hasActiveSubscription) {
+                setSelectedPost(post);
+                setOpenInEditDesignMode(!isVideo);
+                setShowPostDetail(true);
+              } else {
+                setShowDownloadPricingModal(true);
+              }
+            };
+            const handleDownload = async (e: React.MouseEvent) => {
+              e.stopPropagation();
+              if (hasActiveSubscription) {
+                try {
+                  if (contentId != null && postIdx !== undefined && !isNaN(postIdx)) {
+                    await contentLibraryApi.downloadContentMedia(contentId, postIdx, post.title || 'content');
+                  } else if (post.image) {
+                    const url = post.image;
+                    const res = await fetch(url, { mode: 'cors' });
+                    if (!res.ok) throw new Error('Fetch failed');
+                    const blob = await res.blob();
+                    const isVideo = url.includes('.mp4') || url.includes('video');
+                    const ext = isVideo ? '.mp4' : '.' + (url.match(/\.(jpg|jpeg|png|gif|webp)/i)?.[1]?.toLowerCase() || 'png');
+                    const filename = (post.title || 'content').replace(/[^a-z0-9]/gi, '_').slice(0, 40) + ext;
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(a.href);
+                  }
+                } catch (err) {
+                  console.error('Download failed:', err);
+                  toast({ title: 'Download failed', description: 'Could not download content', variant: 'destructive' });
+                }
+              } else {
+                setShowDownloadPricingModal(true);
+              }
+            };
+            const handleCardClick = () => {
+              if (hasActiveSubscription) {
+                setSelectedPost(post);
+                setOpenInEditDesignMode(false);
+                setShowPostDetail(true);
+              } else {
+                setShowDownloadPricingModal(true);
+              }
             };
 
             const commonCardClasses = "relative rounded-lg overflow-hidden border border-neutral-200/80 bg-white shadow-sm flex flex-col min-h-0 group w-[280px] sm:w-[300px] shrink-0";
             const loadingPlaceholder = (
-              <div className={`flex flex-col items-center justify-center bg-neutral-100 min-h-[200px] ${adPreviewTab === "ig_reel" ? "aspect-[9/16]" : adPreviewTab === "facebook" ? "aspect-video" : "aspect-[4/5]"}`}>
-                {isLoading ? (
-                  <>
-                    <Loader2 className="w-8 h-8 text-neutral-500 animate-spin mb-2" />
-                    <span className="text-neutral-700 font-semibold text-lg">{progressPercent}%</span>
-                  </>
-                ) : (
-                  <div className="text-center p-4">
+              <div className={`relative min-h-[200px] ${adPreviewTab === "ig_reel" ? "aspect-[9/16]" : adPreviewTab === "facebook" ? "aspect-video" : "aspect-[4/5]"}`}>
+                {post.isFailed ? (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-50">
                     <XCircle className="w-8 h-8 text-red-500 mx-auto mb-2" />
                     <p className="text-xs text-muted-foreground">Failed to generate</p>
                   </div>
+                ) : (
+                  <AdCardGenerating
+                    elapsedTime={generationElapsedTime}
+                    startDelay={0}
+                    isComplete={false}
+                    cardIndex={index}
+                  />
                 )}
               </div>
             );
@@ -2661,7 +2772,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                 <div
                   key={post.id}
                   className={`${commonCardClasses} w-[260px] sm:w-[280px] cursor-pointer hover:shadow-lg transition-shadow aspect-[9/16] max-h-[min(520px,60vh)] overflow-hidden`}
-                  onClick={() => setShowDownloadPricingModal(true)}
+                  onClick={handleCardClick}
                 >
                   {/* Reel-style: full image with overlays on top (like real IG Reels) */}
                   <div className="relative w-full h-full flex flex-col">
@@ -2701,10 +2812,10 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                       </div>
                       {/* Hover overlay - Edit/Download */}
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3 gap-2 z-20">
-                        <Button size="sm" variant="secondary" className="w-full gap-2 !bg-white hover:!bg-gray-100" onClick={handleEditOrDownload}>
+                        <Button size="sm" variant="secondary" className="w-full gap-2 !bg-white hover:!bg-gray-100" onClick={handleEdit}>
                           <Pencil className="w-4 h-4" /> Edit
                         </Button>
-                        <Button size="sm" variant="outline" className="w-full gap-2 bg-background/80 backdrop-blur-sm hover:bg-accent hover:text-accent-foreground" onClick={handleEditOrDownload}>
+                        <Button size="sm" variant="outline" className="w-full gap-2 bg-background/80 backdrop-blur-sm hover:bg-accent hover:text-accent-foreground" onClick={handleDownload}>
                           <Download className="w-4 h-4" /> Download
                         </Button>
                       </div>
@@ -2719,7 +2830,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                 <div
                   key={post.id}
                   className={`${commonCardClasses} w-[320px] sm:w-[340px] cursor-pointer hover:shadow-lg transition-shadow`}
-                  onClick={() => setShowDownloadPricingModal(true)}
+                  onClick={handleCardClick}
                 >
                   <div className="w-full flex flex-col bg-white">
                     <div className="flex items-center gap-2 px-3 py-2.5 border-b border-neutral-100 shrink-0">
@@ -2739,9 +2850,12 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                     <div className="relative w-full bg-neutral-100 shrink-0 overflow-visible">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={post.image} alt={post.title} className="w-full h-auto block object-top rounded-none" />
-                      <div className="absolute top-3 right-3 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity z-10">
-                        <Button size="sm" variant="secondary" className="gap-1.5 shadow-sm !bg-white hover:!bg-gray-100" onClick={handleEditOrDownload}>
+                      <div className="absolute top-3 right-3 flex gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity z-10">
+                        <Button size="sm" variant="secondary" className="gap-1.5 shadow-sm !bg-white hover:!bg-gray-100" onClick={handleEdit}>
                           <Pencil className="w-3.5 h-3.5" /> Edit
+                        </Button>
+                        <Button size="sm" variant="outline" className="gap-1.5 shadow-sm bg-background/80 backdrop-blur-sm" onClick={handleDownload}>
+                          <Download className="w-3.5 h-3.5" /> Download
                         </Button>
                       </div>
                     </div>
@@ -2769,7 +2883,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               <div
                 key={post.id}
                 className={`${commonCardClasses} cursor-pointer hover:shadow-lg transition-shadow`}
-                onClick={() => setShowDownloadPricingModal(true)}
+                onClick={handleCardClick}
               >
                 <div className="w-full flex flex-col">
                   <div className="flex items-center gap-2 px-3 py-2.5 border-b border-neutral-100 shrink-0">
@@ -2783,10 +2897,10 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={post.image} alt={post.title} className="w-full h-auto block object-top" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3 gap-2">
-                      <Button size="sm" variant="secondary" className="w-full gap-2 !bg-white hover:!bg-gray-100" onClick={handleEditOrDownload}>
+                      <Button size="sm" variant="secondary" className="w-full gap-2 !bg-white hover:!bg-gray-100" onClick={handleEdit}>
                         <Pencil className="w-4 h-4" /> Edit
                       </Button>
-                      <Button size="sm" variant="outline" className="w-full gap-2 bg-background/80 backdrop-blur-sm hover:bg-accent hover:text-accent-foreground" onClick={handleEditOrDownload}>
+                      <Button size="sm" variant="outline" className="w-full gap-2 bg-background/80 backdrop-blur-sm hover:bg-accent hover:text-accent-foreground" onClick={handleDownload}>
                         <Download className="w-4 h-4" /> Download
                       </Button>
                     </div>
@@ -2828,20 +2942,6 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                     : "Our AI is generating scroll-stopping ads for your brand"}
                 </p>
               </div>
-              {isGenerating && (
-                <div className="space-y-2 max-w-md mx-auto mb-4 shrink-0">
-                  <div className="flex justify-between text-xs sm:text-sm">
-                    <span className="text-muted-foreground line-clamp-1">{progressMessage || "Preparing..."}</span>
-                    <span className="font-medium ml-2">{progressPercent}%</span>
-                  </div>
-                  <div className="w-full bg-neutral-200 rounded-full h-1.5 overflow-hidden">
-                    <div
-                      className="bg-neutral-900 h-full transition-all duration-300 rounded-full"
-                      style={{ width: `${progressPercent}%` }}
-                    />
-                  </div>
-                </div>
-              )}
               <div className="flex justify-center gap-2 mb-4 shrink-0">
                 <button
                   type="button"
@@ -2883,7 +2983,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               <div className="flex-none flex justify-center items-center gap-4 md:gap-6 py-4 px-1">
                 {displayPosts.map((post, index) => renderAdCard(post, index))}
               </div>
-              {allComplete && (
+              {false && allComplete && (
                 <div className="flex flex-col items-center mt-4 mb-10 pb-6 shrink-0 gap-1">
                   <p className="text-xs text-muted-foreground">Download includes all formats (IG Post, IG Reel, Facebook)</p>
                   <Button
@@ -2960,34 +3060,6 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                     : "Swipe right to accept, left to reject"}
               </p>
             </div>
-
-            {/* Show progress bar for regular generation OR after questionnaire is completed */}
-            {isGenerating && (
-              <div className="space-y-2 max-w-md mx-auto">
-                {strategyGenerating && initialJobId && !adFlowMode && (
-                  <div className="text-center mb-4">
-                    <p className="text-sm text-primary font-medium">
-                      ✨ Creating your personalized content strategy...
-                    </p>
-                  </div>
-                )}
-                <div className="flex items-center justify-between text-xs sm:text-sm">
-                  <span className="text-muted-foreground line-clamp-1">{progressMessage || "Preparing..."}</span>
-                  <span className="font-medium ml-2">{progressPercent}%</span>
-                </div>
-                <div className="w-full bg-secondary rounded-full h-1.5 sm:h-2 overflow-hidden">
-                  <div 
-                    className="bg-gradient-to-r from-emerald-500 to-[hsl(var(--landing-accent-orange))] h-full transition-all duration-300 ease-out"
-                    style={{ width: `${progressPercent}%` }}
-                  />
-                </div>
-                {progressMessage.includes("video") && (
-                  <p className="text-[10px] sm:text-xs text-muted-foreground italic text-center">
-                    ⏱️ Video generation in progress - this may take a few minutes...
-                  </p>
-                )}
-              </div>
-            )}
 
             {/* Tinder-like Card Stack */}
             <div className="relative min-h-[450px] sm:min-h-[550px]">
@@ -3126,15 +3198,19 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                           <img
                             src={currentPost.image}
                             alt={currentPost.title}
-                      className="w-full aspect-square object-cover"
-                    />
+                            className="w-full aspect-square object-cover"
+                          />
                         )
-                  ) : (
-                        <div className="w-full aspect-square bg-muted flex flex-col items-center justify-center">
-                          <Loader2 className="w-10 h-10 sm:w-12 sm:h-12 animate-spin text-emerald-500 mb-3" />
-                          <span className="text-sm text-muted-foreground">Generating content...</span>
-                    </div>
-                  )}
+                      ) : (
+                        <div className="w-full aspect-square bg-black relative">
+                          <AdCardGenerating
+                            elapsedTime={generationElapsedTime}
+                            startDelay={0}
+                            isComplete={false}
+                            cardIndex={generatedPosts.findIndex((p) => p.id === currentPost.id) ?? 0}
+                          />
+                        </div>
+                      )}
                       
                       {/* Accepted/Rejected Badge */}
                       {acceptedPosts.includes(currentPost.id) && (
@@ -3188,13 +3264,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                         </p>
                       )}
                       
-                      {currentPost.isGenerating && (
-                        <div className="flex items-center justify-center mt-4 text-sm text-muted-foreground">
-                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                        Generating...
-                      </div>
-                    )}
-                  </div>
+                    </div>
                 </Card>
             </div>
               )}
@@ -3321,7 +3391,16 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
         open={showPostDetail}
         onOpenChange={(open) => {
           setShowPostDetail(open);
-          if (!open) setSelectedPost(null);
+          if (!open) {
+            setSelectedPost(null);
+            setOpenInEditDesignMode(false);
+          }
+        }}
+        initialEditDesignMode={openInEditDesignMode}
+        onDesignSaved={handleDesignSaved}
+        onShowUpgradeModal={() => {
+          setUpgradeQuotaType('image');
+          setShowUpgradePricingModal(true);
         }}
       />
 
@@ -3514,28 +3593,11 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
         mustSubscribe={usageData?.mustSubscribeToFreemium || false}
       />
 
-      {/* Pricing Modal for Download All (landing flow - centered modal like OnboardingFlowModal) */}
-      <PricingModal
+      {/* Pricing Modal for Download All / Edit / Download on cards - single plan, wander style */}
+      <OnboardingPricingModal
         open={showDownloadPricingModal}
-        onClose={() => {
-          setShowDownloadPricingModal(false);
-          // Keep GenerateContentDialog open - only redirect to discover when user explicitly closes it
-        }}
-        variant="centered"
-        currentPlanInfo={usageData ? {
-          planName: usageData.planName || 'Free Trial',
-          planId: usageData.planId || null,
-          monthlyPrice: usageData.monthlyPrice || 0,
-          annualPrice: usageData.annualPrice || 0,
-          billingCycle: usageData.billingCycle || 'monthly',
-          isFreeTrialPlan: usageData.isFreeTrialPlan || false,
-        } : null}
-        quotaType="both"
-        isAuthenticated={true}
-        canSkip={true}
-        reason="user_initiated"
+        onClose={() => setShowDownloadPricingModal(false)}
         userFlow={usageData?.initialAcquisitionFlow || 'website_analysis'}
-        mustSubscribe={false}
       />
 
       {/* Trial Limit Exceeded Dialog - Pay Early or Wait */}

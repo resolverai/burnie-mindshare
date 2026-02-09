@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Search, Check, ArrowRight, Plus, Upload, Link as LinkIcon, FileText, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { Search, Check, ArrowRight, Plus, Upload, Link as LinkIcon, FileText, Loader2 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { productsApi, brandsApi, adhocGenerationApi, contextApi } from "@/lib/api";
@@ -35,8 +35,7 @@ interface DiscoverAd {
 
 const ALLOWED_PRODUCT_IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
 
-// Choose Product modal: dimensions for 2 rows × 3 columns grid (6 products visible), carousel if more
-const PRODUCTS_PER_PAGE = 6;
+// Choose Product modal: dimensions for 3 columns grid with scroll
 const productModalClass =
   "w-[min(90vw,560px)] h-[min(85vh,640px)] flex flex-col p-0 gap-0 bg-[hsl(0,0%,98%)] border-neutral-200/80 text-neutral-900 rounded-2xl shadow-xl overflow-hidden";
 
@@ -56,9 +55,11 @@ interface CreateAdFlowModalProps {
   onCreateAd?: () => void;
   /** When set, skip the inspiration/ad selection step and use this as inspiration after product selection */
   preselectedInspiration?: PreselectedInspiration | null;
+  /** Called when user saves design edits - parent can refetch content library */
+  onDesignSaved?: () => void;
 }
 
-export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedInspiration }: CreateAdFlowModalProps) {
+export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedInspiration, onDesignSaved }: CreateAdFlowModalProps) {
   const { toast } = useToast();
   const [step, setStep] = useState<Step>("product");
 
@@ -67,7 +68,6 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
   const [productsLoading, setProductsLoading] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [productSearchQuery, setProductSearchQuery] = useState("");
-  const [productPage, setProductPage] = useState(0);
   const [isProductUploading, setIsProductUploading] = useState(false);
   const [isProductDraggingOver, setIsProductDraggingOver] = useState(false);
   const productFileInputRef = useRef<HTMLInputElement>(null);
@@ -110,6 +110,7 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
     try {
       let websiteCategory: string | undefined;
       let brandContext: { business_overview?: string | null; popular_products?: string[] | null; customer_demographics?: string | null; brand_story?: string | null } | undefined;
+      let productImageS3Key: string | undefined;
       try {
         const ctxRes = await contextApi.getContext();
         if (ctxRes.success && ctxRes.data) {
@@ -133,10 +134,16 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
       } catch {
         /* ignore */
       }
+      // Pass selected product image for relevant ads matching (same as unified onboarding modal)
+      if (selectedProductId) {
+        const sel = products.find((p) => p.id === selectedProductId);
+        if (sel?.imageS3Key) productImageS3Key = sel.imageS3Key;
+      }
       const res = await brandsApi.getDiscoverAds({
         page: 1,
         limit: 24,
         sort: "latest",
+        ...(productImageS3Key && { productImageS3Key }),
         ...(websiteCategory && { websiteCategory }),
         ...(brandContext && Object.values(brandContext).some((v) => v != null && (Array.isArray(v) ? v.length : true)) && { brandContext }),
       });
@@ -160,7 +167,7 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
     } finally {
       setAdsLoading(false);
     }
-  }, [toast]);
+  }, [toast, selectedProductId, products]);
 
   useEffect(() => {
     if (!open) return;
@@ -175,7 +182,6 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
     setIsUploading(false);
     setSearchQuery("");
     setProductSearchQuery("");
-    setProductPage(0);
     setIsProductUploading(false);
     setIsProductDraggingOver(false);
     fetchProducts();
@@ -192,16 +198,6 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
         p.name.toLowerCase().includes(productSearchQuery.toLowerCase())
       )
     : products;
-
-  const totalProductPages = Math.ceil(filteredProducts.length / PRODUCTS_PER_PAGE);
-  const paginatedProducts = filteredProducts.slice(
-    productPage * PRODUCTS_PER_PAGE,
-    productPage * PRODUCTS_PER_PAGE + PRODUCTS_PER_PAGE
-  );
-
-  useEffect(() => {
-    setProductPage(0);
-  }, [productSearchQuery]);
 
   const filteredAds = searchQuery.trim()
     ? discoverAds.filter(
@@ -273,7 +269,6 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
             setProducts((prev) => [createRes.data!, ...prev]);
             setSelectedProductId(createRes.data!.id);
             setProductSearchQuery("");
-            setProductPage(0);
           }
         } else {
           toast({ title: "Upload failed", description: uploadRes.error || "Could not upload", variant: "destructive" });
@@ -456,7 +451,7 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
                 </div>
               </div>
               <div
-                className={`flex-1 min-h-0 overflow-hidden p-6 flex flex-col transition-colors ${
+                className={`flex-1 min-h-0 overflow-y-auto p-6 flex flex-col transition-colors ${
                   isProductDraggingOver ? "bg-primary/5 border-2 border-dashed border-primary rounded-lg" : ""
                 }`}
                 onDragOver={handleProductDragOver}
@@ -487,7 +482,7 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
                   </div>
                 ) : (
                   <>
-                    <div className="grid grid-cols-3 gap-3 content-start items-start">
+                    <div className="grid grid-cols-3 gap-3 content-start items-start pb-4">
                       <button
                         type="button"
                         onClick={() => !isProductUploading && productFileInputRef.current?.click()}
@@ -520,7 +515,7 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
                           <span className="text-sm font-medium">Add Product</span>
                         </div>
                       </button>
-                      {paginatedProducts.map((product) => {
+                      {filteredProducts.map((product) => {
                         const isSelected = selectedProductId === product.id;
                         return (
                           <button
@@ -550,31 +545,6 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
                         );
                       })}
                     </div>
-                    {totalProductPages > 1 && (
-                      <div className="flex items-center justify-center gap-2 mt-4 shrink-0">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="h-8 w-8"
-                          onClick={() => setProductPage((p) => Math.max(0, p - 1))}
-                          disabled={productPage === 0}
-                        >
-                          <ChevronLeft className="w-4 h-4" />
-                        </Button>
-                        <span className="text-sm text-muted-foreground">
-                          {productPage + 1} / {totalProductPages}
-                        </span>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="h-8 w-8"
-                          onClick={() => setProductPage((p) => Math.min(totalProductPages - 1, p + 1))}
-                          disabled={productPage >= totalProductPages - 1}
-                        >
-                          <ChevronRight className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    )}
                   </>
                 )}
               </div>
@@ -840,6 +810,7 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
         adFlowMode={true}
         expectedImageCount={expectedImageCount}
         landingStyle={true}
+        onDesignSaved={onDesignSaved}
         onDialogClosed={() => {
           setInitialJobId(null);
           setExpectedImageCount(0);

@@ -75,14 +75,22 @@ export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: 
 
   // Redirect logged-in users to discover (safety net in case page.tsx redirect didn't run)
   // Skip redirect when user has onboarding generation job - they need to see their content modal
+  // Skip redirect when returning from OAuth with openModal=contentGeneration (Google callback sends this)
+  // Must check BOTH localStorage AND onboardingJobId state: we remove from localStorage when opening
+  // the dialog, so a later run (e.g. when auth loads) would otherwise redirect before dialog shows
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      const hasOnboardingJob = localStorage.getItem("dvyb_onboarding_generation_job_id");
-      if (!hasOnboardingJob) {
+      const isOAuthReturnWithContentModal = searchParams.get("openModal") === "contentGeneration";
+      if (isOAuthReturnWithContentModal) {
+        return; // User just returned from OAuth - show landing with GenerateContentDialog, don't redirect
+      }
+      const hasOnboardingJobInStorage = !!localStorage.getItem("dvyb_onboarding_generation_job_id");
+      const hasOnboardingJobInState = !!onboardingJobId;
+      if (!hasOnboardingJobInStorage && !hasOnboardingJobInState) {
         router.replace("/discover");
       }
     }
-  }, [isAuthenticated, isLoading, router]);
+  }, [isAuthenticated, isLoading, router, onboardingJobId, searchParams]);
 
   // Show "not registered" modal when user returns from Sign In with unregistered Google account
   useEffect(() => {
@@ -107,10 +115,11 @@ export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: 
     if (storedJobId) {
       console.log("🎉 Landing: Onboarding generation job detected, opening GenerateContentDialog");
       setOnboardingJobId(storedJobId);
-      localStorage.removeItem("dvyb_onboarding_generation_job_id");
       completeStep("auto_content_viewed");
       setTimeout(() => {
         setShowGenerateDialog(true);
+        // Clear only after dialog is shown - prevents redirect race with the safety-net effect
+        localStorage.removeItem("dvyb_onboarding_generation_job_id");
       }, 800);
     }
   }, [completeStep]);
@@ -144,9 +153,9 @@ export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: 
           floatingTiles={floatingTiles}
         />
         <DiscoverPreview onOpenWebsiteModal={handleGetStarted} />
-        <HowItWorksSection />
         <BrandsSection />
-        <FeaturesSection />
+        <HowItWorksSection />
+        {false && <FeaturesSection />}
         <TestimonialsSection />
       </main>
       <FooterLanding />

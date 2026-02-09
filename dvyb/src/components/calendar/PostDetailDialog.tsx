@@ -109,6 +109,10 @@ interface PostDetailDialogProps {
   pendingReviewItems?: Post[];
   onAcceptReject?: (accepted: boolean, post: Post) => void;
   onAllReviewed?: () => void;
+  /** Called when user tries to regenerate but plan limit exceeded - parent should show upgrade PricingModal */
+  onShowUpgradeModal?: () => void;
+  /** Called when user saves design (text overlays, etc.) - parent can refetch content library */
+  onDesignSaved?: () => void;
 }
 
 type Platform = "instagram" | "linkedin" | "twitter";
@@ -123,6 +127,8 @@ export const PostDetailDialog = ({
   pendingReviewItems = [],
   onAcceptReject,
   onAllReviewed,
+  onShowUpgradeModal,
+  onDesignSaved,
 }: PostDetailDialogProps) => {
   const [selectedPlatform, setSelectedPlatform] = useState<Platform>("instagram");
   const [showCaptionEdit, setShowCaptionEdit] = useState(false);
@@ -1427,8 +1433,9 @@ export const PostDetailDialog = ({
           title: "Design saved!",
           description: "Your design is being processed. It will be ready shortly.",
         });
-        // Exit edit design mode
-        handleEditDesignToggle(false);
+        onDesignSaved?.();
+        // Close dialog entirely (don't show post detail view) - parent will refetch after delay
+        handleClose();
       } else {
         throw new Error(result.error || 'Failed to save design');
       }
@@ -1567,6 +1574,27 @@ export const PostDetailDialog = ({
         content: "Sorry, I couldn't identify the content. Please try again."
       }]);
       return;
+    }
+    
+    // Check usage/plan limit before regeneration (consumes 1 image quota)
+    if (onShowUpgradeModal) {
+      try {
+        const usageRes = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/usage`,
+          { credentials: 'include', headers: { 'X-DVYB-Account-ID': localStorage.getItem('dvyb_account_id') || '' } }
+        );
+        const usageJson = await usageRes.json();
+        if (usageJson.success && usageJson.data) {
+          const remaining = usageJson.data.remainingImages ?? 0;
+          if (remaining < 1) {
+            setChatMessages(prev => [...prev, { role: 'assistant', content: "You've reached your plan limit for image generation. Please upgrade to continue." }]);
+            onShowUpgradeModal();
+            return;
+          }
+        }
+      } catch {
+        /* proceed with regeneration on error */
+      }
     }
     
     // Add processing message

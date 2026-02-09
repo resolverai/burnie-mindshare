@@ -135,6 +135,12 @@ export default {
           "66.66%, 86.66%": { transform: "translateY(-200%)" },
           "100%": { transform: "translateY(-300%)" },
         },
+        "prism-rotate": {
+          "0%, 20%": { transform: "rotateX(0deg)" },
+          "33.33%, 53.33%": { transform: "rotateX(120deg)" },
+          "66.66%, 86.66%": { transform: "rotateX(240deg)" },
+          "100%": { transform: "rotateX(360deg)" },
+        },
         "float-up": {
           "0%": { opacity: "1", transform: "translateY(0) translateX(-50%)" },
           "100%": { opacity: "0", transform: "translateY(-40px) translateX(-50%)" },
@@ -157,6 +163,7 @@ export default {
         "cube-rotate-in": "cube-rotate-in 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards",
         "cube-rotate-out": "cube-rotate-out 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards",
         "text-rotate": "text-rotate 6s ease-in-out infinite",
+        "prism-rotate": "prism-rotate 6s ease-in-out infinite",
         "float-up": "float-up 4s ease-out forwards",
         "marquee": "marquee 25s linear infinite",
       },

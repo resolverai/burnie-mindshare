@@ -11,46 +11,39 @@ import {
 
 const testimonials = [
   {
-    initials: "SM",
-    name: "Sarah Mitchell",
-    title: "Founder, Glow Essentials",
+    initials: "D",
+    name: "David",
+    title: "Marketer, Apparel Brand",
     quote:
-      "We used to spend 3-4 days researching what competitors were running before even briefing our agency. Now I see exactly what's working in my space and have on-brand ads ready in minutes. It's completely changed how fast we can test.",
+      "DVYB is extremely efficient. It's quite incredible that they've rolled up ad search, save and creation into one powerful platform. Incredible experience. Highly recommend.",
   },
   {
-    initials: "JC",
-    name: "James Chen",
-    title: "Head of Growth, Luxe Apparel",
+    initials: "M",
+    name: "Mary",
+    title: "Founder, Skincare Brand",
     quote:
-      "The competitor insights alone are worth it. I can see what ads my competitors are scaling, then dvyb generates our version that actually matches our brand. We've 3x'd our creative testing velocity.",
+      "Game changer for my business. I'm shipping ads like never before and I'm driving more sales because I'm choosing what's already working... just would not have been able to do this without DVYB.",
   },
   {
-    initials: "MR",
-    name: "Maya Rodriguez",
-    title: "Performance Marketing Lead, Nova Skincare",
+    initials: "S",
+    name: "Selena",
+    title: "Brand Manager, Multiple Brands",
     quote:
-      "No more back-and-forth with agencies or waiting weeks for creative. I spot a winning ad format, upload my product, and have Meta-ready creatives the same day. Our CAC dropped 22% in the first month.",
+      "The images created are hyper-realistic and the backgrounds are great. They've really done a fantastic job. I'm excited to see what's next.",
   },
   {
-    initials: "DK",
-    name: "David Kim",
-    title: "Co-founder, Thread & Stone",
+    initials: "A",
+    name: "Anjali",
+    title: "Brand Manager, Footwear Brand",
     quote:
-      "Finally I can see what's actually performing in my niche instead of guessing. dvyb shows me the winning patterns, then creates ads that look like our brand shot them. We launched 40 new creatives last week alone.",
+      "The fact that DVYB can automatically identify my brand's competitors and the ads they're running is by itself huge. The fact that I can convert them into my ads using my products is soooo cool. My marketing team is in love.",
   },
   {
-    initials: "EP",
-    name: "Emma Patel",
-    title: "Marketing Director, Aura Jewelry",
+    initials: "M",
+    name: "Mathieu",
+    title: "Social Media Agency Owner",
     quote:
-      "The speed is unreal. What used to take our team days of research and agency coordination now happens in one session. We're testing more, learning faster, and scaling winners before competitors even notice.",
-  },
-  {
-    initials: "TW",
-    name: "Tyler West",
-    title: "Founder & CEO, Peak Athletics",
-    quote:
-      "dvyb removed our biggest bottleneck: creative production. I can see exactly what ad formats are winning for similar brands, and generate our own versions instantly. We went from 5 new ads a month to 5 a day.",
+      "Saved a straight few hundred dollars every month, let alone the sanity of my team. Give this a shot, you'll be blown away.",
   },
 ];
 
@@ -79,17 +72,17 @@ export function TestimonialsSection() {
     };
   }, [api, onSelect]);
 
-  // Auto-rotate every 5 seconds
+  // Auto-rotate every 15 seconds (matches wanderConnect)
   useEffect(() => {
     if (!api) return;
-    const interval = setInterval(() => api.scrollNext(), 5000);
+    const interval = setInterval(() => api.scrollNext(), 15000);
     return () => clearInterval(interval);
   }, [api]);
 
   return (
     <section className="py-24 px-6" style={{ background: "var(--gradient-section-1)" }}>
       <div className="container mx-auto">
-        <div className="text-center mb-12">
+        <div className="text-center mb-16">
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-display font-bold mb-6">
             Obsessed on by D2C founders and marketers
           </h2>
@@ -98,12 +91,20 @@ export function TestimonialsSection() {
           </p>
         </div>
 
-        <div className="relative max-w-6xl mx-auto px-14 md:px-16">
-          <Carousel setApi={setApi} opts={{ loop: true, align: "start", containScroll: "trimSnaps" }} className="w-full">
+        <div className="relative flex items-center gap-4">
+          <button
+            type="button"
+            onClick={() => api?.scrollPrev()}
+            className="shrink-0 w-10 h-10 md:w-12 md:h-12 rounded-full bg-card border border-border shadow-card flex items-center justify-center hover:bg-muted transition-colors"
+            aria-label="Previous testimonial"
+          >
+            <ChevronLeft className="w-5 h-5 md:w-6 md:h-6 text-foreground" />
+          </button>
+          <Carousel setApi={setApi} opts={{ loop: true, align: "start", containScroll: "trimSnaps" }} className="flex-1 min-w-0">
             <CarouselContent className="-ml-5">
               {testimonials.map((testimonial) => (
                 <CarouselItem key={testimonial.name} className="pl-5 basis-full md:basis-1/2 flex">
-                  <div className="bg-card rounded-2xl p-8 shadow-card border border-border/50 flex flex-col w-full h-[340px]">
+                  <div className="bg-card rounded-2xl p-8 shadow-card border border-border/50 flex flex-col w-full h-[220px]">
                     <div className="flex items-center justify-between mb-6 shrink-0">
                       <div className="flex items-center gap-4">
                         <div className="w-12 h-12 rounded-full bg-cta/20 flex items-center justify-center text-sm font-semibold text-cta">
@@ -124,39 +125,30 @@ export function TestimonialsSection() {
               ))}
             </CarouselContent>
 
-            {/* Prev/Next arrows */}
-            <button
-              type="button"
-              onClick={() => api?.scrollPrev()}
-              className="absolute left-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full bg-card border border-border shadow-card flex items-center justify-center hover:bg-secondary transition-colors"
-              aria-label="Previous testimonial"
-            >
-              <ChevronLeft className="w-5 h-5 text-foreground" />
-            </button>
-            <button
-              type="button"
-              onClick={() => api?.scrollNext()}
-              className="absolute right-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full bg-card border border-border shadow-card flex items-center justify-center hover:bg-secondary transition-colors"
-              aria-label="Next testimonial"
-            >
-              <ChevronRight className="w-5 h-5 text-foreground" />
-            </button>
           </Carousel>
+          <button
+            type="button"
+            onClick={() => api?.scrollNext()}
+            className="shrink-0 w-10 h-10 md:w-12 md:h-12 rounded-full bg-card border border-border shadow-card flex items-center justify-center hover:bg-muted transition-colors"
+            aria-label="Next testimonial"
+          >
+            <ChevronRight className="w-5 h-5 md:w-6 md:h-6 text-foreground" />
+          </button>
+        </div>
 
-          {/* Dot indicators */}
-          <div className="flex items-center justify-center gap-2 mt-6">
-            {testimonials.map((_, index) => (
-              <button
-                key={index}
-                type="button"
-                onClick={() => api?.scrollTo(index)}
-                className={`h-2 rounded-full transition-all duration-300 ${
-                  index === current ? "bg-cta w-6" : "w-2 bg-muted hover:bg-muted-foreground"
-                }`}
-                aria-label={`Go to testimonial ${index + 1}`}
-              />
-            ))}
-          </div>
+        {/* Dot indicators */}
+        <div className="flex items-center justify-center gap-2 mt-8">
+          {testimonials.map((_, index) => (
+            <button
+              key={index}
+              type="button"
+              onClick={() => api?.scrollTo(index)}
+              className={`h-2 rounded-full transition-all duration-300 ${
+                index === current ? "bg-cta w-6" : "w-2 bg-muted hover:bg-muted-foreground"
+              }`}
+              aria-label={`Go to testimonial ${index + 1}`}
+            />
+          ))}
         </div>
       </div>
     </section>

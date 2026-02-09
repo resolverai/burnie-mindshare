@@ -6,33 +6,47 @@ const brands = [
   { name: "cocokind", style: "font-medium tracking-wide" },
   { name: "Rouere", style: "font-serif italic" },
   { name: "Lume", style: "font-semibold text-xl" },
-  { name: "Laifen", style: "font-semibold" },
-  { name: "Keychron", style: "font-medium" },
-  { name: "Flodesk", style: "font-medium" },
+  { name: "Glossier", style: "font-light tracking-widest" },
+  { name: "SKIMS", style: "font-bold tracking-tight" },
+  { name: "Mejuri", style: "font-serif" },
+  { name: "Allbirds", style: "font-medium" },
+  { name: "Warby Parker", style: "font-semibold tracking-wide" },
+  { name: "Casper", style: "font-bold" },
+  { name: "Away", style: "font-light uppercase tracking-widest" },
 ];
 
 export function BrandsSection() {
   return (
     <section
       id="trusted-brands"
-      className="py-24 px-6 scroll-mt-20 overflow-hidden"
-      style={{ background: "var(--gradient-section-2)" }}
+      className="py-16 scroll-mt-20 overflow-hidden"
+      style={{ background: "var(--gradient-brands)" }}
     >
-      <div className="container mx-auto">
-        <h2 className="text-3xl md:text-4xl lg:text-5xl font-display font-semibold text-center mb-16">
-          Trusted by <span className="text-cta">top brands</span>
+      <div className="text-center mb-8">
+        <h2 className="text-3xl md:text-4xl font-display font-semibold">
+          Create ads like <span className="text-cta">billion dollar brands</span>
         </h2>
-        <div className="relative overflow-hidden">
-          <div className="flex animate-marquee whitespace-nowrap w-max">
-            {[...brands, ...brands].map((brand, index) => (
-              <div
-                key={`${brand.name}-${index}`}
-                className="mx-4 inline-flex shrink-0 px-8 py-4 bg-card rounded-full shadow-soft border border-border/50"
-              >
-                <span className={`text-foreground text-base ${brand.style}`}>{brand.name}</span>
-              </div>
-            ))}
-          </div>
+      </div>
+      <div className="relative">
+        <div className="absolute left-0 top-0 bottom-0 w-32 bg-gradient-to-r from-secondary to-transparent z-10 pointer-events-none" />
+        <div className="absolute right-0 top-0 bottom-0 w-32 bg-gradient-to-l from-secondary to-transparent z-10 pointer-events-none" />
+        <div className="flex animate-marquee">
+          {brands.map((brand, index) => (
+            <div
+              key={`first-${brand.name}-${index}`}
+              className="flex-shrink-0 px-8 py-4 mx-3 bg-card rounded-full shadow-soft"
+            >
+              <span className={`text-foreground whitespace-nowrap ${brand.style}`}>{brand.name}</span>
+            </div>
+          ))}
+          {brands.map((brand, index) => (
+            <div
+              key={`second-${brand.name}-${index}`}
+              className="flex-shrink-0 px-8 py-4 mx-3 bg-card rounded-full shadow-soft"
+            >
+              <span className={`text-foreground whitespace-nowrap ${brand.style}`}>{brand.name}</span>
+            </div>
+          ))}
         </div>
       </div>
     </section>

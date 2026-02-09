@@ -40,6 +40,9 @@ interface SubscriptionData {
     annualImageLimit: number;
     monthlyVideoLimit: number;
     annualVideoLimit: number;
+    dealActive?: boolean;
+    dealMonthlyPrice?: number | null;
+    dealAnnualPrice?: number | null;
   };
   isFree?: boolean;
   subscription?: {
@@ -64,6 +67,9 @@ interface SubscriptionData {
       annualImageLimit: number;
       monthlyVideoLimit: number;
       annualVideoLimit: number;
+      dealActive?: boolean;
+      dealMonthlyPrice?: number | null;
+      dealAnnualPrice?: number | null;
     };
   };
   usage?: {
@@ -350,13 +356,22 @@ export const SubscriptionPage = ({ hideHeader }: SubscriptionPageProps) => {
                     {subscription?.frequency === 'annual' ? 'Annual' : 'Monthly'} billing • 
                     {isTrialing ? (
                       <>Free trial until {subscription?.trialEnd && format(new Date(subscription.trialEnd), 'MMM d, yyyy')}</>
-                    ) : (
-                      <>{formatCurrency(
-                        subscription?.frequency === 'annual' 
-                          ? (currentPlan?.annualPrice || 0) 
-                          : (currentPlan?.monthlyPrice || 0)
-                      )}/{subscription?.frequency === 'annual' ? 'year' : 'month'}</>
-                    )}
+                    ) : (() => {
+                      const isAnnual = subscription?.frequency === 'annual';
+                      const originalPrice = isAnnual ? (currentPlan?.annualPrice || 0) : (currentPlan?.monthlyPrice || 0);
+                      const dealPrice = isAnnual ? (currentPlan?.dealAnnualPrice ?? 0) : (currentPlan?.dealMonthlyPrice ?? 0);
+                      const hasDeal = !!(currentPlan?.dealActive && (isAnnual ? currentPlan.dealAnnualPrice != null : currentPlan.dealMonthlyPrice != null));
+                      const displayPrice = hasDeal && dealPrice > 0 ? dealPrice : originalPrice;
+                      const showStrikethrough = hasDeal && originalPrice > displayPrice;
+                      return (
+                        <>
+                          {showStrikethrough && (
+                            <span className="line-through mr-1">{formatCurrency(originalPrice)}</span>
+                          )}
+                          {formatCurrency(displayPrice)}/{isAnnual ? 'year' : 'month'}
+                        </>
+                      );
+                    })()}
                   </p>
                 </div>
                 <div className="flex gap-2 flex-wrap">

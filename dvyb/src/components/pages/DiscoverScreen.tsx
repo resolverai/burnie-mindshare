@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Search, Video, Loader2, UserPlus, BookOpen, ChevronDown, ArrowUpDown, Lock, ImageIcon } from "lucide-react";
+import { Search, Video, Loader2, UserPlus, ChevronDown, ArrowUpDown, Lock, ImageIcon } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,7 +47,15 @@ interface DiscoverCard {
 
 const DRAWER_CLOSE_DURATION_MS = 300;
 
-export function DiscoverScreen({ onCreateAd }: { onCreateAd?: (inspiration?: PreselectedInspiration) => void }) {
+export function DiscoverScreen({
+  onCreateAd,
+  hasActiveSubscription = true,
+  onShowPricingModal,
+}: {
+  onCreateAd?: (inspiration?: PreselectedInspiration) => void;
+  hasActiveSubscription?: boolean;
+  onShowPricingModal?: () => void;
+}) {
   const [searchQuery, setSearchQuery] = useState("");
   const [hoveredId, setHoveredId] = useState<number | null>(null);
   const [selectedCard, setSelectedCard] = useState<DiscoverCard | null>(null);
@@ -214,13 +222,6 @@ export function DiscoverScreen({ onCreateAd }: { onCreateAd?: (inspiration?: Pre
             >
               <UserPlus className="w-4 h-4" />
               + Create my own ad
-            </button>
-            <button
-              type="button"
-              className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-[hsl(var(--landing-nav-bar-border))] bg-card hover:bg-[hsl(var(--landing-explore-pill-hover))] text-foreground text-sm font-medium"
-            >
-              <BookOpen className="w-4 h-4" />
-              Tutorial
             </button>
           </div>
         </div>
@@ -450,6 +451,8 @@ export function DiscoverScreen({ onCreateAd }: { onCreateAd?: (inspiration?: Pre
         isOpen={isDrawerOpen && !!selectedCard}
         onClose={handleCloseDetail}
         onCreateAd={onCreateAd}
+        hasActiveSubscription={hasActiveSubscription}
+        onShowPricingModal={onShowPricingModal}
       />
     </div>
   );

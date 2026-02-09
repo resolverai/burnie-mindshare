@@ -329,10 +329,9 @@ export const ProductShotFlow = () => {
         // Check if user has a paid plan (not free trial) or active subscription
         const isPaidCustomer = data.data.hasActiveSubscription && !data.data.isInFreemiumTrial;
         
-        // Check quota limits
+        // Video limits bypassed for now - only check image quota
         const hasImagesLeft = data.data.remainingImages > 0;
-        const hasVideosLeft = data.data.remainingVideos > 0;
-        const hasQuotaAvailable = hasImagesLeft || hasVideosLeft;
+        const hasQuotaAvailable = hasImagesLeft;
         
         // Check if user MUST subscribe to freemium to continue
         const mustSubscribe = data.data.mustSubscribeToFreemium || false;
@@ -452,6 +451,7 @@ export const ProductShotFlow = () => {
         reason={mustSubscribeToFreemium ? 'freemium_required' : 'user_initiated'}
         userFlow="product_photoshot"
         mustSubscribe={mustSubscribeToFreemium}
+        isOnboardingFlow={true}
       />
     </>
   );
