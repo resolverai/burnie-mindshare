@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Search, Video, Loader2, UserPlus, ChevronDown, ArrowUpDown, Lock, ImageIcon } from "lucide-react";
+import { TutorialButton } from "@/components/TutorialButton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,7 +11,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { AdDetailModal } from "./AdDetailModal";
 import type { PreselectedInspiration } from "./CreateAdFlowModal";
-import { brandsApi } from "@/lib/api";
+import { brandsApi, accountApi } from "@/lib/api";
+import {
+  trackDiscoverViewed,
+  trackDiscoverSearch,
+  trackDiscoverFilterApplied,
+  trackDiscoverSortChanged,
+  trackDiscoverCreateMyOwnAdClicked,
+  trackDiscoverAdCardClicked,
+  trackCreateAdUsingTemplateClicked,
+} from "@/lib/mixpanel";
 
 const filterConfig: Record<string, string[]> = {
   Media: ["All", "Image", "Video"],
@@ -135,6 +145,26 @@ export function DiscoverScreen({
     return () => clearTimeout(t);
   }, [searchQuery, filterValues, sortBy, fetchAds]);
 
+  // Mark discover page visited (for free trial edit limit)
+  useEffect(() => {
+    accountApi.recordDiscoverVisit().catch(() => {});
+  }, []);
+
+  // Track page view
+  useEffect(() => {
+    trackDiscoverViewed();
+  }, []);
+
+  // Track search only when user stops typing (debounced)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (searchQuery.trim()) {
+        trackDiscoverSearch(searchQuery.trim());
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
   const loadMore = useCallback(() => {
     if (loadingMore || isLoading) return;
     if (pagination.page >= pagination.pages) return;
@@ -223,12 +253,16 @@ export function DiscoverScreen({
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
-              onClick={() => onCreateAd?.()}
+              onClick={() => {
+                trackDiscoverCreateMyOwnAdClicked();
+                onCreateAd?.();
+              }}
               className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[hsl(var(--landing-cta-orange))] text-white hover:opacity-90 text-sm font-medium shadow-soft"
             >
               <UserPlus className="w-4 h-4" />
               + Create my own ad
             </button>
+            <TutorialButton screen="discover" />
           </div>
         </div>
 
@@ -265,7 +299,10 @@ export function DiscoverScreen({
                   {filterConfig[label].map((opt) => (
                     <DropdownMenuItem
                       key={opt}
-                      onClick={() => setFilterValues((prev) => ({ ...prev, [label]: opt }))}
+                      onClick={() => {
+                        setFilterValues((prev) => ({ ...prev, [label]: opt }));
+                        trackDiscoverFilterApplied(label, opt);
+                      }}
                       className={filterValues[label] === opt ? "bg-accent/10 font-medium" : ""}
                     >
                       {opt}
@@ -286,16 +323,16 @@ export function DiscoverScreen({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-[160px]">
-              <DropdownMenuItem onClick={() => setSortBy("latest")} className={sortBy === "latest" ? "bg-accent/10 font-medium" : ""}>
+              <DropdownMenuItem onClick={() => { setSortBy("latest"); trackDiscoverSortChanged("latest"); }} className={sortBy === "latest" ? "bg-accent/10 font-medium" : ""}>
                 Latest
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSortBy("oldest")} className={sortBy === "oldest" ? "bg-accent/10 font-medium" : ""}>
+              <DropdownMenuItem onClick={() => { setSortBy("oldest"); trackDiscoverSortChanged("oldest"); }} className={sortBy === "oldest" ? "bg-accent/10 font-medium" : ""}>
                 Oldest
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSortBy("most_ads")} className={sortBy === "most_ads" ? "bg-accent/10 font-medium" : ""}>
+              <DropdownMenuItem onClick={() => { setSortBy("most_ads"); trackDiscoverSortChanged("most_ads"); }} className={sortBy === "most_ads" ? "bg-accent/10 font-medium" : ""}>
                 Most Ads
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSortBy("longest_runtime")} className={sortBy === "longest_runtime" ? "bg-accent/10 font-medium" : ""}>
+              <DropdownMenuItem onClick={() => { setSortBy("longest_runtime"); trackDiscoverSortChanged("longest_runtime"); }} className={sortBy === "longest_runtime" ? "bg-accent/10 font-medium" : ""}>
                 Longest Runtime
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -322,7 +359,10 @@ export function DiscoverScreen({
               key={card.id}
               className="mb-4 md:mb-5 break-inside-avoid group relative rounded-xl overflow-hidden bg-card shadow-card hover:shadow-card-hover transition-all cursor-pointer animate-scale-in w-full"
               style={{ animationDelay: `${Math.min(index * 0.03, 0.5)}s` }}
-              onClick={() => handleOpenDetail(card)}
+              onClick={() => {
+                trackDiscoverAdCardClicked(card.id, card.brandName);
+                handleOpenDetail(card);
+              }}
               onMouseEnter={() => {
                 setHoveredId(card.id);
                 if (card.videoSrc && videoRefs.current[card.id]) {
@@ -425,6 +465,12 @@ export function DiscoverScreen({
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
+                      trackCreateAdUsingTemplateClicked({
+                        source: 'discover_card',
+                        adId: card.id,
+                        brandName: card.brandName,
+                        isVideo: card.isVideo,
+                      });
                       onCreateAd?.({
                         imageUrl: card.image ?? null,
                         videoUrl: card.videoSrc ?? null,

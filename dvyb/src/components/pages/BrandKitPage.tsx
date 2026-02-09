@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Edit, Trash2, Upload, HelpCircle, Image as ImageIcon, Loader2, Save, X, CloudUpload, Globe, Twitter, Instagram as InstagramIcon, Linkedin, Play, Palette, Type } from "lucide-react";
+import { TutorialButton } from "@/components/TutorialButton";
 import { contextApi, uploadApi, socialConnectionsApi, authApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
@@ -20,7 +21,7 @@ import { LogoDropzone } from "@/components/ui/LogoDropzone";
 import { AdditionalLogosDropzone } from "@/components/ui/AdditionalLogosDropzone";
 import { TikTokIcon } from "@/components/icons/TikTokIcon";
 import { GoogleIcon } from "@/components/icons/GoogleIcon";
-import { trackBrandKitViewed, trackBrandKitTabViewed, trackBrandKitSaved, trackBrandKitSaveAllClicked } from "@/lib/mixpanel";
+import { trackBrandKitViewed, trackBrandKitTabViewed, trackBrandKitTabSwitched, trackBrandKitSaved, trackBrandKitSaveAllClicked } from "@/lib/mixpanel";
 
 // Helper function to format text with line breaks and bold sections
 const FormattedText = ({ text }: { text: string }) => {
@@ -136,6 +137,7 @@ export const BrandKitPage = ({ activeTab: controlledTab, onTabChange }: BrandKit
   const [internalTab, setInternalTab] = useState<"style" | "source-materials">("style");
   const activeTab = controlledTab ?? internalTab;
   const setActiveTab = (tab: string) => {
+    trackBrandKitTabSwitched(tab as "style" | "source-materials");
     if (onTabChange) onTabChange(tab);
     else setInternalTab(tab as "style" | "source-materials");
   };
@@ -1077,9 +1079,10 @@ export const BrandKitPage = ({ activeTab: controlledTab, onTabChange }: BrandKit
         {/* Sticky header - Brand Kit: heading + Save (row 1), subheading, tabs (row 2) */}
         <div className="sticky top-0 z-50 bg-[hsl(var(--app-content-bg))] border-b border-[hsl(var(--landing-nav-bar-border))]">
           <div className="px-2 md:px-3 lg:px-4 py-4 md:py-5">
-            {/* Row 1: Heading + Save Changes (black) - same horizontal row */}
+            {/* Row 1: Heading + Tutorial + Save Changes (black) - same horizontal row */}
             <div className="flex flex-row items-center justify-between gap-4">
               <h1 className="text-xl md:text-2xl font-bold text-foreground">Brand Kit</h1>
+              <div className="flex items-center gap-2 shrink-0">
               <Button 
                 onClick={handleSaveAll}
                 disabled={isSaving || !hasUnsavedChanges}
@@ -1098,6 +1101,8 @@ export const BrandKitPage = ({ activeTab: controlledTab, onTabChange }: BrandKit
                   </>
                 )}
               </Button>
+                <TutorialButton screen="brand-kit" />
+              </div>
             </div>
             {/* Subheading */}
             <p className="text-sm text-muted-foreground mt-1">Manage your brand assets and guidelines</p>

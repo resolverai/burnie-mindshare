@@ -7,25 +7,21 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { DiscoverScreen } from "@/components/pages/DiscoverScreen";
 import { CreateAdFlowModal, type PreselectedInspiration } from "@/components/pages/CreateAdFlowModal";
 import { OnboardingPricingModal } from "@/components/OnboardingPricingModal";
-import { PricingModal } from "@/components/PricingModal";
 import { Loader2, Menu } from "lucide-react";
 import Image from "next/image";
 import dvybLogo from "@/assets/dvyb-logo.png";
 import { dvybApi } from "@/lib/api";
+import { trackLimitsReached } from "@/lib/mixpanel";
 
 function DiscoverPageInner() {
   const [activeView] = useState("discover");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showCreateAdFlow, setShowCreateAdFlow] = useState(false);
   const [showPricingModal, setShowPricingModal] = useState(false);
-  const [showUpgradePricingModal, setShowUpgradePricingModal] = useState(false);
   const [preselectedInspiration, setPreselectedInspiration] = useState<PreselectedInspiration | null>(null);
   const [hasActiveSubscription, setHasActiveSubscription] = useState<boolean | null>(null);
   const [userFlow, setUserFlow] = useState<"website_analysis" | "product_photoshot">("website_analysis");
   const [usageData, setUsageData] = useState<any>(null);
-  const [quotaType, setQuotaType] = useState<"image" | "video" | "both">("both");
-  const [canSkipPricingModal, setCanSkipPricingModal] = useState(false);
-  const [mustSubscribeToFreemium, setMustSubscribeToFreemium] = useState(false);
   const [createAdReturnPath, setCreateAdReturnPath] = useState<string | null>(null);
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -86,12 +82,7 @@ function DiscoverPageInner() {
 
   const handleCreateAd = useCallback(
     async (inspiration?: PreselectedInspiration) => {
-      // Only show onboarding modal when we know user has no subscription.
-      // When loading (null), fetch usage and proceed - avoids showing modal on nav from Brands.
-      if (hasActiveSubscription === false) {
-        setShowPricingModal(true);
-        return;
-      }
+      // Ad creation: only show pricing when limits exhausted (not when free trial with quota left)
       try {
         const response = await fetch(
           `${process.env.NEXT_PUBLIC_API_URL || "https://mindshareapi.burnie.io"}/dvyb/account/usage`,
@@ -111,22 +102,13 @@ function DiscoverPageInner() {
           if (data.data.isAccountActive === false) {
             return;
           }
-          if (data.data.mustSubscribeToFreemium) {
-            setMustSubscribeToFreemium(true);
-            setQuotaType("both");
-            setCanSkipPricingModal(false);
-            setPreselectedInspiration(inspiration ?? null);
-            setShowUpgradePricingModal(true);
-            return;
-          }
-          setMustSubscribeToFreemium(false);
           // Video limits bypassed for now - only check image quota
+          // If user has remaining images, allow creation (quota takes precedence over mustSubscribeToFreemium)
           const noImagesLeft = data.data.remainingImages === 0;
           if (noImagesLeft) {
-            setQuotaType("both");
-            setCanSkipPricingModal(false);
+            trackLimitsReached("discover_create_ad", "both");
             setPreselectedInspiration(inspiration ?? null);
-            setShowUpgradePricingModal(true);
+            setShowPricingModal(true);
           } else {
             setPreselectedInspiration(inspiration ?? null);
             setShowCreateAdFlow(true);
@@ -140,7 +122,7 @@ function DiscoverPageInner() {
         setShowCreateAdFlow(true);
       }
     },
-    [hasActiveSubscription]
+    []
   );
 
   useEffect(() => {
@@ -212,38 +194,8 @@ function DiscoverPageInner() {
             setCreateAdReturnPath(null);
           }
         }}
-        userFlow={userFlow}
-      />
-
-      <PricingModal
-        open={showUpgradePricingModal}
-        onClose={() => {
-          setShowUpgradePricingModal(false);
-          if (canSkipPricingModal && !mustSubscribeToFreemium) {
-            setShowCreateAdFlow(true);
-          } else if (createAdReturnPath) {
-            router.push(createAdReturnPath);
-            setCreateAdReturnPath(null);
-          }
-        }}
-        currentPlanInfo={
-          usageData
-            ? {
-                planName: usageData.planName || "Free Trial",
-                planId: usageData.planId || null,
-                monthlyPrice: usageData.monthlyPrice || 0,
-                annualPrice: usageData.annualPrice || 0,
-                billingCycle: usageData.billingCycle || "monthly",
-                isFreeTrialPlan: usageData.isFreeTrialPlan || false,
-              }
-            : null
-        }
-        quotaType={quotaType}
-        isAuthenticated={true}
-        canSkip={!mustSubscribeToFreemium && canSkipPricingModal}
-        reason={mustSubscribeToFreemium ? "freemium_required" : "quota_exhausted"}
-        userFlow={usageData?.initialAcquisitionFlow || "website_analysis"}
-        mustSubscribe={mustSubscribeToFreemium}
+        userFlow={usageData?.initialAcquisitionFlow || userFlow}
+        isOnboardingFlow={true}
       />
 
       <CreateAdFlowModal

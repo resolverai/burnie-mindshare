@@ -10,6 +10,7 @@ import { OnboardingPricingModal } from "@/components/OnboardingPricingModal";
 import { PricingModal } from "@/components/PricingModal";
 import { Loader2, Menu } from "lucide-react";
 import { dvybApi } from "@/lib/api";
+import { trackLimitsReached } from "@/lib/mixpanel";
 import Image from "next/image";
 import dvybLogo from "@/assets/dvyb-logo.png";
 
@@ -29,10 +30,7 @@ export default function ManageSubscriptionPage() {
   const { isAuthenticated, isLoading } = useAuth();
 
   const handleCreateAd = useCallback(async () => {
-    if (hasActiveSubscription === false) {
-      setShowPricingModal(true);
-      return;
-    }
+    // Ad creation: only show pricing when limits exhausted (not when free trial with quota left)
     try {
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL || "https://mindshareapi.burnie.io"}/dvyb/account/usage`,
@@ -54,6 +52,7 @@ export default function ManageSubscriptionPage() {
           setMustSubscribeToFreemium(true);
           setQuotaType("both");
           setCanSkipPricingModal(false);
+          trackLimitsReached("subscription_manage_create", "both");
           setShowUpgradePricingModal(true);
           return;
         }
@@ -62,6 +61,7 @@ export default function ManageSubscriptionPage() {
         if (noImagesLeft) {
           setQuotaType("both");
           setCanSkipPricingModal(false);
+          trackLimitsReached("subscription_manage_create", "both");
           setShowUpgradePricingModal(true);
         } else {
           setShowCreateAdFlow(true);
@@ -72,7 +72,7 @@ export default function ManageSubscriptionPage() {
     } catch {
       setShowCreateAdFlow(true);
     }
-  }, [hasActiveSubscription]);
+  }, []);
 
   useEffect(() => {
     const fetchSubscription = async () => {

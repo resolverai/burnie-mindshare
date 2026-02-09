@@ -34,6 +34,9 @@ _executor = ThreadPoolExecutor(max_workers=4)
 MAX_PRODUCT_IMAGES = 10
 GROK_BATCH_SIZE = 8
 
+# When False, skip Instagram image fetch (website images only). Set True to also fetch from Instagram.
+FETCH_INSTAGRAM_IMAGES = False
+
 
 def normalize_domain(url: str) -> str:
     """Extract normalized domain for cache key (e.g. example.com)."""
@@ -303,23 +306,26 @@ def _fetch_instagram_images(
 
 
 def _run_fetch_in_background(url: str, domain: str, domain_hash: str, callback_url: str) -> None:
-    """Run fetch in thread; website and Instagram in PARALLEL (independent - neither blocks the other).
+    """Run fetch in thread; website and Instagram in PARALLEL (when FETCH_INSTAGRAM_IMAGES=True).
     When callback_url is set: each image is saved to DB immediately via on_image_ready (incremental display).
     No batch Grok filter in incremental mode - images shown as they arrive for faster feedback.
     """
-    print(f"[fetch-domain-images BG] Starting background fetch for domain={domain} (incremental via callback)")
+    print(f"[fetch-domain-images BG] Starting background fetch for domain={domain} (incremental via callback, Instagram={'yes' if FETCH_INSTAGRAM_IMAGES else 'no'})")
 
-    # 1. Fetch website and Instagram IN PARALLEL - each image is POSTed to callback as soon as it's downloaded
+    # 1. Fetch website (and Instagram if enabled) - each image is POSTed to callback as soon as it's downloaded
     website_images: list[dict] = []
     ig_images: list[dict] = []
 
     future_to_src = {}
     with ThreadPoolExecutor(max_workers=2) as pool:
         f_web = pool.submit(_fetch_website_images, url, domain_hash, callback_url, domain)
-        f_ig = pool.submit(_fetch_instagram_images, domain, url, domain_hash, callback_url)
         future_to_src[f_web] = "web"
-        future_to_src[f_ig] = "ig"
-        for future in as_completed([f_web, f_ig]):
+        futures_to_wait: list = [f_web]
+        if FETCH_INSTAGRAM_IMAGES:
+            f_ig = pool.submit(_fetch_instagram_images, domain, url, domain_hash, callback_url)
+            future_to_src[f_ig] = "ig"
+            futures_to_wait.append(f_ig)
+        for future in as_completed(futures_to_wait):
             try:
                 result = future.result() or []
                 src = future_to_src.get(future, "")
@@ -390,7 +396,7 @@ async def fetch_domain_images(request: FetchDomainImagesRequest):
             accepted=True,
         )
 
-    # Legacy sync mode: website and Instagram in PARALLEL (independent errors)
+    # Legacy sync mode: website (and Instagram if enabled) in PARALLEL (independent errors)
     all_images: list[dict] = []
     website_images: list[dict] = []
     ig_images: list[dict] = []
@@ -398,10 +404,13 @@ async def fetch_domain_images(request: FetchDomainImagesRequest):
     future_to_src = {}
     with ThreadPoolExecutor(max_workers=2) as pool:
         f_web = pool.submit(_fetch_website_images, url, domain_hash)
-        f_ig = pool.submit(_fetch_instagram_images, domain, url, domain_hash)
         future_to_src[f_web] = "web"
-        future_to_src[f_ig] = "ig"
-        for future in as_completed([f_web, f_ig]):
+        sync_futures: list = [f_web]
+        if FETCH_INSTAGRAM_IMAGES:
+            f_ig = pool.submit(_fetch_instagram_images, domain, url, domain_hash)
+            future_to_src[f_ig] = "ig"
+            sync_futures.append(f_ig)
+        for future in as_completed(sync_futures):
             try:
                 result = future.result() or []
                 src = future_to_src.get(future, "")

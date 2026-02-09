@@ -8,6 +8,7 @@ import { Search, Check, ArrowRight, Plus, Upload, Link as LinkIcon, FileText, Lo
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { productsApi, brandsApi, adhocGenerationApi, contextApi } from "@/lib/api";
+import { trackCreateAdFlowRelevantAdsFetched } from "@/lib/mixpanel";
 import { useToast } from "@/hooks/use-toast";
 import { GenerateContentDialog } from "@/components/onboarding/GenerateContentDialog";
 
@@ -111,6 +112,7 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
       let websiteCategory: string | undefined;
       let brandContext: { business_overview?: string | null; popular_products?: string[] | null; customer_demographics?: string | null; brand_story?: string | null } | undefined;
       let productImageS3Key: string | undefined;
+      // Try backend context first (saved dvyb_context)
       try {
         const ctxRes = await contextApi.getContext();
         if (ctxRes.success && ctxRes.data) {
@@ -134,10 +136,54 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
       } catch {
         /* ignore */
       }
-      // Pass selected product image for relevant ads matching (same as unified onboarding modal)
+      // Fallback: use localStorage website analysis (same as unified onboarding modal)
+      // Ensures relevant ads when user is mid-onboarding or context not yet synced to backend
+      if (!websiteCategory || !brandContext) {
+        try {
+          const analysisStr = localStorage.getItem("dvyb_website_analysis");
+          if (analysisStr) {
+            const analysis = JSON.parse(analysisStr) as {
+              industry?: string;
+              business_overview_and_positioning?: string;
+              most_popular_products_and_services?: string | string[];
+              customer_demographics_and_psychographics?: string;
+              brand_story?: string;
+            };
+            if (!websiteCategory && analysis?.industry?.trim()) {
+              websiteCategory = analysis.industry.trim();
+            }
+            if (!brandContext) {
+              const pop = analysis?.most_popular_products_and_services;
+              brandContext = {
+                business_overview: analysis?.business_overview_and_positioning ?? null,
+                popular_products: Array.isArray(pop) ? pop : typeof pop === "string" ? (pop ? [pop] : null) : null,
+                customer_demographics: analysis?.customer_demographics_and_psychographics ?? null,
+                brand_story: analysis?.brand_story ?? null,
+              };
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      // Pass selected product image for Grok matching (top 20 relevant category+subcategory pairs)
       if (selectedProductId) {
         const sel = products.find((p) => p.id === selectedProductId);
         if (sel?.imageS3Key) productImageS3Key = sel.imageS3Key;
+      }
+      // Fallback: use product from onboarding if user selected from there
+      if (!productImageS3Key) {
+        try {
+          const selectedStr = localStorage.getItem("dvyb_selected_products");
+          if (selectedStr) {
+            const selected = JSON.parse(selectedStr) as Array<{ id: number; s3Key: string; image?: string }>;
+            if (Array.isArray(selected) && selected.length > 0 && selected[0]?.s3Key) {
+              productImageS3Key = selected[0].s3Key;
+            }
+          }
+        } catch {
+          /* ignore */
+        }
       }
       const res = await brandsApi.getDiscoverAds({
         page: 1,
@@ -159,6 +205,10 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
           creativeImageUrl: (ad.creativeImageUrl as string) ?? null,
           creativeVideoUrl: (ad.creativeVideoUrl as string) ?? null,
         }));
+        trackCreateAdFlowRelevantAdsFetched({
+          adCount: ads.length,
+          hasProductImage: !!productImageS3Key,
+        });
         setDiscoverAds(ads);
       }
     } catch (e) {
@@ -431,7 +481,7 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
               />
               <div className="px-6 py-4 border-b border-border shrink-0">
                 <h2 className="text-xl font-bold mb-2 text-center text-neutral-900">
-                  Choose a product
+                  Choose a product to recreate this ad
                 </h2>
                 <p className="text-muted-foreground text-center text-sm mb-2">
                   Select the product you want to create an ad for
@@ -742,7 +792,7 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
                       <LinkIcon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                       <Input
                         type="url"
-                        placeholder="Or paste a link..."
+                        placeholder="Paste an Instagram link"
                         value={inspirationLink}
                         onChange={(e) => setInspirationLink(e.target.value)}
                         className="flex-1 bg-transparent border-0 p-0 h-auto text-sm min-w-0"

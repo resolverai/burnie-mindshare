@@ -427,9 +427,9 @@ export class DvybGoogleAuthService {
       const planRepo = AppDataSource.getRepository(DvybPricingPlan);
       const accountPlanRepo = AppDataSource.getRepository(DvybAccountPlan);
 
-      // Find the free trial plan
+      // Find the free trial plan (always use website_analysis flow)
       const freeTrialPlan = await planRepo.findOne({
-        where: { isFreeTrialPlan: true, isActive: true },
+        where: { isFreeTrialPlan: true, isActive: true, planFlow: 'website_analysis' },
       });
 
       if (!freeTrialPlan) {

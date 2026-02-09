@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Check, Search, Building2, Users, Image as ImageIcon, Loader2 } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { dvybApi } from "@/lib/api";
-import { trackCheckoutStarted } from "@/lib/mixpanel";
+import { trackCheckoutStarted, trackStartNowClicked, trackExploreMoreFeaturesClicked } from "@/lib/mixpanel";
 
 interface PricingPlan {
   id: number;
@@ -46,16 +46,38 @@ export function OnboardingPricingModal({
   isOnboardingFlow = false,
 }: OnboardingPricingModalProps) {
   const pathname = usePathname() ?? "/home";
+  const router = useRouter();
   const [plan, setPlan] = useState<PricingPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [billingCycle, setBillingCycle] = useState<"monthly" | "annual">("monthly");
+  const [hasVisitedDiscover, setHasVisitedDiscover] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (open) {
       fetchLowestPlan();
     }
   }, [open, userFlow]);
+
+  useEffect(() => {
+    if (open) {
+      const fetchHasVisitedDiscover = async () => {
+        try {
+          const res = await fetch(
+            `${process.env.NEXT_PUBLIC_API_URL || "https://mindshareapi.burnie.io"}/dvyb/account/usage`,
+            { credentials: "include", headers: { ...(typeof window !== "undefined" && localStorage.getItem("dvyb_account_id") ? { "X-DVYB-Account-ID": localStorage.getItem("dvyb_account_id")! } : {}) } }
+          );
+          const data = await res.json();
+          if (data.success && data.data) {
+            setHasVisitedDiscover(data.data.hasVisitedDiscover === true);
+          }
+        } catch {
+          /* ignore */
+        }
+      };
+      fetchHasVisitedDiscover();
+    }
+  }, [open]);
 
   const fetchLowestPlan = async () => {
     try {
@@ -86,6 +108,11 @@ export function OnboardingPricingModal({
   const handleStartNow = async () => {
     if (!plan || isLoading) return;
 
+    trackStartNowClicked({
+      planName: plan.planName,
+      billingCycle,
+      source: isOnboardingFlow ? "onboarding_pricing_modal" : "pricing_page",
+    });
     setIsLoading(true);
     try {
       const priceToCharge = billingCycle === "monthly"
@@ -153,7 +180,7 @@ export function OnboardingPricingModal({
     : 0;
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) { setHasVisitedDiscover(null); onClose(); } }}>
       <DialogContent
         className="max-w-md p-0 overflow-hidden"
         hideCloseButton={false}
@@ -272,6 +299,21 @@ export function OnboardingPricingModal({
                   "Start now"
                 )}
               </Button>
+
+              {/* Explore More - secondary CTA: only show when user hasn't visited discover yet */}
+              {hasVisitedDiscover === false && (
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    trackExploreMoreFeaturesClicked("pricing_modal");
+                    onClose();
+                    router.push("/discover");
+                  }}
+                  className="w-full py-5 mt-3 text-base font-medium rounded-full bg-neutral-900 hover:bg-neutral-800 text-white"
+                >
+                  No I will Explore More
+                </Button>
+              )}
 
               {/* Footer */}
               <p className="text-center text-xs text-muted-foreground mt-6 pt-6 border-t border-border">

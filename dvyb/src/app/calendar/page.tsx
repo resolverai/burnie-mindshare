@@ -9,7 +9,9 @@ import { CreateAdFlowModal } from "@/components/pages/CreateAdFlowModal";
 import { OnboardingPricingModal } from "@/components/OnboardingPricingModal";
 import { PricingModal } from "@/components/PricingModal";
 import { Loader2, Menu } from "lucide-react";
+import { TutorialButton } from "@/components/TutorialButton";
 import { dvybApi } from "@/lib/api";
+import { trackLimitsReached } from "@/lib/mixpanel";
 import Image from "next/image";
 import dvybLogo from "@/assets/dvyb-logo.png";
 
@@ -30,10 +32,7 @@ export default function CalendarPage() {
   const [mustSubscribeToFreemium, setMustSubscribeToFreemium] = useState(false);
 
   const handleCreateAd = useCallback(async () => {
-    if (hasActiveSubscription === false) {
-      setShowPricingModal(true);
-      return;
-    }
+    // Ad creation: only show pricing when limits exhausted (not when free trial with quota left)
     try {
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL || "https://mindshareapi.burnie.io"}/dvyb/account/usage`,
@@ -55,6 +54,7 @@ export default function CalendarPage() {
           setMustSubscribeToFreemium(true);
           setQuotaType("both");
           setCanSkipPricingModal(false);
+          trackLimitsReached("calendar_create", "both");
           setShowUpgradePricingModal(true);
           return;
         }
@@ -63,6 +63,7 @@ export default function CalendarPage() {
         if (noImagesLeft) {
           setQuotaType("both");
           setCanSkipPricingModal(false);
+          trackLimitsReached("calendar_create", "both");
           setShowUpgradePricingModal(true);
         } else {
           setShowCreateAdFlow(true);
@@ -73,7 +74,7 @@ export default function CalendarPage() {
     } catch {
       setShowCreateAdFlow(true);
     }
-  }, [hasActiveSubscription]);
+  }, []);
 
   useEffect(() => {
     const fetchSubscription = async () => {
@@ -176,9 +177,15 @@ export default function CalendarPage() {
           <div className="w-10" />
         </div>
 
-        {/* Strategy Calendar View */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-6">
-          <StrategyCalendarView />
+        {/* Calendar Header + Content */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-shrink-0 flex items-center justify-end gap-4 px-4 md:px-6 py-4 border-b border-border bg-[hsl(var(--app-content-bg))]">
+            <h1 className="text-2xl md:text-3xl font-bold mr-auto">Calendar</h1>
+            <TutorialButton screen="calendar" />
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 md:p-6">
+            <StrategyCalendarView />
+          </div>
         </div>
       </div>
       <OnboardingPricingModal

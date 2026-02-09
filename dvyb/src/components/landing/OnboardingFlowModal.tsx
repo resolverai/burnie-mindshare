@@ -6,7 +6,15 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Search, Check, ArrowRight, Loader2, Upload } from "lucide-react";
 import { brandsApi, authApi, contextApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { trackInspirationPageViewed, trackInspirationSelected, trackSignInClicked } from "@/lib/mixpanel";
+import {
+  trackInspirationPageViewed,
+  trackInspirationSelected,
+  trackSignInClicked,
+  trackOnboardingProductsFetched,
+  trackOnboardingProductChosen,
+  trackOnboardingRelevantAdsFetched,
+  trackOnboardingInspirationSelected,
+} from "@/lib/mixpanel";
 
 type Step = "inspiration" | "product" | "login";
 
@@ -125,6 +133,7 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
             creativeVideoUrl: (ad.creativeVideoUrl as string) ?? null,
           }));
           setDiscoverAds(ads);
+          trackOnboardingRelevantAdsFetched({ adCount: ads.length });
           trackInspirationPageViewed({ industry: "discover", inspirationCount: ads.length });
         }
       } catch (e) {
@@ -157,6 +166,7 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
   const handleInspirationNext = () => {
     const selected = discoverAds.filter((ad) => selectedAdIds.has(ad.id));
     if (selected.length > 0) {
+      trackOnboardingInspirationSelected({ adIds: selected.map((ad) => ad.id), count: selected.length });
       selected.forEach((ad) =>
         trackInspirationSelected({ inspirationId: ad.id, platform: "discover", category: ad.category || "" })
       );
@@ -168,6 +178,7 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
   const handleProductNext = () => {
     const selected = domainProducts.filter((p) => selectedProductIds.has(p.id));
     if (selected.length > 0) {
+      trackOnboardingProductChosen({ productIds: selected.map((p) => p.id), count: selected.length });
       localStorage.setItem(
         "dvyb_selected_products",
         JSON.stringify(selected.map((p) => ({ id: p.id, s3Key: p.s3Key, image: p.image })))
@@ -220,6 +231,7 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
         const result = await contextApi.uploadDomainProductImage(file, domain);
         setDomainProducts((prev) => [...prev, result]);
         setSelectedProductIds((prev) => new Set([...prev, result.id]));
+        trackOnboardingProductsFetched({ productCount: 1, source: "upload" });
       } catch (e) {
         console.error("Failed to upload product:", e);
         toast({ title: "Upload failed", description: "Could not upload image", variant: "destructive" });
@@ -299,6 +311,7 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
           const images = res.data.images.slice(0, MAX_FETCH_IMAGES);
           setDomainProducts(images);
           setDomainProductsLoading(false);
+          trackOnboardingProductsFetched({ productCount: images.length, source: "domain" });
           // Stop polling only when we have max images or hit max polls
           if (images.length >= MAX_FETCH_IMAGES || pollCount >= MAX_POLLS) {
             setDomainProductsDone(true);
@@ -487,9 +500,9 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
           <>
             <div className="px-6 py-6 border-b border-border shrink-0">
               <h2 className="text-2xl md:text-3xl font-bold mb-2 text-center text-neutral-900">
-                Customize your ad creation
+                Here are some live ads from your competitors
               </h2>
-              <p className="text-muted-foreground text-center mb-6">Select competitor ads for inspiration</p>
+              <p className="text-muted-foreground text-center mb-6">Choose one to recreate in your brand</p>
               <div className="max-w-md mx-auto">
                 <div className="flex items-center gap-3 bg-neutral-100 rounded-full px-5 py-3 border border-neutral-200">
                   <Search className="w-5 h-5 text-muted-foreground" />

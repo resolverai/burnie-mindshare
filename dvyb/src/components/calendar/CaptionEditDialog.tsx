@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useState, useEffect } from "react";
+import { trackCaptionEdited } from "@/lib/mixpanel";
 
 interface CaptionEditDialogProps {
   open: boolean;
@@ -12,6 +13,7 @@ interface CaptionEditDialogProps {
   initialCaption: string;
   onSave: (caption: string) => void;
   platform?: string;
+  contentType?: 'image' | 'video';
 }
 
 const platformLabels: Record<string, string> = {
@@ -28,7 +30,7 @@ const platformIcons: Record<string, string> = {
   tiktok: "🎵",
 };
 
-export const CaptionEditDialog = ({ open, onOpenChange, initialCaption, onSave, platform }: CaptionEditDialogProps) => {
+export const CaptionEditDialog = ({ open, onOpenChange, initialCaption, onSave, platform, contentType = 'image' }: CaptionEditDialogProps) => {
   const [caption, setCaption] = useState(initialCaption);
 
   // Update caption when initialCaption changes (e.g., switching platforms)
@@ -37,6 +39,7 @@ export const CaptionEditDialog = ({ open, onOpenChange, initialCaption, onSave, 
   }, [initialCaption]);
 
   const handleSave = () => {
+    if (platform) trackCaptionEdited(platform, contentType);
     onSave(caption);
     onOpenChange(false);
   };

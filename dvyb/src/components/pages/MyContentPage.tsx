@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Plus, Bookmark, Loader2, Video, ImageIcon, Trash2, X, MoreVertical, Pencil } from "lucide-react";
+import { TutorialButton } from "@/components/TutorialButton";
+import { trackMyContentViewed, trackMyContentTabSwitched, trackMyContentCreateNewClicked, trackMyContentAddProductClicked } from "@/lib/mixpanel";
 import { Button } from "@/components/ui/button";
 import { ContentLibrary, ContentLibraryRef } from "./ContentLibrary";
 import { AdDetailModal } from "./AdDetailModal";
@@ -289,35 +291,49 @@ export function MyContentPage({
     }
   }, [createAdTriggerRef, activeTab]);
 
+  // Track page view when tab changes
+  useEffect(() => {
+    trackMyContentViewed(activeTab);
+  }, [activeTab]);
+
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {/* Header - Row 1: My Content + Create New */}
       <div className="flex-shrink-0 border-b border-border bg-[hsl(var(--app-content-bg))]">
-        <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-5">
+          <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-5">
           <div className="flex flex-row items-center justify-between gap-4">
             <h1 className="text-2xl lg:text-3xl font-bold">My Content</h1>
-            {activeTab === "my-ads" && (
-              <Button
-                onClick={() => contentLibraryCreateNewRef.current?.openCreateNew()}
-                className="bg-foreground text-background hover:bg-foreground/90 rounded-lg px-4 py-2 font-medium shrink-0"
-              >
-                Create New
-              </Button>
-            )}
-            {activeTab === "my-products" && (
-              <Button
-                onClick={handleAddProductClick}
-                className="bg-foreground text-background hover:bg-foreground/90 rounded-lg px-4 py-2 font-medium shrink-0"
-              >
-                Add Product
-              </Button>
-            )}
+            <div className="flex items-center gap-2 shrink-0">
+              {activeTab === "my-ads" && (
+                <Button
+                  onClick={() => {
+                    trackMyContentCreateNewClicked();
+                    contentLibraryCreateNewRef.current?.openCreateNew();
+                  }}
+                  className="bg-foreground text-background hover:bg-foreground/90 rounded-lg px-4 py-2 font-medium shrink-0"
+                >
+                  Create New
+                </Button>
+              )}
+              {activeTab === "my-products" && (
+                <Button
+                  onClick={() => {
+                    trackMyContentAddProductClicked();
+                    handleAddProductClick();
+                  }}
+                  className="bg-foreground text-background hover:bg-foreground/90 rounded-lg px-4 py-2 font-medium shrink-0"
+                >
+                  Add Product
+                </Button>
+              )}
+              <TutorialButton screen="my-content" />
+            </div>
           </div>
           {/* Row 2: Content type tabs */}
           <div className="flex items-center mt-4">
             <div className="flex items-center bg-secondary rounded-full p-1">
               <button
-                onClick={() => onTabChange("my-ads")}
+                onClick={() => { onTabChange("my-ads"); trackMyContentTabSwitched("my-ads"); }}
                 className={`px-3 lg:px-4 py-2 rounded-full text-xs lg:text-sm font-medium transition-all ${
                   activeTab === "my-ads" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
                 }`}
@@ -325,7 +341,7 @@ export function MyContentPage({
                 My Ads
               </button>
               <button
-                onClick={() => onTabChange("my-products")}
+                onClick={() => { onTabChange("my-products"); trackMyContentTabSwitched("my-products"); }}
                 className={`px-3 lg:px-4 py-2 rounded-full text-xs lg:text-sm font-medium transition-all ${
                   activeTab === "my-products" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
                 }`}
@@ -333,7 +349,7 @@ export function MyContentPage({
                 Products
               </button>
               <button
-                onClick={() => onTabChange("saved-ads")}
+                onClick={() => { onTabChange("saved-ads"); trackMyContentTabSwitched("saved-ads"); }}
                 className={`px-3 lg:px-4 py-2 rounded-full text-xs lg:text-sm font-medium transition-all ${
                   activeTab === "saved-ads" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
                 }`}

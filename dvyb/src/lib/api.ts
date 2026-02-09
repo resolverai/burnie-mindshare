@@ -246,6 +246,16 @@ export const accountApi = {
     );
   },
 
+  /** Mark that user has visited the discover page (free trial edit limit) */
+  async recordDiscoverVisit() {
+    return apiRequest<{ success: boolean }>('/dvyb/account/discover-visit', { method: 'POST' });
+  },
+
+  /** Record that user saved a design edit (free trial: one edit allowed after discover visit) */
+  async recordEditSaved() {
+    return apiRequest<{ success: boolean }>('/dvyb/account/edit-saved', { method: 'POST' });
+  },
+
   /**
    * End trial period early and charge the customer immediately
    * Used when user wants to continue generating beyond trial limits

@@ -8,7 +8,9 @@ import { CreateAdFlowModal } from "@/components/pages/CreateAdFlowModal";
 import { OnboardingPricingModal } from "@/components/OnboardingPricingModal";
 import { PricingModal } from "@/components/PricingModal";
 import { Loader2, Menu } from "lucide-react";
+import { TutorialButton } from "@/components/TutorialButton";
 import { dvybApi } from "@/lib/api";
+import { trackLimitsReached } from "@/lib/mixpanel";
 import Image from "next/image";
 import dvybLogo from "@/assets/dvyb-logo.png";
 
@@ -28,10 +30,7 @@ export default function BrandPlanPage() {
   const { isAuthenticated, isLoading } = useAuth();
 
   const handleCreateAd = useCallback(async () => {
-    if (hasActiveSubscription === false) {
-      setShowPricingModal(true);
-      return;
-    }
+    // Ad creation: only show pricing when limits exhausted (not when free trial with quota left)
     try {
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL || "https://mindshareapi.burnie.io"}/dvyb/account/usage`,
@@ -53,6 +52,7 @@ export default function BrandPlanPage() {
           setMustSubscribeToFreemium(true);
           setQuotaType("both");
           setCanSkipPricingModal(false);
+          trackLimitsReached("brand_plan_create", "both");
           setShowUpgradePricingModal(true);
           return;
         }
@@ -61,6 +61,7 @@ export default function BrandPlanPage() {
         if (noImagesLeft) {
           setQuotaType("both");
           setCanSkipPricingModal(false);
+          trackLimitsReached("brand_plan_create", "both");
           setShowUpgradePricingModal(true);
         } else {
           setShowCreateAdFlow(true);
@@ -71,7 +72,7 @@ export default function BrandPlanPage() {
     } catch {
       setShowCreateAdFlow(true);
     }
-  }, [hasActiveSubscription]);
+  }, []);
 
   useEffect(() => {
     const fetchSubscription = async () => {
@@ -165,8 +166,11 @@ export default function BrandPlanPage() {
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-7xl mx-auto px-2 md:px-3 lg:px-4 py-4 md:py-6">
+            <div className="flex items-center justify-end gap-4 mb-6">
+              <h1 className="text-3xl font-bold text-foreground mr-auto">Brand Plan</h1>
+              <TutorialButton screen="brand-plan" />
+            </div>
             <div className="text-center py-20">
-              <h1 className="text-3xl font-bold text-foreground mb-4">Brand Plan</h1>
               <p className="text-muted-foreground">Coming soon...</p>
             </div>
           </div>

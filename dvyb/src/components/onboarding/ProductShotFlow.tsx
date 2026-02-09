@@ -18,6 +18,7 @@ import {
   trackProductShotGenerateMoreClicked,
   trackProductShotPricingShown,
   trackProductShotFlowCompleted,
+  trackLimitsReached,
 } from "@/lib/mixpanel";
 
 type FlowStep = "landing" | "upload" | "generating";
@@ -365,6 +366,7 @@ export const ProductShotFlow = () => {
         
         // Show pricing modal - mandatory if mustSubscribeToFreemium, otherwise skippable
         setMustSubscribeToFreemium(mustSubscribe);
+        trackLimitsReached("product_shot_flow", "both");
         trackProductShotPricingShown();
         setShowPricingModal(true);
       } else {

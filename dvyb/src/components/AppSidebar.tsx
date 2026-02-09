@@ -28,6 +28,7 @@ import dvybLogo from "@/assets/dvyb-logo.png";
 import { useAuth } from "@/contexts/AuthContext";
 import { contextApi } from "@/lib/api";
 import { PricingModal } from "@/components/PricingModal";
+import { trackThemeChanged, trackUpgradeButtonClicked } from "@/lib/mixpanel";
 import { useTheme } from "next-themes";
 import { Switch } from "@/components/ui/switch";
 
@@ -465,7 +466,11 @@ export const AppSidebar = ({ activeView, activeSubView, onViewChange, isMobileOp
             {mounted && (
               <Switch
                 checked={resolvedTheme === "dark"}
-                onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
+                onCheckedChange={(checked) => {
+                  const theme = checked ? "dark" : "light";
+                  setTheme(theme);
+                  trackThemeChanged(theme);
+                }}
                 className={cn("shrink-0", collapsed && "md:ml-0")}
               />
             )}
@@ -473,7 +478,10 @@ export const AppSidebar = ({ activeView, activeSubView, onViewChange, isMobileOp
 
           {/* Upgrade Button - inline styles to match new UI (purple-to-pink gradient), no shared class */}
           <button
-            onClick={() => setShowPricingModal(true)}
+            onClick={() => {
+              trackUpgradeButtonClicked("sidebar");
+              setShowPricingModal(true);
+            }}
             className={cn(
               "w-full flex items-center gap-3 px-3 py-3 text-base",
               "rounded-full font-semibold text-white border-0",

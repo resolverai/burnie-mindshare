@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerClose } from "@/components/ui/drawer";
 import { brandsApi } from "@/lib/api";
+import { trackCreateAdUsingTemplateClicked } from "@/lib/mixpanel";
 import type { PreselectedInspiration } from "./CreateAdFlowModal";
 
 export interface DiscoverCard {
@@ -140,6 +141,12 @@ export function AdDetailModal({ card, isOpen, onClose, onCreateAd, hasActiveSubs
   };
 
   const handleCreateFromTemplate = () => {
+    trackCreateAdUsingTemplateClicked({
+      source: 'ad_detail_modal',
+      adId: card.id,
+      brandName: card.brandName,
+      isVideo: card.isVideo,
+    });
     const inspiration: PreselectedInspiration = {
       imageUrl: displayImage ?? null,
       videoUrl: displayVideoSrc ?? null,

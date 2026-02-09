@@ -5,7 +5,7 @@ import { useVideoEditor } from "@/contexts/VideoEditorContext";
 import { X, Download, Film, Settings, Loader2, Check, AlertCircle } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
-import { videoEditsApi } from "@/lib/api";
+import { videoEditsApi, accountApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
 interface ExportModalProps {
@@ -281,7 +281,7 @@ export function ExportModal({ isOpen, onClose, onExportComplete }: ExportModalPr
         
         setIsExporting(false);
         setExportComplete(true);
-        
+        accountApi.recordEditSaved().catch(() => {});
         toast({
           title: "Export Complete",
           description: "Your video has been exported and downloaded successfully!",
@@ -325,7 +325,7 @@ export function ExportModal({ isOpen, onClose, onExportComplete }: ExportModalPr
                 
                 setIsExporting(false);
                 setExportComplete(true);
-                
+                accountApi.recordEditSaved().catch(() => {});
                 toast({
                   title: "Export Complete",
                   description: "Your video has been exported and downloaded successfully!",
@@ -337,6 +337,7 @@ export function ExportModal({ isOpen, onClose, onExportComplete }: ExportModalPr
                 if (videoUrl) {
                   setExportedVideoUrl(videoUrl);
                   onExportComplete?.(videoUrl);
+                  accountApi.recordEditSaved().catch(() => {});
                   toast({
                     title: "Export Complete",
                     description: "Your video has been exported. Click the download button to get it.",
@@ -401,7 +402,7 @@ export function ExportModal({ isOpen, onClose, onExportComplete }: ExportModalPr
                   
                   setIsExporting(false);
                   setExportComplete(true);
-                  
+                  accountApi.recordEditSaved().catch(() => {});
                   toast({
                     title: "Export Complete",
                     description: "Your video has been exported and downloaded successfully!",
@@ -412,6 +413,7 @@ export function ExportModal({ isOpen, onClose, onExportComplete }: ExportModalPr
                   if (statusResponse.videoUrl) {
                     setExportedVideoUrl(statusResponse.videoUrl);
                     onExportComplete?.(statusResponse.videoUrl);
+                    accountApi.recordEditSaved().catch(() => {});
                     toast({
                       title: "Export Complete",
                       description: "Your video has been exported. Click the download button to get it.",

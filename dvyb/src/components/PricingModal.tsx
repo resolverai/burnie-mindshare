@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { dvybApi } from "@/lib/api";
 import {
   trackPricingModalOpened,
+  trackUpgradeButtonClicked,
   trackPlanUpgradeClicked,
   trackPlanDowngradeClicked,
   trackBillingCycleSwitchClicked,
@@ -900,6 +901,10 @@ export const PricingModal = ({
     setIsLoading(true);
     
     try {
+      // Track upgrade CTA click (upgrade, get_started, switch cycles - not downgrade)
+      if (['upgrade', 'get_started', 'switch_to_annual', 'switch_to_monthly'].includes(changeType)) {
+        trackUpgradeButtonClicked('pricing_modal');
+      }
       // If user doesn't have an active Stripe subscription, always go to checkout
       // This handles: free plan users, new users, expired subscriptions
       if (!hasActiveStripeSubscription) {

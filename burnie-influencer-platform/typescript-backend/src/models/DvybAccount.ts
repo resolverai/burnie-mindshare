@@ -62,6 +62,13 @@ export class DvybAccount {
   })
   initialAcquisitionFlow!: 'website_analysis' | 'product_photoshot' | null;
 
+  // Free trial edit limit: user can edit and save design once after visiting discover
+  @Column({ type: 'boolean', default: false })
+  hasVisitedDiscover!: boolean;
+
+  @Column({ type: 'int', default: 0 })
+  freeTrialEditSaveCount!: number;
+
   // Stripe Integration
   @Column({ type: 'varchar', length: 100, nullable: true })
   stripeCustomerId!: string | null;

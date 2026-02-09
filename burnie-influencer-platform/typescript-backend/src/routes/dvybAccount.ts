@@ -330,10 +330,10 @@ router.get('/usage', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Respo
       billingCycle = currentPlan.selectedFrequency as 'monthly' | 'annual';
       isFreeTrialPlan = currentPlan.plan.isFreeTrialPlan;
     } else {
-      // No active plan - use Free Trial plan limits (monthly frequency)
+      // No active plan - use Free Trial plan limits from website_analysis flow (monthly frequency)
       const planRepo = AppDataSource.getRepository(DvybPricingPlan);
       const freeTrialPlan = await planRepo.findOne({
-        where: { isFreeTrialPlan: true, isActive: true },
+        where: { isFreeTrialPlan: true, isActive: true, planFlow: 'website_analysis' },
       });
 
       if (freeTrialPlan) {
@@ -412,13 +412,13 @@ router.get('/usage', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Respo
       hasActiveSubscription = true; // Trialing counts as having a subscription
       isSubscribedToFreemium = trialingSubscription.plan?.isFreemium || false;
       
-      // During freemium trial, use Free Trial plan limits for the corresponding flow
+      // During freemium trial, use Free Trial plan limits from website_analysis flow
       const planRepo = AppDataSource.getRepository(DvybPricingPlan);
       const flowFreeTrialPlan = await planRepo.findOne({
         where: { 
           isFreeTrialPlan: true, 
           isActive: true,
-          planFlow: account.initialAcquisitionFlow || 'website_analysis',
+          planFlow: 'website_analysis',
         },
       });
       
@@ -475,6 +475,9 @@ router.get('/usage', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Respo
         mustSubscribeToFreemium,
         // Trial limit exceeded - user can choose to pay early
         isTrialLimitExceeded,
+        // Free trial edit limit: after user visits discover, they can edit+save once
+        hasVisitedDiscover: account.hasVisitedDiscover ?? false,
+        freeTrialEditSaveCount: account.freeTrialEditSaveCount ?? 0,
       },
       timestamp: new Date().toISOString(),
     });
@@ -531,14 +534,26 @@ router.get('/plan', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Respon
       });
     }
 
+    // For free trial plans, always use website_analysis flow limits (not product_photoshot)
+    let planForLimits = currentPlan.plan;
+    if (currentPlan.plan.isFreeTrialPlan) {
+      const planRepo = AppDataSource.getRepository(DvybPricingPlan);
+      const websiteAnalysisFreeTrial = await planRepo.findOne({
+        where: { isFreeTrialPlan: true, isActive: true, planFlow: 'website_analysis' },
+      });
+      if (websiteAnalysisFreeTrial) {
+        planForLimits = websiteAnalysisFreeTrial;
+      }
+    }
+
     // Calculate applicable limits based on selected frequency
     const imagePostsLimit = currentPlan.selectedFrequency === 'monthly' 
-      ? currentPlan.plan.monthlyImageLimit 
-      : currentPlan.plan.annualImageLimit;
+      ? planForLimits.monthlyImageLimit 
+      : planForLimits.annualImageLimit;
     
     const videoPostsLimit = currentPlan.selectedFrequency === 'monthly'
-      ? currentPlan.plan.monthlyVideoLimit
-      : currentPlan.plan.annualVideoLimit;
+      ? planForLimits.monthlyVideoLimit
+      : planForLimits.annualVideoLimit;
     
     const planPrice = currentPlan.selectedFrequency === 'monthly'
       ? currentPlan.plan.monthlyPrice
@@ -629,6 +644,59 @@ router.get('/pricing-plans', async (req: Request, res: Response) => {
       error: 'Failed to retrieve pricing plans',
       timestamp: new Date().toISOString(),
     });
+  }
+});
+
+/**
+ * POST /api/dvyb/account/discover-visit
+ * Mark that user has visited the discover page (used for free trial edit limit)
+ */
+router.post('/discover-visit', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+  try {
+    const accountId = req.dvybAccountId!;
+    const accountRepo = AppDataSource.getRepository(DvybAccount);
+    const account = await accountRepo.findOne({ where: { id: accountId } });
+    if (!account) {
+      return res.status(404).json({ success: false, error: 'Account not found', timestamp: new Date().toISOString() });
+    }
+    if (!account.hasVisitedDiscover) {
+      account.hasVisitedDiscover = true;
+      await accountRepo.save(account);
+      logger.info(`✅ Account ${accountId} marked as visited discover`);
+    }
+    return res.json({ success: true, timestamp: new Date().toISOString() });
+  } catch (error) {
+    logger.error('❌ discover-visit error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to record discover visit', timestamp: new Date().toISOString() });
+  }
+});
+
+/**
+ * POST /api/dvyb/account/edit-saved
+ * Increment free trial edit save count (when user saves design/video on free trial)
+ */
+router.post('/edit-saved', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+  try {
+    const accountId = req.dvybAccountId!;
+    const accountRepo = AppDataSource.getRepository(DvybAccount);
+    const account = await accountRepo.findOne({ where: { id: accountId } });
+    if (!account) {
+      return res.status(404).json({ success: false, error: 'Account not found', timestamp: new Date().toISOString() });
+    }
+    // Only increment when on free trial (no active paid subscription)
+    const subscriptionRepo = AppDataSource.getRepository(DvybAccountSubscription);
+    const activeSub = await subscriptionRepo.findOne({ where: { accountId, status: 'active' } });
+    const trialingSub = await subscriptionRepo.findOne({ where: { accountId, status: 'trialing' } });
+    const hasActiveSubscription = !!activeSub || !!trialingSub;
+    if (!hasActiveSubscription) {
+      account.freeTrialEditSaveCount = (account.freeTrialEditSaveCount || 0) + 1;
+      await accountRepo.save(account);
+      logger.info(`✅ Account ${accountId} edit-saved count: ${account.freeTrialEditSaveCount}`);
+    }
+    return res.json({ success: true, timestamp: new Date().toISOString() });
+  } catch (error) {
+    logger.error('❌ edit-saved error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to record edit save', timestamp: new Date().toISOString() });
   }
 });
 

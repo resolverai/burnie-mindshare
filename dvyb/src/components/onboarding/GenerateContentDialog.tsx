@@ -48,6 +48,10 @@ import {
   trackContentRejected,
   trackContentReviewCompleted,
   trackStrategyGenerated,
+  trackLimitsReached,
+  trackExploreMoreFeaturesClicked,
+  trackContentEditClicked,
+  trackContentDownloadClicked,
 } from "@/lib/mixpanel";
 
 interface GenerateContentDialogProps {
@@ -766,6 +770,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
     // Check if user must subscribe to freemium before generating
     if (usageData?.mustSubscribeToFreemium) {
       console.log('🚫 User must subscribe to freemium before generating');
+      trackLimitsReached('generate_content_dialog', 'both');
       setUpgradeQuotaType('both');
       setShowUpgradePricingModal(true);
       return;
@@ -789,6 +794,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
     const remainingImages = usageData?.remainingImages ?? 0;
     if (numberOfImages > remainingImages) {
       console.log('🚫 [GenerateContentDialog] Image quota exceeds plan limits - showing upgrade modal');
+      trackLimitsReached('generate_content_dialog', 'image');
       setUpgradeQuotaType('image');
       setShowUpgradePricingModal(true);
       return;
@@ -1532,6 +1538,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                     setSelectedTopic(topic);
                     setCustomTopic(""); // Clear custom topic when selecting a predefined topic
                     setShowCustomTopic(false); // Hide custom topic input
+                    trackTopicSelected(topic, false);
                   }}
                 >
                   <p className="font-medium text-center text-sm sm:text-base">{topic}</p>
@@ -1566,7 +1573,10 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
             <Button
               className="w-full btn-gradient-cta text-sm sm:text-base h-10 sm:h-11"
               disabled={!selectedTopic && !customTopic}
-              onClick={() => setStep("platform")}
+              onClick={() => {
+                if (customTopic.trim()) trackTopicSelected(customTopic.trim(), true);
+                setStep("platform");
+              }}
             >
               Continue
             </Button>
@@ -1613,7 +1623,10 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               <Button
                 className="flex-1 btn-gradient-cta text-sm sm:text-base h-10 sm:h-11"
                 disabled={selectedPlatforms.length === 0}
-                onClick={() => setStep("content_type")}
+                onClick={() => {
+                  trackPlatformsSelected(selectedPlatforms);
+                  setStep("content_type");
+                }}
               >
                 Continue
               </Button>
@@ -1822,7 +1835,12 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               <Button 
                 className={`${isProductShotFlow ? 'w-full' : 'flex-1'} btn-gradient-cta text-sm sm:text-base h-10 sm:h-11`} 
                 disabled={!contentType}
-                onClick={() => setStep("context")}
+                onClick={() => {
+                  const imgCount = imagePostCount[0] || 0;
+                  const vidCount = videoPostCount[0] || 0;
+                  trackPostCountSelected(imgCount + vidCount, imgCount, vidCount);
+                  setStep("context");
+                }}
               >
                 Continue
               </Button>
@@ -2692,16 +2710,42 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
             const isVideo = post.image && (post.image.includes('.mp4') || post.image.includes('video'));
             const handleEdit = (e: React.MouseEvent) => {
               e.stopPropagation();
+              trackContentEditClicked({
+                source: 'generate_dialog',
+                contentType: isVideo ? 'video' : 'image',
+                contentId: contentId,
+                postIndex: postIdx,
+              });
               if (hasActiveSubscription) {
                 setSelectedPost(post);
                 setOpenInEditDesignMode(!isVideo);
                 setShowPostDetail(true);
-              } else {
-                setShowDownloadPricingModal(true);
+                return;
               }
+              // Create ad flow (adFlowMode): free trial can edit once after visiting discover
+              if (adFlowMode) {
+                const shouldBlock = usageData?.hasVisitedDiscover && (usageData?.freeTrialEditSaveCount ?? 0) >= 1;
+                if (shouldBlock) {
+                  setShowDownloadPricingModal(true);
+                  return;
+                }
+              } else {
+                // Onboarding flow: show pricing when no subscription
+                setShowDownloadPricingModal(true);
+                return;
+              }
+              setSelectedPost(post);
+              setOpenInEditDesignMode(!isVideo);
+              setShowPostDetail(true);
             };
             const handleDownload = async (e: React.MouseEvent) => {
               e.stopPropagation();
+              trackContentDownloadClicked({
+                source: 'generate_dialog',
+                contentType: isVideo ? 'video' : 'image',
+                contentId: contentId,
+                postIndex: postIdx,
+              });
               if (hasActiveSubscription) {
                 try {
                   if (contentId != null && postIdx !== undefined && !isNaN(postIdx)) {
@@ -2735,9 +2779,21 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                 setSelectedPost(post);
                 setOpenInEditDesignMode(false);
                 setShowPostDetail(true);
+                return;
+              }
+              if (adFlowMode) {
+                const shouldBlock = usageData?.hasVisitedDiscover && (usageData?.freeTrialEditSaveCount ?? 0) >= 1;
+                if (shouldBlock) {
+                  setShowDownloadPricingModal(true);
+                  return;
+                }
               } else {
                 setShowDownloadPricingModal(true);
+                return;
               }
+              setSelectedPost(post);
+              setOpenInEditDesignMode(false);
+              setShowPostDetail(true);
             };
 
             const commonCardClasses = "relative rounded-lg overflow-hidden border border-neutral-200/80 bg-white shadow-sm flex flex-col min-h-0 group w-[280px] sm:w-[300px] shrink-0";
@@ -2934,7 +2990,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
             <div className="flex flex-col h-full min-h-0">
               <div className="text-center mb-2 shrink-0">
                 <h2 className="text-xl sm:text-2xl md:text-3xl font-bold mb-1 text-neutral-900">
-                  {allComplete ? "Your ads are ready — unlock full access" : "Creating your ads"}
+                  {allComplete ? "Your ads are ready — unlock full access" : "Crafting your ad now"}
                 </h2>
                 <p className="text-sm text-muted-foreground">
                   {allComplete
@@ -2983,15 +3039,18 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               <div className="flex-none flex justify-center items-center gap-4 md:gap-6 py-4 px-1">
                 {displayPosts.map((post, index) => renderAdCard(post, index))}
               </div>
-              {false && allComplete && (
-                <div className="flex flex-col items-center mt-4 mb-10 pb-6 shrink-0 gap-1">
-                  <p className="text-xs text-muted-foreground">Download includes all formats (IG Post, IG Reel, Facebook)</p>
+              {allComplete && usageData?.hasVisitedDiscover === false && (
+                <div className="flex flex-col items-center mt-6 mb-10 pb-16 shrink-0 gap-3">
                   <Button
-                    onClick={() => setShowDownloadPricingModal(true)}
-                    className="bg-neutral-900 hover:bg-neutral-800 text-white h-12 px-8 rounded-xl gap-2"
+                    onClick={() => {
+                      trackExploreMoreFeaturesClicked("generate_dialog_onboarding");
+                      onDialogClosed?.();
+                      router.push("/discover");
+                    }}
+                    variant="outline"
+                    className="bg-neutral-900 hover:bg-neutral-800 text-white border-neutral-900 h-12 px-8 rounded-xl"
                   >
-                    <Lock className="h-5 w-5" />
-                    Download All Formats (ZIP)
+                    Explore More Features
                   </Button>
                 </div>
               )}

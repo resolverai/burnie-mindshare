@@ -418,13 +418,14 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
     qb = qb.andWhere('LOWER(ad.status) = :statusVal', { statusVal });
   }
   if (categorySubcategoryPairsToFilter.length > 0) {
-    const orConditions = categorySubcategoryPairsToFilter
+    // Build OR conditions for all pairs
+    const pairOrConditions = categorySubcategoryPairsToFilter
       .map(
         (_, i) =>
           `(LOWER(COALESCE(ad.category, '')) = :pairCat${i} AND LOWER(COALESCE(ad.subcategory, '')) = :pairSub${i})`
       )
       .join(' OR ');
-    qb = qb.andWhere(`(${orConditions})`);
+    qb = qb.andWhere(`(${pairOrConditions})`);
     categorySubcategoryPairsToFilter.forEach((p, i) => {
       qb = qb.setParameter(`pairCat${i}`, p.category.toLowerCase());
       qb = qb.setParameter(`pairSub${i}`, p.subcategory.toLowerCase());
@@ -477,7 +478,12 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
     qb = qb.andWhere('LOWER(ad.targetLanguage) = :langVal', { langVal });
   }
 
-  if (sort === 'oldest') {
+  // When we have Grok-matched pairs: order by pair rank (best match first), then createdAt
+  // TypeORM's orderBy parses CASE expressions as aliases, so we fetch and sort in memory
+  const hasGrokPairs = categorySubcategoryPairsToFilter.length > 0;
+  if (hasGrokPairs) {
+    qb = qb.orderBy('ad.createdAt', 'DESC');
+  } else if (sort === 'oldest') {
     qb = qb.orderBy('ad.createdAt', 'ASC');
   } else if (sort === 'most_ads') {
     qb = qb.orderBy(
@@ -493,9 +499,26 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
     qb = qb.orderBy('ad.createdAt', 'DESC');
   }
 
-  qb = qb.skip(skip).take(limit);
+  // For Grok pairs: fetch more to allow in-memory sort by rank, then slice to limit
+  const takeLimit = hasGrokPairs ? Math.min((skip + limit) * 2, 200) : limit;
+  qb = qb.skip(hasGrokPairs ? 0 : skip).take(takeLimit);
 
-  const [ads, total] = await qb.getManyAndCount();
+  const [adsRaw, total] = await qb.getManyAndCount();
+
+  let ads = adsRaw;
+  if (hasGrokPairs && adsRaw.length > 0) {
+    const pairRankMap = new Map<string, number>();
+    categorySubcategoryPairsToFilter.forEach((p, i) => {
+      pairRankMap.set(`${p.category.toLowerCase()}|${p.subcategory.toLowerCase()}`, i + 1);
+    });
+    adsRaw.sort((a, b) => {
+      const rankA = pairRankMap.get(`${(a.category || '').toLowerCase()}|${(a.subcategory || '').toLowerCase()}`) ?? 999;
+      const rankB = pairRankMap.get(`${(b.category || '').toLowerCase()}|${(b.subcategory || '').toLowerCase()}`) ?? 999;
+      if (rankA !== rankB) return rankA - rankB;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+    ads = adsRaw.slice(skip, skip + limit);
+  }
 
   const uiAds = await Promise.all(
     ads.map(async (ad) => {

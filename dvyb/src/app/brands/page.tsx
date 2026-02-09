@@ -7,32 +7,25 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { BrandsScreen } from "@/components/pages/BrandsScreen";
 import { CreateAdFlowModal } from "@/components/pages/CreateAdFlowModal";
 import { OnboardingPricingModal } from "@/components/OnboardingPricingModal";
-import { PricingModal } from "@/components/PricingModal";
 import { Loader2, Menu } from "lucide-react";
 import Image from "next/image";
 import dvybLogo from "@/assets/dvyb-logo.png";
 import { dvybApi } from "@/lib/api";
+import { trackLimitsReached } from "@/lib/mixpanel";
 
 export default function BrandsPage() {
   const [activeView] = useState("brands");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showPricingModal, setShowPricingModal] = useState(false);
-  const [showUpgradePricingModal, setShowUpgradePricingModal] = useState(false);
   const [showCreateAdFlow, setShowCreateAdFlow] = useState(false);
   const [hasActiveSubscription, setHasActiveSubscription] = useState<boolean | null>(null);
   const [userFlow, setUserFlow] = useState<"website_analysis" | "product_photoshot">("website_analysis");
   const [usageData, setUsageData] = useState<any>(null);
-  const [quotaType, setQuotaType] = useState<"image" | "video" | "both">("both");
-  const [canSkipPricingModal, setCanSkipPricingModal] = useState(false);
-  const [mustSubscribeToFreemium, setMustSubscribeToFreemium] = useState(false);
   const router = useRouter();
   const { isAuthenticated, isLoading } = useAuth();
 
   const handleCreateAd = useCallback(async () => {
-    if (hasActiveSubscription === false) {
-      setShowPricingModal(true);
-      return;
-    }
+    // Ad creation: only show pricing when limits exhausted (not when free trial with quota left)
     try {
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL || "https://mindshareapi.burnie.io"}/dvyb/account/usage`,
@@ -50,19 +43,10 @@ export default function BrandsPage() {
       if (data.success && data.data) {
         setUsageData(data.data);
         if (data.data.isAccountActive === false) return;
-        if (data.data.mustSubscribeToFreemium) {
-          setMustSubscribeToFreemium(true);
-          setQuotaType("both");
-          setCanSkipPricingModal(false);
-          setShowUpgradePricingModal(true);
-          return;
-        }
-        setMustSubscribeToFreemium(false);
         const noImagesLeft = data.data.remainingImages === 0;
         if (noImagesLeft) {
-          setQuotaType("both");
-          setCanSkipPricingModal(false);
-          setShowUpgradePricingModal(true);
+          trackLimitsReached("brands_create", "both");
+          setShowPricingModal(true);
         } else {
           setShowCreateAdFlow(true);
         }
@@ -72,7 +56,7 @@ export default function BrandsPage() {
     } catch {
       setShowCreateAdFlow(true);
     }
-  }, [hasActiveSubscription]);
+  }, []);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -180,35 +164,8 @@ export default function BrandsPage() {
       <OnboardingPricingModal
         open={showPricingModal}
         onClose={() => setShowPricingModal(false)}
-        userFlow={userFlow}
-      />
-
-      <PricingModal
-        open={showUpgradePricingModal}
-        onClose={() => {
-          setShowUpgradePricingModal(false);
-          if (canSkipPricingModal && !mustSubscribeToFreemium) {
-            setShowCreateAdFlow(true);
-          }
-        }}
-        currentPlanInfo={
-          usageData
-            ? {
-                planName: usageData.planName || "Free Trial",
-                planId: usageData.planId || null,
-                monthlyPrice: usageData.monthlyPrice || 0,
-                annualPrice: usageData.annualPrice || 0,
-                billingCycle: usageData.billingCycle || "monthly",
-                isFreeTrialPlan: usageData.isFreeTrialPlan || false,
-              }
-            : null
-        }
-        quotaType={quotaType}
-        isAuthenticated={true}
-        canSkip={!mustSubscribeToFreemium && canSkipPricingModal}
-        reason={mustSubscribeToFreemium ? "freemium_required" : "quota_exhausted"}
-        userFlow={usageData?.initialAcquisitionFlow || "website_analysis"}
-        mustSubscribe={mustSubscribeToFreemium}
+        userFlow={usageData?.initialAcquisitionFlow || userFlow}
+        isOnboardingFlow={true}
       />
 
       <CreateAdFlowModal

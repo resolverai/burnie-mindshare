@@ -312,9 +312,9 @@ router.post('/generate', async (req: DvybAuthRequest, res: Response) => {
         ? currentPlan.plan.monthlyVideoLimit
         : currentPlan.plan.annualVideoLimit;
     } else {
-      // No active plan - use Free Trial plan limits (monthly frequency)
+      // No active plan - use Free Trial plan limits from website_analysis flow (monthly frequency)
       const freeTrialPlan = await planRepo.findOne({
-        where: { isFreeTrialPlan: true, isActive: true },
+        where: { isFreeTrialPlan: true, isActive: true, planFlow: 'website_analysis' },
       });
 
       if (freeTrialPlan) {

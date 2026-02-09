@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Search, UserPlus, UserMinus, Globe, Loader2, Check, AlertCircle, ChevronDown, ArrowUpDown } from "lucide-react";
+import { TutorialButton } from "@/components/TutorialButton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,6 +10,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { brandsApi, type CountrySelection } from "@/lib/api";
+import {
+  trackBrandsViewed,
+  trackBrandsSearch,
+  trackBrandsFilterApplied,
+  trackBrandsTabSwitched,
+  trackBrandsRequestBrandClicked,
+  trackBrandsFollowClicked,
+} from "@/lib/mixpanel";
 import {
   Dialog,
   DialogContent,
@@ -157,6 +166,21 @@ export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal 
     fetchBrands(activeTab === "following");
   }, [fetchBrands, activeTab]);
 
+  // Track page view
+  useEffect(() => {
+    trackBrandsViewed();
+  }, []);
+
+  // Track search only when user stops typing (debounced)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (searchQuery.trim()) {
+        trackBrandsSearch(searchQuery.trim());
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
   // Poll for brand ads when fetch is in progress
   useEffect(() => {
     if (!pollingBrandId) return;
@@ -215,6 +239,7 @@ export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal 
   };
 
   const handleRequestBrandClick = () => {
+    trackBrandsRequestBrandClicked();
     if (hasActiveSubscription !== true && onShowPricingModal) {
       onShowPricingModal();
       return;
@@ -310,6 +335,7 @@ export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal 
       onShowPricingModal();
       return;
     }
+    trackBrandsFollowClicked(brand.id, brand.brandName || brand.brandDomain, !brand.isFollowing);
     try {
       setFollowLoadingId(brand.id);
       if (brand.isFollowing) {
@@ -341,14 +367,17 @@ export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal 
       <div className="flex flex-col gap-4 px-2 md:px-3 lg:px-4 py-4 md:py-5 border-b border-[hsl(var(--landing-nav-bar-border))] bg-[hsl(var(--app-content-bg))]">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <h1 className="text-2xl md:text-3xl font-bold text-foreground">Brands</h1>
-          <button
-            type="button"
-            onClick={handleRequestBrandClick}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-[hsl(var(--landing-cta-orange))] text-white hover:opacity-90 text-sm font-medium shrink-0"
-          >
-            <UserPlus className="w-4 h-4" />
-            + Request a brand
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleRequestBrandClick}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-[hsl(var(--landing-cta-orange))] text-white hover:opacity-90 text-sm font-medium shrink-0"
+            >
+              <UserPlus className="w-4 h-4" />
+              + Request a brand
+            </button>
+            <TutorialButton screen="brands" />
+          </div>
         </div>
 
         {/* Polling / status banner */}
@@ -383,7 +412,7 @@ export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal 
         <div className="flex gap-1 p-1 rounded-full bg-[hsl(var(--landing-explore-pill-bg))] border border-[hsl(var(--landing-nav-bar-border))] w-fit">
           <button
             type="button"
-            onClick={() => setActiveTab("all")}
+            onClick={() => { setActiveTab("all"); trackBrandsTabSwitched("all"); }}
             className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
               activeTab === "all"
                 ? "bg-background shadow-sm text-foreground"
@@ -394,7 +423,7 @@ export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal 
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab("following")}
+            onClick={() => { setActiveTab("following"); trackBrandsTabSwitched("following"); }}
             className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
               activeTab === "following"
                 ? "bg-background shadow-sm text-foreground"
@@ -422,7 +451,7 @@ export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal 
                 {BRAND_CATEGORY_OPTIONS.map((opt) => (
                   <DropdownMenuItem
                     key={opt}
-                    onClick={() => setFilterCategory(opt)}
+                    onClick={() => { setFilterCategory(opt); trackBrandsFilterApplied("Category", opt); }}
                     className={filterCategory === opt ? "bg-accent/10 font-medium" : ""}
                   >
                     {opt}
@@ -444,7 +473,7 @@ export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal 
                 {BRAND_FB_LIKES_OPTIONS.map((opt) => (
                   <DropdownMenuItem
                     key={opt}
-                    onClick={() => setFilterFbLikes(opt)}
+                    onClick={() => { setFilterFbLikes(opt); trackBrandsFilterApplied("FB Likes", opt); }}
                     className={filterFbLikes === opt ? "bg-accent/10 font-medium" : ""}
                   >
                     {opt}
@@ -466,7 +495,7 @@ export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal 
                 {BRAND_IG_FOLLOWERS_OPTIONS.map((opt) => (
                   <DropdownMenuItem
                     key={opt}
-                    onClick={() => setFilterIgFollowers(opt)}
+                    onClick={() => { setFilterIgFollowers(opt); trackBrandsFilterApplied("IG Followers", opt); }}
                     className={filterIgFollowers === opt ? "bg-accent/10 font-medium" : ""}
                   >
                     {opt}
@@ -488,7 +517,7 @@ export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal 
                 {BRAND_WEB_TRAFFIC_OPTIONS.map((opt) => (
                   <DropdownMenuItem
                     key={opt}
-                    onClick={() => setFilterWebTraffic(opt)}
+                    onClick={() => { setFilterWebTraffic(opt); trackBrandsFilterApplied("Web Traffic", opt); }}
                     className={filterWebTraffic === opt ? "bg-accent/10 font-medium" : ""}
                   >
                     {opt}
@@ -510,7 +539,7 @@ export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal 
                 {BRAND_AD_COUNT_OPTIONS.map((opt) => (
                   <DropdownMenuItem
                     key={opt}
-                    onClick={() => setFilterAdCount(opt)}
+                    onClick={() => { setFilterAdCount(opt); trackBrandsFilterApplied("Ad Count", opt); }}
                     className={filterAdCount === opt ? "bg-accent/10 font-medium" : ""}
                   >
                     {opt}
@@ -530,13 +559,13 @@ export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal 
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-[160px]">
-              <DropdownMenuItem onClick={() => setSortBy("recently_added")} className={sortBy === "recently_added" ? "bg-accent/10 font-medium" : ""}>
+              <DropdownMenuItem onClick={() => { setSortBy("recently_added"); trackBrandsFilterApplied("Sort", "recently_added"); }} className={sortBy === "recently_added" ? "bg-accent/10 font-medium" : ""}>
                 Recently added
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSortBy("most_ads")} className={sortBy === "most_ads" ? "bg-accent/10 font-medium" : ""}>
+              <DropdownMenuItem onClick={() => { setSortBy("most_ads"); trackBrandsFilterApplied("Sort", "most_ads"); }} className={sortBy === "most_ads" ? "bg-accent/10 font-medium" : ""}>
                 Most Ads
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSortBy("oldest")} className={sortBy === "oldest" ? "bg-accent/10 font-medium" : ""}>
+              <DropdownMenuItem onClick={() => { setSortBy("oldest"); trackBrandsFilterApplied("Sort", "oldest"); }} className={sortBy === "oldest" ? "bg-accent/10 font-medium" : ""}>
                 Oldest
               </DropdownMenuItem>
             </DropdownMenuContent>

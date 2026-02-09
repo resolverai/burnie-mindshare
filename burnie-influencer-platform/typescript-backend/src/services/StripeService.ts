@@ -796,7 +796,7 @@ export class StripeService {
       const accountRepo = AppDataSource.getRepository(DvybAccount);
       const accountPlanRepo = AppDataSource.getRepository(DvybAccountPlan);
       
-      const freePlan = await planRepo.findOne({ where: { isFreeTrialPlan: true, isActive: true } });
+      const freePlan = await planRepo.findOne({ where: { isFreeTrialPlan: true, isActive: true, planFlow: 'website_analysis' } });
       if (freePlan) {
         await accountRepo.update(accountId, { currentPlanId: freePlan.id });
         

@@ -26,6 +26,7 @@ import {
   trackTopPostClicked,
   trackPlatformConnectClicked,
   trackOAuth2Started,
+  trackLimitsReached,
 } from "@/lib/mixpanel";
 
 interface PlatformMetrics {
@@ -549,6 +550,7 @@ export const Home = () => {
                           setMustSubscribeToFreemium(true);
                           setQuotaType('both');
                           setCanSkipPricingModal(false);
+                          trackLimitsReached("home_generate", "both");
                           setShowPricingModal(true);
                           return;
                         } else {
@@ -558,6 +560,7 @@ export const Home = () => {
                         // Check if user is in trial and has exceeded trial limits
                         if (data.data.isTrialLimitExceeded) {
                           console.log('⚠️ [Home] User is in trial and exceeded limits - showing charge dialog');
+                          trackLimitsReached("home_trial", "both");
                           setShowTrialLimitDialog(true);
                           return;
                         }
@@ -567,6 +570,7 @@ export const Home = () => {
                         if (noImagesLeft) {
                           setQuotaType('both');
                           setCanSkipPricingModal(false);
+                          trackLimitsReached("home_generate", "both");
                           setShowPricingModal(true);
                         } else {
                           setShowGenerateDialog(true);
@@ -716,6 +720,7 @@ export const Home = () => {
                         key={post.id} 
                         className="overflow-hidden border border-border cursor-pointer hover:border-primary transition-colors"
                         onClick={() => {
+                          trackTopPostClicked("instagram", String(post.id));
                           setSelectedPost(post);
                           setSelectedPlatform("instagram");
                           setShowPostView(true);
@@ -890,6 +895,7 @@ export const Home = () => {
                         key={post.id} 
                         className="overflow-hidden border border-border cursor-pointer hover:border-primary transition-colors"
                         onClick={() => {
+                          trackTopPostClicked("twitter", String(post.id));
                           setSelectedPost(post);
                           setSelectedPlatform("twitter");
                           setShowPostView(true);
@@ -1064,6 +1070,7 @@ export const Home = () => {
                         key={post.id} 
                         className="overflow-hidden border border-border cursor-pointer hover:border-primary transition-colors"
                         onClick={() => {
+                          trackTopPostClicked("tiktok", String(post.id));
                           setSelectedPost(post);
                           setSelectedPlatform("tiktok");
                           setShowPostView(true);
@@ -1239,6 +1246,7 @@ export const Home = () => {
                         key={post.id} 
                         className="overflow-hidden border border-border cursor-pointer hover:border-primary transition-colors"
                         onClick={() => {
+                          trackTopPostClicked("linkedin", String(post.id));
                           setSelectedPost(post);
                           setSelectedPlatform("linkedin");
                           setShowPostView(true);

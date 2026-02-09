@@ -1433,6 +1433,7 @@ export const PostDetailDialog = ({
           title: "Design saved!",
           description: "Your design is being processed. It will be ready shortly.",
         });
+        accountApi.recordEditSaved().catch(() => {});
         onDesignSaved?.();
         // Close dialog entirely (don't show post detail view) - parent will refetch after delay
         handleClose();
@@ -3246,6 +3247,7 @@ export const PostDetailDialog = ({
         initialCaption={getPlatformCaption(selectedPlatform)}
         onSave={handleSaveCaption}
         platform={selectedPlatform}
+        contentType={isVideo ? 'video' : 'image'}
       />
 
       {/* Schedule Dialog */}

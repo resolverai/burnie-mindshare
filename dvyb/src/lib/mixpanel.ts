@@ -444,6 +444,25 @@ export const trackCaptionEdited = (platform: string, contentType: 'image' | 'vid
   trackEvent('Caption Edited', { platform, contentType });
 };
 
+// --- CONTENT ITEM ACTIONS (Edit/Download) ---
+export const trackContentEditClicked = (data: {
+  source: 'generate_dialog' | 'content_library';
+  contentType: 'image' | 'video';
+  contentId?: string | number;
+  postIndex?: number;
+}) => {
+  trackEvent('Content Edit Clicked', data);
+};
+
+export const trackContentDownloadClicked = (data: {
+  source: 'generate_dialog' | 'content_library';
+  contentType: 'image' | 'video';
+  contentId?: string | number;
+  postIndex?: number;
+}) => {
+  trackEvent('Content Download Clicked', data);
+};
+
 // --- LANDING PAGE ---
 export const trackLandingPageViewed = (isAuthenticated: boolean) => {
   trackEvent('Landing Page Viewed', { isAuthenticated });
@@ -610,6 +629,39 @@ export const trackInspirationSelected = (data: {
   trackEvent('Inspiration Selected', data);
 };
 
+// --- UNIFIED ONBOARDING MODAL ---
+export const trackOnboardingProductsFetched = (data: { productCount: number; source: 'domain' | 'upload' }) => {
+  trackEvent('Onboarding Products Fetched', data);
+};
+
+export const trackOnboardingProductChosen = (data: { productIds: number[]; count: number }) => {
+  trackEvent('Onboarding Product Chosen', data);
+};
+
+export const trackOnboardingRelevantAdsFetched = (data: { adCount: number }) => {
+  trackEvent('Onboarding Relevant Ads Fetched', data);
+};
+
+export const trackCreateAdFlowRelevantAdsFetched = (data: { adCount: number; hasProductImage?: boolean }) => {
+  trackEvent('Create Ad Flow Relevant Ads Fetched', data);
+};
+
+export const trackOnboardingInspirationSelected = (data: { adIds: number[]; count: number }) => {
+  trackEvent('Onboarding Inspiration Selected', data);
+};
+
+export const trackExploreMoreFeaturesClicked = (source: 'generate_dialog_onboarding' | 'pricing_modal') => {
+  trackEvent('Explore More Features Clicked', { source });
+};
+
+export const trackStartNowClicked = (data: {
+  planName: string;
+  billingCycle: 'monthly' | 'annual';
+  source: 'onboarding_pricing_modal' | 'pricing_page';
+}) => {
+  trackEvent('Start Now Clicked', data);
+};
+
 // --- SUBSCRIPTION PAGE ---
 export const trackSubscriptionPageViewed = (data: {
   planName: string;
@@ -721,6 +773,128 @@ export const trackProductShotFlowCompleted = (data: {
   signedUp: boolean;
 }) => {
   trackEvent('Product Shot Flow Completed', { flow: 'product_shot', ...data });
+};
+
+// ============================================
+// WANDERLUST APP - UNIFIED TRACKING
+// ============================================
+
+// --- DISCOVER ---
+export const trackDiscoverViewed = () => {
+  trackPageView('Discover');
+};
+
+export const trackDiscoverSearch = (searchTerm: string, resultsCount?: number) => {
+  trackEvent('Discover Search', { searchTerm, resultsCount, resultsCountDefined: resultsCount !== undefined });
+};
+
+export const trackDiscoverFilterApplied = (filterName: string, filterValue: string) => {
+  trackEvent('Discover Filter Applied', { filterName, filterValue });
+};
+
+export const trackDiscoverSortChanged = (sortBy: string) => {
+  trackEvent('Discover Sort Changed', { sortBy });
+};
+
+export const trackDiscoverCreateMyOwnAdClicked = () => {
+  trackEvent('Discover Create My Own Ad Clicked');
+};
+
+export const trackDiscoverAdCardClicked = (adId: number, brandName: string) => {
+  trackEvent('Discover Ad Card Clicked', { adId, brandName });
+};
+
+export const trackCreateAdUsingTemplateClicked = (data: {
+  source: 'discover_card' | 'ad_detail_modal';
+  adId: number;
+  brandName: string;
+  isVideo: boolean;
+}) => {
+  trackEvent('Create Ad Using Template Clicked', data);
+};
+
+// --- BRANDS ---
+export const trackBrandsViewed = () => {
+  trackPageView('Brands');
+};
+
+export const trackBrandsSearch = (searchTerm: string, resultsCount?: number) => {
+  trackEvent('Brands Search', { searchTerm, resultsCount, resultsCountDefined: resultsCount !== undefined });
+};
+
+export const trackBrandsFilterApplied = (filterName: string, filterValue: string) => {
+  trackEvent('Brands Filter Applied', { filterName, filterValue });
+};
+
+export const trackBrandsTabSwitched = (tab: 'all' | 'following') => {
+  trackEvent('Brands Tab Switched', { tab });
+};
+
+export const trackBrandsRequestBrandClicked = () => {
+  trackEvent('Brands Request Brand Clicked');
+};
+
+export const trackBrandsFollowClicked = (brandId: number, brandName: string, isFollow: boolean) => {
+  trackEvent('Brands Follow Clicked', { brandId, brandName, action: isFollow ? 'follow' : 'unfollow' });
+};
+
+// --- MY CONTENT ---
+export const trackMyContentViewed = (tab: 'my-ads' | 'my-products' | 'saved-ads') => {
+  trackPageView('My Content', { tab });
+};
+
+export const trackMyContentTabSwitched = (tab: 'my-ads' | 'my-products' | 'saved-ads') => {
+  trackEvent('My Content Tab Switched', { tab });
+};
+
+export const trackMyContentSearch = (searchTerm: string, tab: string, resultsCount?: number) => {
+  trackEvent('My Content Search', { searchTerm, tab, resultsCount, resultsCountDefined: resultsCount !== undefined });
+};
+
+export const trackMyContentFilterApplied = (filterName: string, filterValue: string, tab: string) => {
+  trackEvent('My Content Filter Applied', { filterName, filterValue, tab });
+};
+
+export const trackMyContentCreateNewClicked = () => {
+  trackEvent('My Content Create New Clicked');
+};
+
+export const trackMyContentAddProductClicked = () => {
+  trackEvent('My Content Add Product Clicked');
+};
+
+// --- BRAND KIT ---
+export const trackBrandKitTabSwitched = (tab: 'style' | 'source-materials') => {
+  trackEvent('Brand Kit Tab Switched', { tab });
+};
+
+// --- SETTINGS ---
+export const trackSettingsViewed = (tab?: string) => {
+  trackPageView('Settings', { tab });
+};
+
+export const trackSettingsTabSwitched = (tab: string) => {
+  trackEvent('Settings Tab Switched', { tab });
+};
+
+// --- THEME ---
+export const trackThemeChanged = (theme: 'light' | 'dark') => {
+  trackEvent('Theme Changed', { theme });
+};
+
+// --- UPGRADE ---
+export const trackUpgradeButtonClicked = (source: 'sidebar' | 'pricing_modal' | 'limits_modal' | 'trial_limit' | 'other') => {
+  trackEvent('Upgrade Button Clicked', { source });
+};
+
+// --- LIMITS ---
+export const trackLimitsReached = (context: string, quotaType?: 'image' | 'video' | 'both') => {
+  trackEvent('Limits Reached', { context, quotaType });
+};
+
+// --- TUTORIAL ---
+export const trackTutorialButtonClicked = (screen: string) => {
+  trackEvent('Tutorial Button Clicked', { screen });
 };
 
 export default {

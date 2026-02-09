@@ -21,7 +21,11 @@ import {
   trackContentLibraryViewed, 
   trackContentItemClicked, 
   trackGenerateContentClicked,
-  trackContentSearched,
+  trackMyContentSearch,
+  trackMyContentFilterApplied,
+  trackLimitsReached,
+  trackContentEditClicked,
+  trackContentDownloadClicked,
 } from "@/lib/mixpanel";
 
 interface PlatformAnalytics {
@@ -445,11 +449,6 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
           
           setHasMore(moreAvailable);
           
-          // Track search if there's a search query (only on first page, not on infinite scroll append)
-          if (searchQuery && !append) {
-            const totalResults = scheduledTransformed.length + selectedTransformed.length + pendingReviewTransformed.length + newContent.length;
-            trackContentSearched(searchQuery, totalResults);
-          }
         }
       } catch (error) {
         console.error("Failed to fetch content library:", error);
@@ -494,6 +493,35 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
   useEffect(() => {
     trackContentLibraryViewed();
   }, []);
+
+  // Track search only when user stops typing (debounced)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (searchQuery.trim()) {
+        trackMyContentSearch(searchQuery.trim(), "my-ads");
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  // Track content state tab (filter) changes
+  const prevContentStateTab = useRef(contentStateTab);
+  useEffect(() => {
+    if (prevContentStateTab.current !== contentStateTab) {
+      trackMyContentFilterApplied("content_state", contentStateTab, "my-ads");
+      prevContentStateTab.current = contentStateTab;
+    }
+  }, [contentStateTab]);
+
+  // Track search only when user stops typing (debounced)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (searchQuery.trim()) {
+        trackMyContentSearch(searchQuery.trim(), "my-ads");
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [searchQuery, contentStateTab]);
 
   // Infinite scroll observer - use refs to avoid recreating observer on every state change
   const hasMoreRef = useRef(hasMore);
@@ -600,10 +628,7 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
 
   const handleCreateNewClick = useCallback(async () => {
     trackGenerateContentClicked('content_library');
-    if (hasActiveSubscription !== true && onShowPricingModal) {
-      onShowPricingModal();
-      return;
-    }
+    // Ad creation: only show pricing when limits exhausted (not when free trial with quota left)
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/usage`, {
         credentials: 'include',
@@ -625,11 +650,13 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
           setMustSubscribeToFreemium(true);
           setQuotaType('both');
           setCanSkipPricingModal(false);
+          trackLimitsReached('content_library_create', 'both');
           setShowPricingModal(true);
           return;
         }
         setMustSubscribeToFreemium(false);
         if (data.data.isTrialLimitExceeded) {
+          trackLimitsReached('content_library_trial', 'both');
           setShowTrialLimitDialog(true);
           return;
         }
@@ -638,16 +665,20 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
         if (noImagesLeft) {
           setQuotaType('both');
           setCanSkipPricingModal(false);
+          trackLimitsReached('content_library_create', 'both');
           setShowPricingModal(true);
         } else {
           setShowCreateAdFlow(true);
         }
+      } else {
+        // API error or no data - proceed to Create Ad flow (same as Discover)
+        setShowCreateAdFlow(true);
       }
     } catch (error) {
       console.error('Failed to check usage:', error);
       setShowCreateAdFlow(true);
     }
-  }, [hasActiveSubscription, onShowPricingModal]);
+  }, []);
 
   useImperativeHandle(ref, () => ({
     openCreateNew: handleCreateNewClick,
@@ -718,7 +749,10 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
               {(["all", "draft", "scheduled", "published"] as const).map((tab) => (
                 <button
                   key={tab}
-                  onClick={() => setContentStateTab(tab)}
+                  onClick={() => {
+                    setContentStateTab(tab);
+                    trackMyContentFilterApplied("content_state", tab, "my-ads");
+                  }}
                   className={`px-3 lg:px-4 py-2 rounded-full text-xs lg:text-sm font-medium transition-all capitalize ${
                     contentStateTab === tab ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
                   }`}
@@ -807,12 +841,40 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
             {allContent.map((item) => {
               const isPosted = item.status === "published" || item.status === "posted";
               const isVideo = item.image?.includes('.mp4') || item.image?.includes('video');
-              const handleEdit = (e: React.MouseEvent) => {
+              const handleEdit = async (e: React.MouseEvent) => {
                 e.stopPropagation();
-                if (hasActiveSubscription !== true && onShowPricingModal) {
-                  onShowPricingModal();
+                trackContentEditClicked({
+                  source: 'content_library',
+                  contentType: isVideo ? 'video' : 'image',
+                  contentId: item.contentId,
+                  postIndex: item.postIndex,
+                });
+                if (hasActiveSubscription === true) {
+                  trackContentItemClicked(item.contentId, isVideo ? 'video' : 'image', isPosted ? 'posted' : 'scheduled');
+                  setSelectedPost(item);
+                  if (isPosted) setShowAnalyticsDialog(true);
+                  else {
+                    setOpenInEditDesignMode(!isVideo);
+                    setShowPostDetail(true);
+                  }
                   return;
                 }
+                // Free trial: allow edit once after visiting discover; then show pricing
+                try {
+                  const response = await fetch(
+                    `${process.env.NEXT_PUBLIC_API_URL || "https://mindshareapi.burnie.io"}/dvyb/account/usage`,
+                    { credentials: "include", headers: { ...(localStorage.getItem("dvyb_account_id") ? { "X-DVYB-Account-ID": localStorage.getItem("dvyb_account_id")! } : {}) } }
+                  );
+                  const data = await response.json();
+                  if (data.success && data.data) {
+                    const u = data.data;
+                    const shouldBlock = u.hasVisitedDiscover && (u.freeTrialEditSaveCount ?? 0) >= 1;
+                    if (shouldBlock && onShowPricingModal) {
+                      onShowPricingModal();
+                      return;
+                    }
+                  }
+                } catch { /* allow edit on error */ }
                 trackContentItemClicked(item.contentId, isVideo ? 'video' : 'image', isPosted ? 'posted' : 'scheduled');
                 setSelectedPost(item);
                 if (isPosted) setShowAnalyticsDialog(true);
@@ -872,6 +934,12 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
                           className="w-full gap-2 bg-background/80 backdrop-blur-sm"
                           onClick={(e) => {
                             e.stopPropagation();
+                            trackContentDownloadClicked({
+                              source: 'content_library',
+                              contentType: isVideo ? 'video' : 'image',
+                              contentId: item.contentId,
+                              postIndex: item.postIndex,
+                            });
                             if (hasActiveSubscription !== true && onShowPricingModal) {
                               onShowPricingModal();
                               return;

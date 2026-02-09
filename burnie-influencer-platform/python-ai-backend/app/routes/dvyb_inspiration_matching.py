@@ -448,7 +448,7 @@ Return a JSON object:
   "reasoning": "Brief explanation"
 }}
 
-Select at most 5 pairs. Use EXACT category and subcategory strings from the list above. If none fit well, return empty matched_pairs."""
+Select up to the top 20 (category, subcategory) pairs, ordered by relevance with the BEST match at rank 1, second-best at rank 2, and so on. Use EXACT category and subcategory strings from the list above. If none fit well, return empty matched_pairs."""
 
         try:
             from xai_sdk import Client
@@ -479,17 +479,21 @@ Select at most 5 pairs. Use EXACT category and subcategory strings from the list
 
         validated: List[CategorySubcategoryPair] = []
         pair_map = {(p.category.lower(), p.subcategory.lower()): p for p in pairs}
+        seen_keys: set[tuple[str, str]] = set()
         for m in raw_matched:
+            if len(validated) >= 20:
+                break
             if isinstance(m, dict):
                 cat = (m.get("category") or "").strip()
                 sub = (m.get("subcategory") or "").strip()
                 key = (cat.lower(), sub.lower())
-                if key in pair_map:
+                if key in pair_map and key not in seen_keys:
                     validated.append(pair_map[key])
-                else:
+                    seen_keys.add(key)
+                elif key not in pair_map:
                     print(f"[match-product-to-ads] WARN: Grok returned ({cat!r}, {sub!r}) - not in pair_map")
 
-        print(f"[match-product-to-ads] RESULT: {len(validated)} validated pairs -> {[(p.category, p.subcategory) for p in validated]}")
+        print(f"[match-product-to-ads] RESULT: {len(validated)} validated pairs (top 20) -> {[(p.category, p.subcategory) for p in validated]}")
         logger.info(f"Grok match-product-to-ads: {len(validated)} pairs matched for product image")
         return MatchProductToAdsResponse(
             success=True,
