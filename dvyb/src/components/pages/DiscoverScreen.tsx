@@ -176,7 +176,13 @@ export function DiscoverScreen({
             platform: ad.platform as string,
             category: ad.category as string | null,
           }));
-          setCards((prev) => [...prev, ...newCards]);
+          // Append only: keep existing cards immutable so their content never changes.
+          // Deduplicate by id to avoid layout shifts from overlapping/duplicate backend responses.
+          setCards((prev) => {
+            const existingIds = new Set(prev.map((c) => c.id));
+            const toAdd = newCards.filter((c) => !existingIds.has(c.id));
+            return [...prev, ...toAdd];
+          });
           if (res.pagination) setPagination(res.pagination);
         }
       })
