@@ -4103,9 +4103,16 @@ def get_existing_inspiration_analysis(url: str) -> Optional[Dict]:
                         print(f"  ✅ Found existing inventory_analysis in dvyb_brand_ads (video) for: {url[:80]}...")
                         return {"video_inspiration": {"inventory_analysis": inv}}
                     else:
-                        # For image ads, convert to image_inspiration format
+                        # For image ads, convert to image_inspiration format and add presigned URL for FAL
                         img_insp = _inventory_analysis_to_image_inspiration(inv)
-                        print(f"  ✅ Found existing inventory_analysis in dvyb_brand_ads (image) for: {url[:80]}...")
+                        # Pass inspiration image to FAL for exact style matching (same as dvyb_inspiration_links)
+                        presigned_url = web2_s3_helper.generate_presigned_url(s3_key)
+                        if presigned_url:
+                            img_insp["image_urls"] = [presigned_url]
+                            print(f"  ✅ Found existing inventory_analysis in dvyb_brand_ads (image) for: {url[:80]}...")
+                            print(f"  📸 Added presigned S3 URL for inspiration image (will be passed to FAL)")
+                        else:
+                            print(f"  ⚠️ Failed to generate presigned URL for dvyb_brand_ads image, inspiration won't be passed to FAL")
                         return {"image_inspiration": img_insp}
 
             print(f"  ℹ️  No existing analysis found in database for: {url[:80]}...")
