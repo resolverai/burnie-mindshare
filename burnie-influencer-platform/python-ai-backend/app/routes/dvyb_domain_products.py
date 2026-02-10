@@ -35,7 +35,7 @@ MAX_PRODUCT_IMAGES = 10
 GROK_BATCH_SIZE = 8
 
 # When False, skip Instagram image fetch (website images only). Set True to also fetch from Instagram.
-FETCH_INSTAGRAM_IMAGES = False
+FETCH_INSTAGRAM_IMAGES = True
 
 
 def normalize_domain(url: str) -> str:
