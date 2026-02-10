@@ -9,9 +9,23 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { AdDetailModal } from "./AdDetailModal";
 import type { PreselectedInspiration } from "./CreateAdFlowModal";
 import { brandsApi, accountApi } from "@/lib/api";
+import { META_AD_COUNTRIES_UNIQUE } from "@/lib/metaAdCountries";
 import {
   trackDiscoverViewed,
   trackDiscoverSearch,
@@ -25,13 +39,11 @@ import {
 const filterConfig: Record<string, string[]> = {
   Media: ["All", "Image", "Video"],
   Status: ["All", "Active", "Paused", "Draft"],
-  Category: ["All", "Fashion", "Food & Beverage", "Tech", "Health", "Retail", "Beauty"],
   Runtime: ["All", "≥ 1d", "≥ 7d", "≥ 30d", "≥ 90d"],
   "Ad Count": ["All", "1-5", "6-10", "11-20", "20+"],
-  Country: ["All", "US", "UK", "Canada", "Australia", "Germany"],
   Language: ["All", "English", "Spanish", "French", "German"],
 };
-const filterLabels = Object.keys(filterConfig);
+const filterLabels = ["Media", "Status", "Category", "Runtime", "Ad Count", "Country", "Language"];
 
 type AspectRatio = "9:16" | "16:9" | "1:1";
 
@@ -79,10 +91,25 @@ export function DiscoverScreen({
   );
   const [sortBy, setSortBy] = useState<"latest" | "oldest" | "most_ads" | "longest_runtime">("latest");
   const [showMobileFilters, setShowMobileFilters] = useState(false);
+  const [discoverCategories, setDiscoverCategories] = useState<string[]>([]);
+  const [categoryPopoverOpen, setCategoryPopoverOpen] = useState(false);
+  const [countryPopoverOpen, setCountryPopoverOpen] = useState(false);
   const videoRefs = useRef<{ [key: number]: HTMLVideoElement | null }>({});
   const loaderRef = useRef<HTMLDivElement | null>(null);
 
+  useEffect(() => {
+    brandsApi.getDiscoverCategories().then((res) => {
+      if (res.success && Array.isArray(res.data)) setDiscoverCategories(res.data);
+    }).catch(() => {});
+  }, []);
+
   const activeFilterCount = Object.values(filterValues).filter((v) => v && v !== "All").length;
+
+  const categoryOptions = ["All", ...discoverCategories];
+  const countryOptions: { value: string; label: string }[] = [
+    { value: "All", label: "All" },
+    ...META_AD_COUNTRIES_UNIQUE.map((c) => ({ value: c.code, label: c.name })),
+  ];
 
   const fetchAds = useCallback(
     async (page: number, append: boolean) => {
@@ -329,66 +356,210 @@ export function DiscoverScreen({
         {/* Mobile/Tablet: Collapsible filter pills */}
         {showMobileFilters && (
           <div className="flex flex-wrap gap-2 lg:hidden">
-            {filterLabels.map((label) => (
-              <DropdownMenu key={label}>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex items-center gap-2 px-4 py-2 h-9 text-sm font-medium rounded-full border border-[hsl(var(--discover-pill-border))] bg-[hsl(var(--discover-pill-bg))] text-foreground"
-                  >
-                    {label}
-                    <ChevronDown className="w-3.5 h-3.5" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="min-w-[140px]">
-                  {filterConfig[label].map((opt) => (
-                    <DropdownMenuItem
-                      key={opt}
-                      onClick={() => {
-                        setFilterValues((prev) => ({ ...prev, [label]: opt }));
-                        trackDiscoverFilterApplied(label, opt);
-                      }}
-                      className={filterValues[label] === opt ? "bg-accent/10 font-medium" : ""}
-                    >
-                      {opt}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ))}
+            {filterLabels.map((label) => {
+              const triggerClass = "flex items-center gap-2 px-4 py-2 h-9 text-sm font-medium rounded-full border border-[hsl(var(--discover-pill-border))] bg-[hsl(var(--discover-pill-bg))] text-foreground";
+              if (label === "Category") {
+                return (
+                  <Popover key={label} open={categoryPopoverOpen} onOpenChange={setCategoryPopoverOpen}>
+                    <PopoverTrigger asChild>
+                      <button type="button" className={triggerClass}>
+                        {label}
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-[240px] p-0">
+                      <Command>
+                        <CommandInput placeholder="Search categories..." />
+                        <CommandList>
+                          <CommandEmpty>No category found.</CommandEmpty>
+                          <CommandGroup>
+                            {categoryOptions.map((opt) => (
+                              <CommandItem
+                                key={opt}
+                                value={opt}
+                                onSelect={() => {
+                                  setFilterValues((prev) => ({ ...prev, [label]: opt }));
+                                  trackDiscoverFilterApplied(label, opt);
+                                  setCategoryPopoverOpen(false);
+                                }}
+                                className={filterValues[label] === opt ? "bg-accent/10 font-medium" : ""}
+                              >
+                                {opt}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                );
+              }
+              if (label === "Country") {
+                return (
+                  <Popover key={label} open={countryPopoverOpen} onOpenChange={setCountryPopoverOpen}>
+                    <PopoverTrigger asChild>
+                      <button type="button" className={triggerClass}>
+                        {label}
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-[240px] p-0">
+                      <Command>
+                        <CommandInput placeholder="Search countries..." />
+                        <CommandList>
+                          <CommandEmpty>No country found.</CommandEmpty>
+                          <CommandGroup>
+                            {countryOptions.map((opt) => (
+                              <CommandItem
+                                key={opt.value}
+                                value={opt.label}
+                                onSelect={() => {
+                                  setFilterValues((prev) => ({ ...prev, [label]: opt.value }));
+                                  trackDiscoverFilterApplied(label, opt.value);
+                                  setCountryPopoverOpen(false);
+                                }}
+                                className={filterValues[label] === opt.value ? "bg-accent/10 font-medium" : ""}
+                              >
+                                {opt.label}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                );
+              }
+              return (
+                <DropdownMenu key={label}>
+                  <DropdownMenuTrigger asChild>
+                    <button type="button" className={triggerClass}>
+                      {label}
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="min-w-[140px]">
+                    {filterConfig[label].map((opt) => (
+                      <DropdownMenuItem
+                        key={opt}
+                        onClick={() => {
+                          setFilterValues((prev) => ({ ...prev, [label]: opt }));
+                          trackDiscoverFilterApplied(label, opt);
+                        }}
+                        className={filterValues[label] === opt ? "bg-accent/10 font-medium" : ""}
+                      >
+                        {opt}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              );
+            })}
           </div>
         )}
 
         {/* Desktop: Full filter row + Sort */}
         <div className="hidden lg:flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap gap-2">
-            {filterLabels.map((label) => (
-              <DropdownMenu key={label}>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex items-center gap-2 px-4 py-2 h-9 text-sm font-medium transition-colors border border-[hsl(var(--discover-pill-border))] rounded-full text-foreground bg-[hsl(var(--discover-pill-bg))] hover:bg-[#e88d44] hover:text-white hover:border-[#e88d44] data-[state=open]:bg-[#e88d44] data-[state=open]:text-white data-[state=open]:border-[#e88d44]"
-                  >
-                    {label}
-                    <ChevronDown className="w-3.5 h-3.5 text-current" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="min-w-[140px]">
-                  {filterConfig[label].map((opt) => (
-                    <DropdownMenuItem
-                      key={opt}
-                      onClick={() => {
-                        setFilterValues((prev) => ({ ...prev, [label]: opt }));
-                        trackDiscoverFilterApplied(label, opt);
-                      }}
-                      className={filterValues[label] === opt ? "bg-accent/10 font-medium" : ""}
-                    >
-                      {opt}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ))}
+            {filterLabels.map((label) => {
+              const triggerClass = "flex items-center gap-2 px-4 py-2 h-9 text-sm font-medium transition-colors border border-[hsl(var(--discover-pill-border))] rounded-full text-foreground bg-[hsl(var(--discover-pill-bg))] hover:bg-[#e88d44] hover:text-white hover:border-[#e88d44] data-[state=open]:bg-[#e88d44] data-[state=open]:text-white data-[state=open]:border-[#e88d44]";
+              if (label === "Category") {
+                return (
+                  <Popover key={label} open={categoryPopoverOpen} onOpenChange={setCategoryPopoverOpen}>
+                    <PopoverTrigger asChild>
+                      <button type="button" className={triggerClass}>
+                        {label}
+                        <ChevronDown className="w-3.5 h-3.5 text-current" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-[260px] p-0">
+                      <Command>
+                        <CommandInput placeholder="Search categories..." />
+                        <CommandList>
+                          <CommandEmpty>No category found.</CommandEmpty>
+                          <CommandGroup>
+                            {categoryOptions.map((opt) => (
+                              <CommandItem
+                                key={opt}
+                                value={opt}
+                                onSelect={() => {
+                                  setFilterValues((prev) => ({ ...prev, [label]: opt }));
+                                  trackDiscoverFilterApplied(label, opt);
+                                  setCategoryPopoverOpen(false);
+                                }}
+                                className={filterValues[label] === opt ? "bg-accent/10 font-medium" : ""}
+                              >
+                                {opt}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                );
+              }
+              if (label === "Country") {
+                return (
+                  <Popover key={label} open={countryPopoverOpen} onOpenChange={setCountryPopoverOpen}>
+                    <PopoverTrigger asChild>
+                      <button type="button" className={triggerClass}>
+                        {label}
+                        <ChevronDown className="w-3.5 h-3.5 text-current" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-[260px] p-0">
+                      <Command>
+                        <CommandInput placeholder="Search countries..." />
+                        <CommandList>
+                          <CommandEmpty>No country found.</CommandEmpty>
+                          <CommandGroup>
+                            {countryOptions.map((opt) => (
+                              <CommandItem
+                                key={opt.value}
+                                value={opt.label}
+                                onSelect={() => {
+                                  setFilterValues((prev) => ({ ...prev, [label]: opt.value }));
+                                  trackDiscoverFilterApplied(label, opt.value);
+                                  setCountryPopoverOpen(false);
+                                }}
+                                className={filterValues[label] === opt.value ? "bg-accent/10 font-medium" : ""}
+                              >
+                                {opt.label}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                );
+              }
+              return (
+                <DropdownMenu key={label}>
+                  <DropdownMenuTrigger asChild>
+                    <button type="button" className={triggerClass}>
+                      {label}
+                      <ChevronDown className="w-3.5 h-3.5 text-current" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="min-w-[140px]">
+                    {filterConfig[label].map((opt) => (
+                      <DropdownMenuItem
+                        key={opt}
+                        onClick={() => {
+                          setFilterValues((prev) => ({ ...prev, [label]: opt }));
+                          trackDiscoverFilterApplied(label, opt);
+                        }}
+                        className={filterValues[label] === opt ? "bg-accent/10 font-medium" : ""}
+                      >
+                        {opt}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              );
+            })}
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

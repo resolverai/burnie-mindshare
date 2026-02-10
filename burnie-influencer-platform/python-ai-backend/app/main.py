@@ -64,6 +64,7 @@ from app.routes.dvyb_video_edit import router as dvyb_video_edit_router
 from app.routes.dvyb_inspiration_matching import router as dvyb_inspiration_matching_router
 from app.routes.dvyb_content_strategy import router as dvyb_content_strategy_router
 from app.routes.dvyb_brands_fetch import router as dvyb_brands_fetch_router
+from app.routes.dvyb_discover_ranking import router as dvyb_discover_ranking_router
 from app.routes.dvyb_domain_products import router as dvyb_domain_products_router
 from app.routes.utils import router as utils_router
 
@@ -165,6 +166,7 @@ app.include_router(dvyb_video_edit_router, prefix="/api/dvyb/video-edit", tags=[
 app.include_router(dvyb_inspiration_matching_router, prefix="/api/dvyb/inspirations", tags=["dvyb-inspiration-matching"])
 app.include_router(dvyb_content_strategy_router, tags=["dvyb-content-strategy"])
 app.include_router(dvyb_brands_fetch_router, tags=["dvyb-brands-fetch"])
+app.include_router(dvyb_discover_ranking_router, tags=["dvyb-discover-ranking"])
 app.include_router(dvyb_domain_products_router, tags=["dvyb-domain-products"])
 app.include_router(utils_router, prefix="/api/utils", tags=["utils"])
 

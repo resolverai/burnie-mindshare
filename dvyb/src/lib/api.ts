@@ -2220,6 +2220,15 @@ export const brandsApi = {
   },
 
   /**
+   * Get distinct categories from dvyb_brand_ads (approved ads). For Discover Category filter dropdown.
+   */
+  async getDiscoverCategories() {
+    return apiRequest<{ success: boolean; data: string[]; error?: string }>(
+      '/dvyb/brands/discover/filters/categories'
+    );
+  },
+
+  /**
    * Get discover ads (paginated, with filters and sort).
    * Requires user authentication - use for Discover screen.
    * Pass websiteCategory (industry from dvyb_context) to show relevant ads via GPT-4o matching.

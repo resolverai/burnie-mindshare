@@ -5,6 +5,7 @@ import { DvybBrand } from '../models/DvybBrand';
 import { DvybBrandAd } from '../models/DvybBrandAd';
 import { DvybBrandFollow } from '../models/DvybBrandFollow';
 import { DvybSavedAd } from '../models/DvybSavedAd';
+import { DvybContext } from '../models/DvybContext';
 import { logger } from '../config/logger';
 import { startDvybBrandsFetchJob, ADS_STALE_DAYS } from '../services/DvybBrandsFetchJob';
 import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddleware';
@@ -208,15 +209,16 @@ const LANGUAGE_MAP: Record<string, string> = {
   French: 'fr',
   German: 'de',
 };
-/** Filter label (from frontend) -> full country name for display */
+/** Filter value (code or name from frontend) -> full country name for display; used for matching. */
 const COUNTRY_MAP: Record<string, string> = {
   US: 'United States',
   UK: 'United Kingdom',
+  GB: 'United Kingdom',
   Canada: 'Canada',
   Australia: 'Australia',
   Germany: 'Germany',
 };
-/** Country name -> ISO code (so we can match when DB stores codes e.g. "US", "CA") */
+/** Country name -> ISO code (so we can match when DB stores codes e.g. "US", "CA"). */
 const COUNTRY_NAME_TO_CODE: Record<string, string> = {
   'United States': 'US',
   'United Kingdom': 'UK',
@@ -537,6 +539,49 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
     ads = adsRaw.slice(skip, skip + limit);
   }
 
+  // Rank ads by semantic match of ad category to account industry (GPT-4o via Python backend)
+  const accountId = (req as DvybAuthRequest).dvybAccountId;
+  if (accountId && ads.length > 0) {
+    const ctxRepo = AppDataSource.getRepository(DvybContext);
+    const ctx = await ctxRepo.findOne({ where: { accountId }, select: ['industry'] });
+    const industry = (ctx?.industry ?? '').trim();
+    if (industry) {
+      const distinctCategories = await adRepo
+        .createQueryBuilder('a')
+        .select('DISTINCT a.category', 'category')
+        .where("a.approvalStatus = 'approved'")
+        .andWhere('a.category IS NOT NULL')
+        .andWhere("TRIM(a.category) != ''")
+        .getRawMany<{ category: string }>()
+        .then((rows) => rows.map((r) => (r.category || '').trim()).filter(Boolean));
+      if (distinctCategories.length > 0) {
+        const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
+        try {
+          const rankRes = await fetch(`${pythonBackendUrl}/api/dvyb/discover/rank-categories`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ industry, categories: distinctCategories }),
+          });
+          const rankData = (await rankRes.json()) as { success?: boolean; ranked_categories?: string[] };
+          if (rankData.success && Array.isArray(rankData.ranked_categories) && rankData.ranked_categories.length > 0) {
+            const rankMap = new Map<string, number>();
+            rankData.ranked_categories.forEach((cat, i) => rankMap.set(cat, i));
+            ads = [...ads].sort((a, b) => {
+              const catA = (a.category ?? '').trim();
+              const catB = (b.category ?? '').trim();
+              const rankA = rankMap.get(catA) ?? 999;
+              const rankB = rankMap.get(catB) ?? 999;
+              if (rankA !== rankB) return rankA - rankB;
+              return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+            });
+          }
+        } catch (err) {
+          logger.warn('Discover rank-categories Python call failed, using original order:', err);
+        }
+      }
+    }
+  }
+
   const uiAds = await Promise.all(
     ads.map(async (ad) => {
       const imgUrl = await getCreativeUrl(ad.creativeImageS3Key, ad.creativeImageUrl);
@@ -576,6 +621,29 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
     pagination: { page, limit, total, pages: Math.ceil(total / limit) },
   });
 }
+
+/**
+ * GET /api/dvyb/brands/discover/filters/categories
+ * Distinct categories from dvyb_brand_ads (approved ads only). For Discover Category filter.
+ */
+router.get('/discover/filters/categories', dvybAuthMiddleware, async (_req: DvybAuthRequest, res: Response) => {
+  try {
+    const adRepo = AppDataSource.getRepository(DvybBrandAd);
+    const rows = await adRepo
+      .createQueryBuilder('ad')
+      .select('DISTINCT ad.category', 'category')
+      .where("ad.approvalStatus = 'approved'")
+      .andWhere('ad.category IS NOT NULL')
+      .andWhere("TRIM(ad.category) != ''")
+      .orderBy('ad.category', 'ASC')
+      .getRawMany<{ category: string }>();
+    const categories = rows.map((r) => (r.category || '').trim()).filter(Boolean);
+    res.json({ success: true, data: categories });
+  } catch (error) {
+    logger.error('DvybBrands discover filters categories error:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch categories' });
+  }
+});
 
 /**
  * GET /api/dvyb/brands/discover/ads/onboarding
