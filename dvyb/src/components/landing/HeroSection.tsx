@@ -130,8 +130,8 @@ export function HeroSection({
 
   return (
     <>
-      {/* Hero: exact copy from wander-discover-connect */}
-      <section className="relative pt-28 pb-8 px-6 overflow-hidden">
+      {/* Hero: responsive padding and typography (wander-discover-connect style) */}
+      <section className="relative pt-24 sm:pt-28 pb-6 sm:pb-8 px-4 sm:px-6 overflow-hidden">
         {/* Layered background */}
         <div className="absolute inset-0 pointer-events-none" style={{ background: "var(--gradient-hero)" }} />
 
@@ -158,10 +158,10 @@ export function HeroSection({
         <div className="container mx-auto relative z-10">
           {/* Hero Text */}
           <div className="text-center max-w-4xl mx-auto">
-            <div className="text-lg md:text-xl lg:text-2xl font-medium mb-6 animate-fade-up flex items-center justify-center gap-2">
+            <div className="text-base sm:text-lg md:text-xl lg:text-2xl font-medium mb-4 sm:mb-6 animate-fade-up flex items-center justify-center gap-2 flex-wrap">
               <span className="text-cta font-display">Skip</span>
               <span
-                className="relative inline-flex items-center justify-center w-[140px] md:w-[160px] lg:w-[180px] h-[1.8em]"
+                className="relative inline-flex items-center justify-center w-[120px] sm:w-[140px] md:w-[160px] lg:w-[180px] h-[1.8em]"
                 style={{ perspective: "300px" }}
               >
                 {/* 3D Prism rotation */}
@@ -186,11 +186,11 @@ export function HeroSection({
                 </span>
               </span>
             </div>
-            <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight mb-8 animate-fade-up font-display">
+            <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight mb-6 sm:mb-8 animate-fade-up font-display">
               winning Ads <span className="text-cta">in minutes</span>
             </h1>
             <p
-              className="text-lg md:text-xl text-muted-foreground mb-10 animate-fade-up max-w-2xl mx-auto leading-relaxed"
+              className="text-base sm:text-lg md:text-xl text-muted-foreground mb-8 sm:mb-10 animate-fade-up max-w-2xl mx-auto leading-relaxed px-1"
               style={{ animationDelay: "0.1s" }}
             >
               AI finds top-performing competitor ads and instantly recreates them in your brand
@@ -200,7 +200,7 @@ export function HeroSection({
               <button
                 type="button"
                 onClick={() => setIsModalOpen(true)}
-                className="group relative px-10 py-5 bg-cta text-cta-foreground rounded-full font-semibold text-lg transition-all duration-300 hover:scale-105"
+                className="group relative w-full sm:w-auto px-8 py-4 sm:px-10 sm:py-5 bg-cta text-cta-foreground rounded-full font-semibold text-base sm:text-lg transition-all duration-300 hover:scale-105"
                 style={{ boxShadow: "0 0 40px -10px hsl(25 100% 55% / 0.5)" }}
               >
                 <span className="relative z-10">Try for free</span>
@@ -212,10 +212,10 @@ export function HeroSection({
             </div>
 
             {/* Traction Stats */}
-            <div className="mt-14 flex flex-wrap justify-center gap-10 md:gap-16 animate-fade-up" style={{ animationDelay: "0.3s" }}>
+            <div className="mt-10 sm:mt-14 flex flex-wrap justify-center gap-6 sm:gap-10 md:gap-16 animate-fade-up" style={{ animationDelay: "0.3s" }}>
               {stats.map((stat) => (
                 <div key={stat.label} className="text-center relative">
-                  <p className="text-4xl md:text-5xl lg:text-6xl font-display font-bold text-foreground">
+                  <p className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-display font-bold text-foreground">
                     {stat.value}
                   </p>
                   <p className="text-sm text-muted-foreground mt-1">{stat.label}</p>
@@ -263,21 +263,21 @@ export function HeroSection({
 
       {/* dvyb website modal (replaces wander OnboardingModal) */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="w-[min(96vw,1120px)] sm:w-[min(92vw,1240px)] max-w-none min-h-[min(82vh,640px)] sm:min-h-[min(88vh,720px)] p-14 sm:p-20 bg-[hsl(0,0%,98%)] border-neutral-200/80 text-neutral-900 rounded-2xl shadow-xl">
-          <div className="flex flex-col items-center text-center space-y-5 pt-1 max-w-xl mx-auto">
-            <div className="w-14 h-14 rounded-full bg-neutral-200/80 flex items-center justify-center shrink-0">
-              <Globe className="w-7 h-7 text-neutral-600" />
+        <DialogContent className="w-[min(96vw,1120px)] sm:w-[min(92vw,1240px)] max-w-none min-h-[min(80vh,560px)] sm:min-h-[min(88vh,720px)] p-4 sm:p-8 md:p-14 lg:p-20 bg-[hsl(0,0%,98%)] border-neutral-200/80 text-neutral-900 rounded-2xl shadow-xl">
+          <div className="flex flex-col items-center text-center space-y-4 sm:space-y-5 pt-1 max-w-xl mx-auto">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-neutral-200/80 flex items-center justify-center shrink-0">
+              <Globe className="w-6 h-6 sm:w-7 sm:h-7 text-neutral-600" />
             </div>
-            <div className="space-y-2">
-              <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-neutral-900 leading-tight">
+            <div className="space-y-2 px-1">
+              <h2 className="text-lg sm:text-xl md:text-2xl font-bold tracking-tight text-neutral-900 leading-tight">
                 Paste your website — we&apos;ll build ads that match your brand
               </h2>
-              <p className="text-sm text-neutral-600 max-w-md mx-auto">
+              <p className="text-xs sm:text-sm text-neutral-600 max-w-md mx-auto">
                 We analyze your visuals, tone, products, and audience to generate ads that actually fit.
               </p>
             </div>
           </div>
-          <form onSubmit={handleSubmit} className="space-y-5 mt-6 max-w-xl mx-auto w-full">
+          <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5 mt-4 sm:mt-6 max-w-xl mx-auto w-full px-0 sm:px-0">
             {isAnalyzing ? (
               <div className="flex flex-col items-center w-full">
                 <div className="mb-6 w-full text-center">
@@ -321,13 +321,14 @@ export function HeroSection({
               </div>
             ) : (
               <>
-                <div className="flex gap-3">
+                {/* Mobile: stack input and button in separate rows; tablet/desktop: side by side */}
+                <div className="flex flex-col sm:flex-row gap-3 w-full">
                   <Input
                     type="text"
                     placeholder="Website or Instagram (e.g. yourbrand.com or @you)"
                     value={websiteUrl}
                     onChange={(e) => setWebsiteUrl(e.target.value)}
-                    className={`flex-1 rounded-2xl border-2 bg-white text-base text-neutral-900 placeholder:text-neutral-400 h-14 transition-colors focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ${
+                    className={`flex-1 min-w-0 rounded-2xl border-2 bg-white text-sm sm:text-base text-neutral-900 placeholder:text-neutral-400 h-12 sm:h-14 transition-colors focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ${
                       websiteUrl.trim()
                         ? "border-[hsl(var(--landing-accent-orange))]"
                         : "border-neutral-300 focus-visible:border-[hsl(var(--landing-accent-orange))]"
@@ -338,7 +339,7 @@ export function HeroSection({
                   <Button
                     type="submit"
                     disabled={!websiteUrl.trim() || isAnalyzing}
-                    className="rounded-2xl bg-[hsl(var(--landing-cta-bg))] text-white hover:bg-[hsl(var(--landing-cta-bg))] hover:opacity-90 border-0 shadow-none px-6 font-medium shrink-0 flex items-center gap-2 h-14 text-base"
+                    className="rounded-2xl bg-[hsl(var(--landing-cta-bg))] text-white hover:bg-[hsl(var(--landing-cta-bg))] hover:opacity-90 border-0 shadow-none px-6 font-medium shrink-0 flex items-center justify-center gap-2 h-12 sm:h-14 text-sm sm:text-base w-full sm:w-auto"
                   >
                     Analyze my brand
                     <span aria-hidden>→</span>

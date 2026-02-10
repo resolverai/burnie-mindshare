@@ -6,11 +6,11 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import dvybLogo from "@/assets/dvyb-logo.png";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { authApi } from "@/lib/api";
 import { trackSignInClicked } from "@/lib/mixpanel";
-import { Loader2 } from "lucide-react";
+import { Loader2, Menu } from "lucide-react";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
 const navItems = [
   { name: "Home", path: "/" },
@@ -27,11 +27,20 @@ interface NavigationLandingProps {
   hideExplore?: boolean;
 }
 
+const MOBILE_NAV_LINKS = [
+  { name: "Home", path: "/" },
+  { name: "Pricing", path: "/pricing" },
+  { name: "Explore", path: "/explore" },
+];
+
 export function NavigationLanding({ variant = "default", onGetStarted, showSignIn = false, hideExplore = false }: NavigationLandingProps) {
   const pathname = usePathname();
   const isDark = variant === "dark";
   const { isAuthenticated, isLoading } = useAuth();
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const navLinks = hideExplore ? navItems.filter((i) => i.path !== "/explore") : navItems;
+  const mobileLinks = hideExplore ? MOBILE_NAV_LINKS.filter((i) => i.path !== "/explore") : MOBILE_NAV_LINKS;
 
   const handleSignIn = async () => {
     if (isSigningIn) return;
@@ -65,15 +74,42 @@ export function NavigationLanding({ variant = "default", onGetStarted, showSignI
     >
       <div className="container mx-auto px-4 sm:px-6 py-3 sm:py-4 relative">
         <div className="flex items-center justify-between gap-2">
-          <Link
-            href="/"
-            className="shrink-0 z-10 transition-opacity hover:opacity-90"
-          >
-            <Image src={dvybLogo} alt="dvyb.ai" width={200} height={80} className="h-20 w-auto object-contain" priority />
-          </Link>
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0 z-10">
+            <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+              <SheetTrigger asChild>
+                <button
+                  type="button"
+                  className="sm:hidden p-2 -ml-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
+                  aria-label="Open menu"
+                >
+                  <Menu className="w-6 h-6" />
+                </button>
+              </SheetTrigger>
+              <SheetContent side="left" className="w-[280px] sm:w-[300px]">
+                <nav className="flex flex-col gap-1 pt-8">
+                  {mobileLinks.map((item) => (
+                    <Link
+                      key={item.path}
+                      href={item.path}
+                      onClick={() => setMobileNavOpen(false)}
+                      className={cn(
+                        "px-4 py-3 rounded-lg text-base font-medium transition-colors",
+                        pathname === item.path ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                      )}
+                    >
+                      {item.name}
+                    </Link>
+                  ))}
+                </nav>
+              </SheetContent>
+            </Sheet>
+            <Link href="/" className="shrink-0 transition-opacity hover:opacity-90">
+              <Image src={dvybLogo} alt="dvyb.ai" width={200} height={80} className="h-10 sm:h-14 md:h-20 w-auto object-contain" priority />
+            </Link>
+          </div>
 
           <div className="hidden sm:flex items-center gap-1 bg-secondary/50 rounded-full p-1.5 backdrop-blur-sm border border-border/50 absolute left-1/2 -translate-x-1/2 z-10">
-            {(hideExplore ? navItems.filter((i) => i.path !== "/explore") : navItems).map((item) => (
+            {navLinks.map((item) => (
               <Link
                 key={item.path}
                 href={item.path}
@@ -116,7 +152,7 @@ export function NavigationLanding({ variant = "default", onGetStarted, showSignI
             <button
               type="button"
               onClick={onGetStarted}
-              className="px-6 py-2.5 bg-cta text-cta-foreground rounded-full text-sm font-semibold hover:scale-105 transition-all duration-300"
+              className="px-4 sm:px-6 py-2 sm:py-2.5 bg-cta text-cta-foreground rounded-full text-sm font-semibold hover:scale-105 transition-all duration-300 shrink-0"
               style={{ boxShadow: "0 0 20px -5px hsl(25 100% 55% / 0.4)" }}
             >
               Get Started

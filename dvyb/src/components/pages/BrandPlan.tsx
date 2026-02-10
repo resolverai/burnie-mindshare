@@ -10,7 +10,7 @@ export const BrandPlan = () => {
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold text-foreground mb-8">Brand Plan</h1>
+        <h1 className="text-2xl lg:text-3xl font-bold text-foreground font-display mb-8">Brand Plan</h1>
 
         {/* Weekly Plan Timeline */}
         <div className="relative">

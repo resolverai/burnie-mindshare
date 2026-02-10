@@ -141,7 +141,7 @@ export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: 
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background overflow-x-hidden">
       <NavigationLanding onGetStarted={handleGetStarted} showSignIn hideExplore />
       <main>
         <HeroSection

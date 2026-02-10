@@ -140,6 +140,7 @@ export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal 
   const [pollingBrandId, setPollingBrandId] = useState<number | null>(null);
   const [pollingMessage, setPollingMessage] = useState("");
   const [followLoadingId, setFollowLoadingId] = useState<number | null>(null);
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
 
   const fetchBrands = useCallback(async (followingOnly?: boolean) => {
     try {
@@ -329,6 +330,14 @@ export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal 
     return sorted;
   }, [brands, activeTab, searchQuery, filterCategory, filterAdCount, filterFbLikes, filterIgFollowers, filterWebTraffic, sortBy]);
 
+  const activeFilterCount = [
+    filterCategory,
+    filterAdCount,
+    filterFbLikes,
+    filterIgFollowers,
+    filterWebTraffic,
+  ].filter((v) => v && v !== "All").length;
+
   const handleFollowBrand = async (brand: BrandRow) => {
     if (followLoadingId === brand.id) return;
     if (!brand.isFollowing && hasActiveSubscription !== true && onShowPricingModal) {
@@ -362,28 +371,70 @@ export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal 
   };
 
   return (
-    <div className="flex flex-col h-full bg-[hsl(var(--app-content-bg))]">
-      {/* Toolbar */}
-      <div className="flex flex-col gap-4 px-2 md:px-3 lg:px-4 py-4 md:py-5 border-b border-[hsl(var(--landing-nav-bar-border))] bg-[hsl(var(--app-content-bg))]">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <h1 className="text-2xl md:text-3xl font-bold text-foreground">Brands</h1>
+    <div className="flex flex-col h-full bg-[hsl(var(--app-content-bg))] lg:overflow-auto">
+      {/* Toolbar - sticky on mobile/tablet; proper left/right margin (wander-style px-4) */}
+      <div className="sticky top-0 z-10 px-4 pb-4 pt-2 lg:static lg:px-4 lg:pt-4 lg:pb-4 lg:border-b border-[hsl(var(--landing-nav-bar-border))] bg-[hsl(var(--app-content-bg))]">
+        {/* Row 1: Title + Request (+ Tutorial on desktop) */}
+        <div className="flex items-center justify-between gap-3 mb-4 lg:mb-6">
+          <h1 className="text-2xl lg:text-3xl font-bold text-foreground font-display">Brands</h1>
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={handleRequestBrandClick}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-[hsl(var(--landing-cta-orange))] text-white hover:opacity-90 text-sm font-medium shrink-0"
+              className="flex items-center gap-2 px-3 py-2 lg:px-4 lg:py-2.5 rounded-full bg-[hsl(var(--landing-cta-orange))] text-white hover:opacity-90 text-sm font-medium"
             >
               <UserPlus className="w-4 h-4" />
-              + Request a brand
+              <span className="hidden lg:inline">+ Request a brand</span>
+              <span className="lg:hidden">Request</span>
             </button>
-            <TutorialButton screen="brands" />
+            <div className="hidden lg:block">
+              <TutorialButton screen="brands" />
+            </div>
           </div>
         </div>
 
-        {/* Polling / status banner */}
+        {/* Tabs: All Brands | Following - full width on mobile */}
+        <div className="flex gap-1 p-1 rounded-full bg-[hsl(var(--landing-explore-pill-bg))] border border-[hsl(var(--landing-nav-bar-border))] w-full lg:w-fit mb-4">
+          <button
+            type="button"
+            onClick={() => { setActiveTab("all"); trackBrandsTabSwitched("all"); }}
+            className={`flex-1 lg:flex-initial px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+              activeTab === "all"
+                ? "bg-background shadow-sm text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            All Brands
+          </button>
+          <button
+            type="button"
+            onClick={() => { setActiveTab("following"); trackBrandsTabSwitched("following"); }}
+            className={`flex-1 lg:flex-initial px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+              activeTab === "following"
+                ? "bg-background shadow-sm text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Following ({followingCount})
+          </button>
+        </div>
+
+        {/* Search bar */}
+        <div className="flex items-center gap-2 border border-[hsl(var(--landing-nav-bar-border))] rounded-full px-4 py-2.5 lg:py-3 h-10 lg:max-w-xl mb-4 lg:mb-6 bg-[hsl(var(--app-content-bg))]">
+          <Search className="w-4 h-4 lg:w-5 lg:h-5 text-muted-foreground flex-shrink-0" />
+          <input
+            type="text"
+            placeholder="Search brands, keywords..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="flex-1 bg-transparent outline-none text-foreground placeholder:text-muted-foreground text-sm min-w-0"
+          />
+        </div>
+
+        {/* Polling banner */}
         {pollingMessage && (
           <div
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm mb-4 ${
               pollingMessage.includes("submitted")
                 ? "bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-200"
                 : "bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200"
@@ -396,56 +447,128 @@ export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal 
           </div>
         )}
 
-        {/* Search bar */}
-        <div className="flex-1 flex items-center gap-2 border border-[hsl(var(--landing-nav-bar-border))] rounded-full px-4 py-2.5 max-w-2xl h-10 bg-[hsl(var(--app-content-bg))]">
-          <Search className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-          <input
-            type="text"
-            placeholder="Search brands, keywords..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="flex-1 bg-[hsl(var(--app-content-bg))] outline-none text-foreground placeholder:text-muted-foreground text-sm min-w-0"
-          />
+        {/* Mobile/Tablet: Filter + Sort row (wander-style) */}
+        <div className="flex items-center gap-2 mb-4 lg:hidden">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 rounded-full"
+            onClick={() => setShowMobileFilters(!showMobileFilters)}
+          >
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showMobileFilters ? "rotate-180" : ""}`} />
+            Filter
+            {activeFilterCount > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 bg-[hsl(var(--landing-cta-orange))] text-white rounded-full text-xs">
+                {activeFilterCount}
+              </span>
+            )}
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1.5 rounded-full">
+                <ArrowUpDown className="w-3.5 h-3.5" />
+                {sortBy === "recently_added" ? "Recently added" : sortBy === "most_ads" ? "Most Ads" : "Oldest"}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem onClick={() => { setSortBy("recently_added"); trackBrandsFilterApplied("Sort", "recently_added"); }}>
+                Recently added
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { setSortBy("most_ads"); trackBrandsFilterApplied("Sort", "most_ads"); }}>
+                Most Ads
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { setSortBy("oldest"); trackBrandsFilterApplied("Sort", "oldest"); }}>
+                Oldest
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 p-1 rounded-full bg-[hsl(var(--landing-explore-pill-bg))] border border-[hsl(var(--landing-nav-bar-border))] w-fit">
-          <button
-            type="button"
-            onClick={() => { setActiveTab("all"); trackBrandsTabSwitched("all"); }}
-            className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-              activeTab === "all"
-                ? "bg-background shadow-sm text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            All Brands
-          </button>
-          <button
-            type="button"
-            onClick={() => { setActiveTab("following"); trackBrandsTabSwitched("following"); }}
-            className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-              activeTab === "following"
-                ? "bg-background shadow-sm text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Following ({followingCount})
-          </button>
-        </div>
+        {/* Mobile: Collapsible filter pills */}
+        {showMobileFilters && (
+          <div className="flex flex-wrap gap-2 mb-4 lg:hidden">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5 rounded-full">
+                  Category <ChevronDown className="w-3.5 h-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-[140px]">
+                {BRAND_CATEGORY_OPTIONS.map((opt) => (
+                  <DropdownMenuItem key={opt} onClick={() => { setFilterCategory(opt); trackBrandsFilterApplied("Category", opt); }} className={filterCategory === opt ? "bg-accent/10 font-medium" : ""}>
+                    {opt}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5 rounded-full">
+                  FB Likes <ChevronDown className="w-3.5 h-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-[120px]">
+                {BRAND_FB_LIKES_OPTIONS.map((opt) => (
+                  <DropdownMenuItem key={opt} onClick={() => { setFilterFbLikes(opt); trackBrandsFilterApplied("FB Likes", opt); }} className={filterFbLikes === opt ? "bg-accent/10 font-medium" : ""}>
+                    {opt}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5 rounded-full">
+                  IG Followers <ChevronDown className="w-3.5 h-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-[120px]">
+                {BRAND_IG_FOLLOWERS_OPTIONS.map((opt) => (
+                  <DropdownMenuItem key={opt} onClick={() => { setFilterIgFollowers(opt); trackBrandsFilterApplied("IG Followers", opt); }} className={filterIgFollowers === opt ? "bg-accent/10 font-medium" : ""}>
+                    {opt}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5 rounded-full">
+                  Web Traffic <ChevronDown className="w-3.5 h-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-[120px]">
+                {BRAND_WEB_TRAFFIC_OPTIONS.map((opt) => (
+                  <DropdownMenuItem key={opt} onClick={() => { setFilterWebTraffic(opt); trackBrandsFilterApplied("Web Traffic", opt); }} className={filterWebTraffic === opt ? "bg-accent/10 font-medium" : ""}>
+                    {opt}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5 rounded-full">
+                  Ad Count <ChevronDown className="w-3.5 h-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-[120px]">
+                {BRAND_AD_COUNT_OPTIONS.map((opt) => (
+                  <DropdownMenuItem key={opt} onClick={() => { setFilterAdCount(opt); trackBrandsFilterApplied("Ad Count", opt); }} className={filterAdCount === opt ? "bg-accent/10 font-medium" : ""}>
+                    {opt}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )}
 
-        {/* Filter pills + Sort */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        {/* Desktop: Full filter row + Sort */}
+        <div className="hidden lg:flex flex-wrap items-center justify-between gap-2 mb-6">
           <div className="flex flex-wrap gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="flex items-center gap-2 px-4 py-2 h-9 text-sm font-medium transition-colors border border-[hsl(var(--discover-pill-border))] rounded-full text-foreground bg-[hsl(var(--discover-pill-bg))] hover:bg-[#e88d44] hover:text-white hover:border-[#e88d44] data-[state=open]:bg-[#e88d44] data-[state=open]:text-white data-[state=open]:border-[#e88d44]"
-                >
+                <Button variant="outline" size="sm" className="gap-1.5 rounded-full">
                   Category
-                  <ChevronDown className="w-3.5 h-3.5 text-current" />
-                </button>
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="min-w-[140px]">
                 {BRAND_CATEGORY_OPTIONS.map((opt) => (
@@ -461,13 +584,10 @@ export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal 
             </DropdownMenu>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="flex items-center gap-2 px-4 py-2 h-9 text-sm font-medium transition-colors border border-[hsl(var(--discover-pill-border))] rounded-full text-foreground bg-[hsl(var(--discover-pill-bg))] hover:bg-[#e88d44] hover:text-white hover:border-[#e88d44] data-[state=open]:bg-[#e88d44] data-[state=open]:text-white data-[state=open]:border-[#e88d44]"
-                >
+                <Button variant="outline" size="sm" className="gap-1.5 rounded-full">
                   FB Likes
-                  <ChevronDown className="w-3.5 h-3.5 text-current" />
-                </button>
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="min-w-[120px]">
                 {BRAND_FB_LIKES_OPTIONS.map((opt) => (
@@ -483,13 +603,10 @@ export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal 
             </DropdownMenu>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="flex items-center gap-2 px-4 py-2 h-9 text-sm font-medium transition-colors border border-[hsl(var(--discover-pill-border))] rounded-full text-foreground bg-[hsl(var(--discover-pill-bg))] hover:bg-[#e88d44] hover:text-white hover:border-[#e88d44] data-[state=open]:bg-[#e88d44] data-[state=open]:text-white data-[state=open]:border-[#e88d44]"
-                >
+                <Button variant="outline" size="sm" className="gap-1.5 rounded-full">
                   IG Followers
-                  <ChevronDown className="w-3.5 h-3.5 text-current" />
-                </button>
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="min-w-[120px]">
                 {BRAND_IG_FOLLOWERS_OPTIONS.map((opt) => (
@@ -505,13 +622,10 @@ export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal 
             </DropdownMenu>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="flex items-center gap-2 px-4 py-2 h-9 text-sm font-medium transition-colors border border-[hsl(var(--discover-pill-border))] rounded-full text-foreground bg-[hsl(var(--discover-pill-bg))] hover:bg-[#e88d44] hover:text-white hover:border-[#e88d44] data-[state=open]:bg-[#e88d44] data-[state=open]:text-white data-[state=open]:border-[#e88d44]"
-                >
+                <Button variant="outline" size="sm" className="gap-1.5 rounded-full">
                   Web Traffic
-                  <ChevronDown className="w-3.5 h-3.5 text-current" />
-                </button>
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="min-w-[120px]">
                 {BRAND_WEB_TRAFFIC_OPTIONS.map((opt) => (
@@ -527,13 +641,10 @@ export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal 
             </DropdownMenu>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="flex items-center gap-2 px-4 py-2 h-9 text-sm font-medium transition-colors border border-[hsl(var(--discover-pill-border))] rounded-full text-foreground bg-[hsl(var(--discover-pill-bg))] hover:bg-[#e88d44] hover:text-white hover:border-[#e88d44] data-[state=open]:bg-[#e88d44] data-[state=open]:text-white data-[state=open]:border-[#e88d44]"
-                >
+                <Button variant="outline" size="sm" className="gap-1.5 rounded-full">
                   Ad Count
-                  <ChevronDown className="w-3.5 h-3.5 text-current" />
-                </button>
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="min-w-[120px]">
                 {BRAND_AD_COUNT_OPTIONS.map((opt) => (
@@ -550,13 +661,10 @@ export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal 
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="flex items-center gap-2 px-4 py-2 h-9 text-sm font-medium shrink-0 border border-[hsl(var(--discover-pill-border))] rounded-full text-foreground bg-[hsl(var(--discover-pill-bg))] hover:bg-[#e88d44] hover:text-white hover:border-[#e88d44] data-[state=open]:bg-[#e88d44] data-[state=open]:text-white data-[state=open]:border-[#e88d44]"
-              >
-                <ArrowUpDown className="w-4 h-4 text-current" />
+              <Button variant="outline" size="sm" className="gap-1.5 rounded-full shrink-0">
+                <ArrowUpDown className="w-4 h-4" />
                 Sort: {sortBy === "recently_added" ? "Recently added" : sortBy === "most_ads" ? "Most Ads" : "Oldest"}
-              </button>
+              </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-[160px]">
               <DropdownMenuItem onClick={() => { setSortBy("recently_added"); trackBrandsFilterApplied("Sort", "recently_added"); }} className={sortBy === "recently_added" ? "bg-accent/10 font-medium" : ""}>
@@ -573,28 +681,82 @@ export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal 
         </div>
       </div>
 
-      {/* Table */}
-      <div className="flex-1 overflow-x-auto overflow-y-auto px-2 md:px-3 lg:px-4 py-4 md:py-5">
-        <div className="rounded-lg overflow-hidden bg-card shadow-sm border border-border">
-          {loading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      {/* Content area - proper left/right margin on mobile and tablet (wander-style) */}
+      <div className="flex-1 overflow-auto px-4 pb-4 lg:pb-5 min-h-0">
+        {loading ? (
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+          </div>
+        ) : filteredBrands.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+            <Globe className="w-12 h-12 mb-3 opacity-50" />
+            <p className="text-sm font-medium">No brands yet</p>
+            <p className="text-xs mt-1 text-center">Request a brand to see competitor ads from Meta Ad Library</p>
+            <button
+              type="button"
+              onClick={handleRequestBrandClick}
+              className="mt-4 flex items-center gap-2 px-4 py-2 rounded-full bg-[hsl(var(--landing-cta-orange))] text-white hover:opacity-90 text-sm font-medium"
+            >
+              <UserPlus className="w-4 h-4" />
+              Request a brand
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* Mobile only: 2-column card grid (tablet uses table with horizontal scroll) */}
+            <div className="grid grid-cols-2 gap-3 md:hidden">
+              {filteredBrands.map((brand) => (
+                <div
+                  key={brand.id}
+                  className="bg-background border border-border rounded-xl p-4 flex flex-col items-center text-center"
+                >
+                  <div className="relative mb-3">
+                    {isBrandNew(brand.createdAt) && (
+                      <span className="absolute -top-1 -right-1 px-1.5 py-0.5 bg-[hsl(var(--landing-cta-orange))] text-white text-[10px] font-bold rounded">
+                        NEW
+                      </span>
+                    )}
+                    <div className="w-14 h-14 rounded-full bg-secondary flex items-center justify-center text-xl font-semibold text-foreground">
+                      {(brand.brandName || brand.brandDomain)[0]}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 mb-1 min-w-0">
+                    <span className="font-medium text-sm truncate">{brand.brandName || brand.brandDomain}</span>
+                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-blue-500 shrink-0">
+                      <Check className="w-2.5 h-2.5 text-white stroke-[2.5]" />
+                    </span>
+                  </div>
+                  <span className="text-xs text-muted-foreground mb-3 truncate w-full">{brand.category || "—"}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleFollowBrand(brand)}
+                    disabled={followLoadingId === brand.id}
+                    className={`w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      brand.isFollowing
+                        ? "bg-secondary text-foreground border border-border"
+                        : "bg-blue-600 hover:bg-blue-700 text-white"
+                    }`}
+                  >
+                    {followLoadingId === brand.id ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : brand.isFollowing ? (
+                      <>
+                        <UserMinus className="w-3.5 h-3.5" />
+                        Following
+                      </>
+                    ) : (
+                      <>
+                        <UserPlus className="w-3.5 h-3.5" />
+                        Follow
+                      </>
+                    )}
+                  </button>
+                </div>
+              ))}
             </div>
-          ) : filteredBrands.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-              <Globe className="w-12 h-12 mb-3 opacity-50" />
-              <p className="text-sm font-medium">No brands yet</p>
-              <p className="text-xs mt-1">Request a brand to see competitor ads from Meta Ad Library</p>
-              <button
-                type="button"
-                onClick={handleRequestBrandClick}
-                className="mt-4 flex items-center gap-2 px-4 py-2 rounded-full bg-[hsl(var(--landing-cta-orange))] text-white hover:opacity-90 text-sm font-medium"
-              >
-                <UserPlus className="w-4 h-4" />
-                Request a brand
-              </button>
-            </div>
-          ) : (
+
+            {/* Tablet + Desktop: Table with internal horizontal scroll (wander-style) */}
+            <div className="hidden md:block rounded-lg overflow-hidden bg-card shadow-sm border border-border overflow-x-auto">
             <table className="w-full min-w-[900px] border-collapse table-fixed">
               <colgroup>
                 <col style={{ width: "18%" }} />
@@ -714,8 +876,9 @@ export function BrandsScreen({ hasActiveSubscription = true, onShowPricingModal 
                 ))}
               </tbody>
             </table>
+            </div>
+          </>
           )}
-        </div>
       </div>
 
       {/* Request Brand Modal - aligned to admin structure, dvyb theme */}

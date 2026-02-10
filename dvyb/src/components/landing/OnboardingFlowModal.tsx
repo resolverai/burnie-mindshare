@@ -382,7 +382,7 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
   };
 
   const modalShellClass =
-    "max-w-[90vw] w-full h-[min(90vh,720px)] min-h-[min(90vh,720px)] max-h-[90vh] flex flex-col p-0 gap-0 bg-[hsl(0,0%,98%)] border-neutral-200/80 text-neutral-900 rounded-2xl shadow-xl overflow-hidden";
+    "max-w-[95vw] sm:max-w-[90vw] w-full h-[min(92vh,720px)] min-h-[min(80vh,560px)] sm:min-h-[min(90vh,720px)] max-h-[92vh] sm:max-h-[90vh] flex flex-col p-0 gap-0 bg-[hsl(0,0%,98%)] border-neutral-200/80 text-neutral-900 rounded-2xl shadow-xl overflow-hidden";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -390,16 +390,16 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
         {/* Step 1: Product */}
         {step === "product" && (
           <>
-            <div className="px-6 py-6 border-b border-border shrink-0">
-              <h2 className="text-2xl md:text-3xl font-bold mb-2 text-center text-neutral-900">
+            <div className="px-4 sm:px-6 py-4 sm:py-6 border-b border-border shrink-0">
+              <h2 className="text-xl sm:text-2xl md:text-3xl font-bold mb-2 text-center text-neutral-900">
                 Select your product photos
               </h2>
-              <p className="text-muted-foreground text-center mb-2">Choose 1–3 products. We&apos;ll handle the rest.</p>
+              <p className="text-muted-foreground text-center mb-2 text-sm sm:text-base">Choose 1–3 products. We&apos;ll handle the rest.</p>
               <p className="text-xs text-muted-foreground text-center">
                 You can regenerate with different products later.
               </p>
             </div>
-            <div className={`flex-1 min-h-0 overflow-y-auto p-6 ${selectedProductIds.size > 0 ? "pb-24" : "pb-4"}`}>
+            <div className={`flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 ${selectedProductIds.size > 0 ? "pb-24" : "pb-4"}`}>
               <input
                 ref={productFileInputRef}
                 type="file"
@@ -419,8 +419,8 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
                   <p className="text-xs text-muted-foreground">This usually takes a few seconds</p>
                 </div>
               ) : domainProducts.length > 0 ? (
-                <div className="flex flex-col gap-4">
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                <div className="flex flex-col gap-3 sm:gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
                     {displayProducts.map((product) => {
                       const isSelected = selectedProductIds.has(product.id);
                       return (
@@ -428,12 +428,13 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
                           key={product.id}
                           type="button"
                           onClick={() => handleProductToggle(product.id)}
-                          className={`text-left rounded-xl overflow-hidden cursor-pointer group transition-all ${
+                          className={`text-left rounded-xl overflow-hidden cursor-pointer group transition-all min-w-0 ${
                             isSelected ? "ring-4 ring-neutral-900 ring-offset-2" : "hover:shadow-lg"
                           }`}
                         >
-                          <div className="aspect-square relative bg-neutral-200">
-                            <img src={product.image} alt="Product" className="w-full h-full object-cover" />
+                          <div className="aspect-square relative bg-neutral-200 flex items-center justify-center">
+                            {/* object-contain so full product image is visible and not cut */}
+                            <img src={product.image} alt="Product" className="w-full h-full object-contain" />
                             {isSelected && (
                               <div className="absolute top-3 right-3 w-7 h-7 bg-neutral-900 rounded-full flex items-center justify-center">
                                 <Check className="w-4 h-4 text-white" />
@@ -498,25 +499,25 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
         {/* Step 2: Inspiration */}
         {step === "inspiration" && (
           <>
-            <div className="px-6 py-6 border-b border-border shrink-0">
-              <h2 className="text-2xl md:text-3xl font-bold mb-2 text-center text-neutral-900">
+            <div className="px-4 sm:px-6 py-4 sm:py-6 border-b border-border shrink-0">
+              <h2 className="text-xl sm:text-2xl md:text-3xl font-bold mb-2 text-center text-neutral-900 px-1">
                 Here are some live ads from your competitors
               </h2>
-              <p className="text-muted-foreground text-center mb-6">Choose one to recreate in your brand</p>
-              <div className="max-w-md mx-auto">
-                <div className="flex items-center gap-3 bg-neutral-100 rounded-full px-5 py-3 border border-neutral-200">
-                  <Search className="w-5 h-5 text-muted-foreground" />
+              <p className="text-muted-foreground text-center mb-4 sm:mb-6 text-sm sm:text-base">Choose one to recreate in your brand</p>
+              <div className="max-w-md mx-auto px-1">
+                <div className="flex items-center gap-3 bg-neutral-100 rounded-full px-4 sm:px-5 py-2.5 sm:py-3 border border-neutral-200">
+                  <Search className="w-4 h-4 sm:w-5 sm:h-5 text-muted-foreground shrink-0" />
                   <input
                     type="text"
                     placeholder="Search brands or keywords..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="flex-1 bg-transparent outline-none text-foreground placeholder:text-muted-foreground text-sm"
+                    className="flex-1 min-w-0 bg-transparent outline-none text-foreground placeholder:text-muted-foreground text-sm"
                   />
                 </div>
               </div>
             </div>
-            <div className={`flex-1 min-h-0 overflow-y-auto p-6 ${selectedAdIds.size > 0 ? "pb-24" : "pb-4"}`}>
+            <div className={`flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 ${selectedAdIds.size > 0 ? "pb-24" : "pb-4"}`}>
               {adsLoading ? (
                 <div className="flex items-center justify-center py-16">
                   <p className="text-muted-foreground">Loading ads...</p>
@@ -527,8 +528,8 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
                 <div
                   className={
                     filteredAds.length >= 8
-                      ? "columns-[160px] md:columns-[180px] lg:columns-[200px] gap-4"
-                      : "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 max-w-5xl mx-auto"
+                      ? "columns-[140px] sm:columns-[160px] md:columns-[180px] lg:columns-[200px] gap-3 sm:gap-4"
+                      : "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4 max-w-5xl mx-auto"
                   }
                 >
                   {filteredAds.map((ad) => {
@@ -540,29 +541,30 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
                         key={ad.id}
                         type="button"
                         onClick={() => handleAdToggle(ad.id)}
-                        className={`text-left rounded-xl overflow-hidden cursor-pointer transition-all border border-neutral-200 bg-white w-full ${
-                          useMasonry ? "break-inside-avoid mb-4" : ""
+                        className={`text-left rounded-xl overflow-hidden cursor-pointer transition-all border border-neutral-200 bg-white w-full min-w-0 ${
+                          useMasonry ? "break-inside-avoid mb-3 sm:mb-4" : ""
                         } ${
                           isSelected ? "ring-4 ring-neutral-900 ring-offset-2" : "hover:shadow-lg hover:border-neutral-300"
                         }`}
                       >
-                        <div className="relative bg-neutral-100">
+                        <div className="relative bg-neutral-100 flex items-center justify-center overflow-hidden">
                           {mediaUrl ? (
                             ad.isVideo ? (
-                              <div className="w-full aspect-video bg-neutral-200">
+                              <div className="w-full aspect-video bg-neutral-200 flex items-center justify-center">
                                 <video
                                   src={mediaUrl}
-                                  className="w-full h-full object-contain"
+                                  className="w-full h-full object-contain max-h-[280px] sm:max-h-none"
                                   muted
                                   playsInline
                                 />
                               </div>
                             ) : (
+                              /* Responsive: contain image so it is not cut; use object-contain and max-h for consistency */
                               /* eslint-disable-next-line @next/next/no-img-element */
                               <img
                                 src={mediaUrl}
                                 alt={ad.brandName}
-                                className="w-full h-auto block"
+                                className="w-full h-auto max-h-[320px] sm:max-h-[400px] object-contain object-center block"
                               />
                             )
                           ) : (
@@ -592,15 +594,15 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
 
         {/* Step 3: Login */}
         {step === "login" && (
-          <div className="flex flex-col items-center justify-center flex-1 px-6 py-8 min-h-0">
+          <div className="flex flex-col items-center justify-center flex-1 px-4 sm:px-6 py-6 sm:py-8 min-h-0">
             <div className="max-w-md w-full text-center">
-              <div className="w-16 h-16 bg-neutral-200 rounded-2xl flex items-center justify-center mx-auto mb-6">
+              <div className="w-14 h-14 sm:w-16 sm:h-16 bg-neutral-200 rounded-2xl flex items-center justify-center mx-auto mb-4 sm:mb-6">
                 <svg className="w-8 h-8 text-neutral-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                 </svg>
               </div>
-              <h2 className="text-2xl md:text-3xl font-bold mb-2 text-neutral-900">Create your account</h2>
-              <p className="text-muted-foreground mb-6">Save your brand and unlock your personalized ads</p>
+              <h2 className="text-xl sm:text-2xl md:text-3xl font-bold mb-2 text-neutral-900">Create your account</h2>
+              <p className="text-muted-foreground mb-4 sm:mb-6 text-sm sm:text-base">Save your brand and unlock your personalized ads</p>
 
               <div className="space-y-4">
                 <button

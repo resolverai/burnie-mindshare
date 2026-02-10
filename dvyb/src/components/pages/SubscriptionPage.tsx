@@ -294,7 +294,7 @@ export const SubscriptionPage = ({ hideHeader }: SubscriptionPageProps) => {
     <div className={`space-y-6 ${!hideHeader ? "px-2 md:px-3 lg:px-4 py-4 md:py-6" : ""}`}>
       {!hideHeader && (
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold">Manage Subscription</h1>
+          <h1 className="text-2xl lg:text-3xl font-bold text-foreground font-display">Manage Subscription</h1>
           <p className="text-muted-foreground mt-1">View and manage your subscription and billing</p>
         </div>
       )}

@@ -38,54 +38,54 @@ export const SettingsPage = () => {
   return (
     <div className="min-h-screen bg-[hsl(var(--app-content-bg))]" data-settings-page>
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-        {/* Sticky header - wanderlust style */}
+        {/* Sticky header - wander-style px-4 for mobile/tablet/desktop */}
         <div className="sticky top-0 z-50 bg-[hsl(var(--app-content-bg))] border-b border-[hsl(var(--landing-nav-bar-border))]">
-          <div className="px-2 md:px-3 lg:px-4 py-4 md:py-5">
+          <div className="px-4 py-4 lg:py-5">
             <div className="flex flex-row items-center justify-between gap-4">
               <div>
-                <h1 className="text-xl md:text-2xl font-bold text-foreground">Settings</h1>
+                <h1 className="text-2xl lg:text-3xl font-bold text-foreground font-display">Settings</h1>
                 <p className="text-sm text-muted-foreground mt-1">Manage your account and subscription</p>
               </div>
               <div className="shrink-0">
                 <TutorialButton screen="settings" />
               </div>
             </div>
-            {/* Tabs - same styling as Brand Kit */}
-            <div className="mt-4 pt-2">
-              <TabsList className="inline-flex w-max flex-wrap gap-4 md:gap-6 h-auto p-0 bg-transparent border-0 rounded-none">
+            {/* Tabs - no outer pill (wander); active = black fill + white text; scrollable on mobile */}
+            <div className="mt-4 w-full lg:w-max overflow-x-auto">
+              <TabsList className="flex flex-nowrap gap-2 p-0 bg-transparent border-0 rounded-none w-max min-w-full lg:min-w-0 h-auto">
                 <TabsTrigger
                   value="subscription"
-                  className="text-xs md:text-sm whitespace-nowrap rounded-none border-b-2 border-transparent data-[state=active]:border-black data-[state=active]:bg-transparent data-[state=active]:shadow-none px-0 pb-2 -mb-px text-muted-foreground data-[state=active]:text-foreground data-[state=active]:font-semibold font-medium"
+                  className="flex-shrink-0 text-xs md:text-sm rounded-full border-0 px-3 lg:px-4 py-2 font-medium whitespace-nowrap data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground data-[state=active]:bg-black data-[state=active]:text-white data-[state=active]:shadow-sm"
                 >
                   Subscription
                 </TabsTrigger>
                 <TabsTrigger
                   value="account"
-                  className="text-xs md:text-sm whitespace-nowrap rounded-none border-b-2 border-transparent data-[state=active]:border-black data-[state=active]:bg-transparent data-[state=active]:shadow-none px-0 pb-2 -mb-px text-muted-foreground data-[state=active]:text-foreground data-[state=active]:font-semibold font-medium"
+                  className="flex-shrink-0 text-xs md:text-sm rounded-full border-0 px-3 lg:px-4 py-2 font-medium whitespace-nowrap data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground data-[state=active]:bg-black data-[state=active]:text-white data-[state=active]:shadow-sm"
                 >
                   Account
                 </TabsTrigger>
                 <TabsTrigger
                   value="profile"
-                  className="text-xs md:text-sm whitespace-nowrap rounded-none border-b-2 border-transparent data-[state=active]:border-black data-[state=active]:bg-transparent data-[state=active]:shadow-none px-0 pb-2 -mb-px text-muted-foreground data-[state=active]:text-foreground data-[state=active]:font-semibold font-medium"
+                  className="flex-shrink-0 text-xs md:text-sm rounded-full border-0 px-3 lg:px-4 py-2 font-medium whitespace-nowrap data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground data-[state=active]:bg-black data-[state=active]:text-white data-[state=active]:shadow-sm"
                 >
                   Profile
                 </TabsTrigger>
                 <TabsTrigger
                   value="images-video"
-                  className="text-xs md:text-sm whitespace-nowrap rounded-none border-b-2 border-transparent data-[state=active]:border-black data-[state=active]:bg-transparent data-[state=active]:shadow-none px-0 pb-2 -mb-px text-muted-foreground data-[state=active]:text-foreground data-[state=active]:font-semibold font-medium"
+                  className="flex-shrink-0 text-xs md:text-sm rounded-full border-0 px-3 lg:px-4 py-2 font-medium whitespace-nowrap data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground data-[state=active]:bg-black data-[state=active]:text-white data-[state=active]:shadow-sm"
                 >
                   Images & Video
                 </TabsTrigger>
                 <TabsTrigger
                   value="voice"
-                  className="text-xs md:text-sm whitespace-nowrap rounded-none border-b-2 border-transparent data-[state=active]:border-black data-[state=active]:bg-transparent data-[state=active]:shadow-none px-0 pb-2 -mb-px text-muted-foreground data-[state=active]:text-foreground data-[state=active]:font-semibold font-medium"
+                  className="flex-shrink-0 text-xs md:text-sm rounded-full border-0 px-3 lg:px-4 py-2 font-medium whitespace-nowrap data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground data-[state=active]:bg-black data-[state=active]:text-white data-[state=active]:shadow-sm"
                 >
                   Voice
                 </TabsTrigger>
                 <TabsTrigger
                   value="preferences"
-                  className="text-xs md:text-sm whitespace-nowrap rounded-none border-b-2 border-transparent data-[state=active]:border-black data-[state=active]:bg-transparent data-[state=active]:shadow-none px-0 pb-2 -mb-px text-muted-foreground data-[state=active]:text-foreground data-[state=active]:font-semibold font-medium"
+                  className="flex-shrink-0 text-xs md:text-sm rounded-full border-0 px-3 lg:px-4 py-2 font-medium whitespace-nowrap data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground data-[state=active]:bg-black data-[state=active]:text-white data-[state=active]:shadow-sm"
                 >
                   Preferences
                 </TabsTrigger>
@@ -94,8 +94,8 @@ export const SettingsPage = () => {
           </div>
         </div>
 
-        {/* Content */}
-        <div className="px-2 md:px-3 lg:px-4 py-4 md:py-6">
+        {/* Content - wander-style px-4 */}
+        <div className="px-4 py-4 lg:py-5">
           <TabsContent value="subscription" className="mt-0">
             <SubscriptionPage hideHeader />
           </TabsContent>

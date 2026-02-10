@@ -8,11 +8,9 @@ import { MyContentPage } from "@/components/pages/MyContentPage";
 import { CreateAdFlowModal } from "@/components/pages/CreateAdFlowModal";
 import { OnboardingPricingModal } from "@/components/OnboardingPricingModal";
 import { PricingModal } from "@/components/PricingModal";
-import { Loader2, Menu } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { dvybApi } from "@/lib/api";
 import { trackLimitsReached } from "@/lib/mixpanel";
-import Image from "next/image";
-import dvybLogo from "@/assets/dvyb-logo.png";
 import { useOnboardingGuide } from "@/hooks/useOnboardingGuide";
 import { useToast } from "@/hooks/use-toast";
 
@@ -63,21 +61,11 @@ function ContentLibraryPageInner() {
       if (data.success && data.data) {
         setUsageData(data.data);
         if (data.data.isAccountActive === false) return;
-        if (data.data.mustSubscribeToFreemium) {
-          setMustSubscribeToFreemium(true);
-          setQuotaType("both");
-          setCanSkipPricingModal(false);
-          trackLimitsReached("content_library_sidebar", "both");
-          setShowUpgradePricingModal(true);
-          return;
-        }
-        setMustSubscribeToFreemium(false);
+        // Same as Discover/Brands: quota takes precedence; only show pricing when no images left
         const noImagesLeft = data.data.remainingImages === 0;
         if (noImagesLeft) {
-          setQuotaType("both");
-          setCanSkipPricingModal(false);
           trackLimitsReached("content_library_sidebar", "both");
-          setShowUpgradePricingModal(true);
+          setShowPricingModal(true);
         } else {
           setShowCreateAdFlow(true);
         }
@@ -201,7 +189,7 @@ function ContentLibraryPageInner() {
   }
 
   return (
-    <div className="flex h-screen bg-[hsl(var(--app-content-bg))] overflow-hidden">
+    <div className="flex flex-col lg:flex-row h-screen bg-[hsl(var(--app-content-bg))] overflow-hidden">
       <AppSidebar
         activeView={activeView}
         activeSubView={activeSubView}
@@ -214,21 +202,7 @@ function ContentLibraryPageInner() {
         onCreateAd={handleCreateAdFromSidebar}
       />
 
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="md:hidden flex items-center justify-between px-4 py-3 border-b border-border bg-[hsl(var(--app-content-bg))]">
-          <button
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="p-2 hover:bg-muted rounded-lg transition-colors"
-            aria-label="Toggle menu"
-          >
-            <Menu className="w-6 h-6 text-foreground" />
-          </button>
-          <div className="flex items-center gap-2">
-            <Image src={dvybLogo} alt="Dvyb Logo" width={80} height={32} className="object-contain" priority />
-          </div>
-          <div className="w-10" />
-        </div>
-
+      <div className="flex-1 flex flex-col overflow-hidden overflow-y-auto pb-24 lg:pb-0 order-2 min-h-0">
         <div className="flex-1 flex flex-col min-h-0">
           <MyContentPage
             activeTab={activeSubView}
@@ -244,7 +218,8 @@ function ContentLibraryPageInner() {
       <OnboardingPricingModal
         open={showPricingModal}
         onClose={() => setShowPricingModal(false)}
-        userFlow={userFlow}
+        userFlow={usageData?.initialAcquisitionFlow || userFlow}
+        isOnboardingFlow={true}
       />
 
       <PricingModal

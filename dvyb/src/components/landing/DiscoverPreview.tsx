@@ -105,13 +105,13 @@ export function DiscoverPreview({ onOpenWebsiteModal }: DiscoverPreviewProps) {
   return (
     <section
       id="showcase"
-      className="min-h-screen pt-4 pb-12 relative -mt-2 scroll-mt-20"
+      className="min-h-screen pt-4 pb-8 sm:pb-12 relative -mt-2 scroll-mt-20"
       style={{ background: "var(--gradient-carousel)" }}
     >
       <div className="w-full h-full">
-        {/* Masonry Grid - Full screen height with fade */}
-        <div className="relative h-[calc(100vh-6rem)] overflow-hidden">
-          <div className="columns-[220px] gap-4 px-4">
+        {/* Masonry Grid - responsive columns (wander style) */}
+        <div className="relative h-[calc(100vh-5rem)] sm:h-[calc(100vh-6rem)] overflow-hidden">
+          <div className="columns-[160px] sm:columns-[180px] md:columns-[220px] gap-3 sm:gap-4 px-3 sm:px-4">
             {templates.map((template, index) => (
               <div
                 key={template.id}
@@ -187,15 +187,15 @@ export function DiscoverPreview({ onOpenWebsiteModal }: DiscoverPreviewProps) {
             ))}
           </div>
 
-          {/* Bottom fade overlay with CTA */}
+          {/* Bottom fade overlay with CTA - responsive (wander style) */}
           <div
-            className="absolute bottom-0 left-0 right-0 h-72 flex flex-col items-center justify-end pb-8 gap-4 px-4 z-20"
+            className="absolute bottom-0 left-0 right-0 h-56 sm:h-64 md:h-72 flex flex-col items-center justify-end pb-6 sm:pb-8 gap-3 sm:gap-4 px-4 z-20"
             style={{
               background:
                 "linear-gradient(to bottom, transparent 0%, hsl(var(--secondary) / 0.7) 15%, hsl(var(--secondary) / 0.95) 40%, hsl(var(--secondary)) 60%, hsl(var(--secondary)) 100%)",
             }}
           >
-            <p className="text-xl sm:text-2xl md:text-4xl lg:text-5xl font-display font-bold text-center">
+            <p className="text-lg sm:text-xl md:text-2xl lg:text-4xl xl:text-5xl font-display font-bold text-center px-2">
               <span className="text-cta">Steal</span> your competitor&apos;s ads{" "}
               <span className="text-cta">(legally)</span>
             </p>
@@ -203,7 +203,7 @@ export function DiscoverPreview({ onOpenWebsiteModal }: DiscoverPreviewProps) {
               size="lg"
               type="button"
               onClick={onOpenWebsiteModal}
-              className="bg-cta hover:bg-cta/90 text-cta-foreground px-10 py-7 text-lg font-display font-semibold rounded-full shadow-lg"
+              className="w-full sm:w-auto bg-cta hover:bg-cta/90 text-cta-foreground px-6 py-5 sm:px-10 sm:py-7 text-base sm:text-lg font-display font-semibold rounded-full shadow-lg"
             >
               Create one for your brand
             </Button>

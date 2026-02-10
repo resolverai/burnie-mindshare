@@ -26,7 +26,7 @@ const filterConfig: Record<string, string[]> = {
   Media: ["All", "Image", "Video"],
   Status: ["All", "Active", "Paused", "Draft"],
   Category: ["All", "Fashion", "Food & Beverage", "Tech", "Health", "Retail", "Beauty"],
-  Runtime: ["All", "15s", "30s", "60s", "90s"],
+  Runtime: ["All", "≥ 1d", "≥ 7d", "≥ 30d", "≥ 90d"],
   "Ad Count": ["All", "1-5", "6-10", "11-20", "20+"],
   Country: ["All", "US", "UK", "Canada", "Australia", "Germany"],
   Language: ["All", "English", "Spanish", "French", "German"],
@@ -78,8 +78,11 @@ export function DiscoverScreen({
     () => Object.fromEntries(filterLabels.map((k) => [k, "All"]))
   );
   const [sortBy, setSortBy] = useState<"latest" | "oldest" | "most_ads" | "longest_runtime">("latest");
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
   const videoRefs = useRef<{ [key: number]: HTMLVideoElement | null }>({});
   const loaderRef = useRef<HTMLDivElement | null>(null);
+
+  const activeFilterCount = Object.values(filterValues).filter((v) => v && v !== "All").length;
 
   const fetchAds = useCallback(
     async (page: number, append: boolean) => {
@@ -246,10 +249,10 @@ export function DiscoverScreen({
 
   return (
     <div className="flex flex-col h-full bg-[hsl(var(--app-content-bg))]">
-      {/* Toolbar - heading left, actions right */}
-      <div className="flex flex-col gap-4 px-2 md:px-3 lg:px-4 py-4 md:py-5 border-b border-[hsl(var(--landing-nav-bar-border))] bg-[hsl(var(--app-content-bg))]">
+      {/* Toolbar - proper left/right margin (wander-style px-4) */}
+      <div className="flex flex-col gap-4 px-4 py-4 lg:py-5 border-b border-[hsl(var(--landing-nav-bar-border))] bg-[hsl(var(--app-content-bg))]">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <h1 className="text-2xl md:text-3xl font-bold text-foreground">Discover</h1>
+          <h1 className="text-2xl lg:text-3xl font-bold text-foreground font-display">Discover</h1>
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
@@ -266,23 +269,98 @@ export function DiscoverScreen({
           </div>
         </div>
 
-        {/* Row 1: Search bar - same bg as main content area */}
-        <div className="w-full">
-          <div className="flex items-center gap-3 px-4 py-2.5 max-w-2xl h-10 border border-[hsl(var(--discover-input-border))] rounded-full bg-[hsl(var(--app-content-bg))]"
+        {/* Search bar */}
+        <div className="w-full max-w-2xl">
+          <div className="flex items-center gap-3 px-4 py-2.5 lg:py-3 h-10 border border-[hsl(var(--discover-input-border))] rounded-full bg-[hsl(var(--app-content-bg))]"
           >
-            <Search className="w-4 h-4 flex-shrink-0 text-muted-foreground" />
+            <Search className="w-4 h-4 lg:w-5 lg:h-5 flex-shrink-0 text-muted-foreground" />
             <input
               type="text"
               placeholder="Search brands, keywords..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="flex-1 bg-[hsl(var(--app-content-bg))] outline-none text-sm min-w-0 text-foreground placeholder:text-muted-foreground"
+              className="flex-1 bg-transparent outline-none text-sm min-w-0 text-foreground placeholder:text-muted-foreground"
             />
           </div>
         </div>
 
-        {/* Row 2: Filter pills (left) + Sort (far right) - dropdown menus */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        {/* Mobile/Tablet: Filter + Sort only (wander-style), expandable filters */}
+        <div className="flex items-center gap-2 lg:hidden">
+          <button
+            type="button"
+            onClick={() => setShowMobileFilters(!showMobileFilters)}
+            className="flex items-center gap-1.5 px-4 py-2 h-9 text-sm font-medium rounded-full border border-[hsl(var(--discover-pill-border))] bg-[hsl(var(--discover-pill-bg))] text-foreground hover:opacity-90"
+          >
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showMobileFilters ? "rotate-180" : ""}`} />
+            Filter
+            {activeFilterCount > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 bg-[hsl(var(--landing-cta-orange))] text-white rounded-full text-xs">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center gap-1.5 px-4 py-2 h-9 text-sm font-medium rounded-full border border-[hsl(var(--discover-pill-border))] bg-[hsl(var(--discover-pill-bg))] text-foreground hover:opacity-90"
+              >
+                <ArrowUpDown className="w-3.5 h-3.5" />
+                {sortBy === "latest" ? "Latest" : sortBy === "oldest" ? "Oldest" : sortBy === "most_ads" ? "Most Ads" : "Longest Runtime"}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[160px]">
+              <DropdownMenuItem onClick={() => { setSortBy("latest"); trackDiscoverSortChanged("latest"); }} className={sortBy === "latest" ? "bg-accent/10 font-medium" : ""}>
+                Latest
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { setSortBy("oldest"); trackDiscoverSortChanged("oldest"); }} className={sortBy === "oldest" ? "bg-accent/10 font-medium" : ""}>
+                Oldest
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { setSortBy("most_ads"); trackDiscoverSortChanged("most_ads"); }} className={sortBy === "most_ads" ? "bg-accent/10 font-medium" : ""}>
+                Most Ads
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { setSortBy("longest_runtime"); trackDiscoverSortChanged("longest_runtime"); }} className={sortBy === "longest_runtime" ? "bg-accent/10 font-medium" : ""}>
+                Longest Runtime
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
+        {/* Mobile/Tablet: Collapsible filter pills */}
+        {showMobileFilters && (
+          <div className="flex flex-wrap gap-2 lg:hidden">
+            {filterLabels.map((label) => (
+              <DropdownMenu key={label}>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex items-center gap-2 px-4 py-2 h-9 text-sm font-medium rounded-full border border-[hsl(var(--discover-pill-border))] bg-[hsl(var(--discover-pill-bg))] text-foreground"
+                  >
+                    {label}
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="min-w-[140px]">
+                  {filterConfig[label].map((opt) => (
+                    <DropdownMenuItem
+                      key={opt}
+                      onClick={() => {
+                        setFilterValues((prev) => ({ ...prev, [label]: opt }));
+                        trackDiscoverFilterApplied(label, opt);
+                      }}
+                      className={filterValues[label] === opt ? "bg-accent/10 font-medium" : ""}
+                    >
+                      {opt}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ))}
+          </div>
+        )}
+
+        {/* Desktop: Full filter row + Sort */}
+        <div className="hidden lg:flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap gap-2">
             {filterLabels.map((label) => (
               <DropdownMenu key={label}>
@@ -340,8 +418,8 @@ export function DiscoverScreen({
         </div>
       </div>
 
-      {/* Masonry grid - varying card heights like wanderlust */}
-      <div className="flex-1 overflow-y-auto px-2 md:px-3 lg:px-4 py-4 md:py-5 bg-[hsl(var(--app-content-bg))]">
+      {/* Masonry grid - proper left/right margin (wander-style) */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 lg:py-5 bg-[hsl(var(--app-content-bg))]">
         {isLoading ? (
           <div className="flex justify-center items-center py-24">
             <Loader2 className="w-10 h-10 animate-spin text-muted-foreground" />

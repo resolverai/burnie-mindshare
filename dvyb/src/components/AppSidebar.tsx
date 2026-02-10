@@ -28,6 +28,8 @@ import dvybLogo from "@/assets/dvyb-logo.png";
 import { useAuth } from "@/contexts/AuthContext";
 import { contextApi } from "@/lib/api";
 import { PricingModal } from "@/components/PricingModal";
+import { AppMobileHeader } from "@/components/AppMobileHeader";
+import { AppMobileBottomNav } from "@/components/AppMobileBottomNav";
 import { trackThemeChanged, trackUpgradeButtonClicked } from "@/lib/mixpanel";
 import { useTheme } from "next-themes";
 import { Switch } from "@/components/ui/switch";
@@ -65,12 +67,12 @@ const brandKitSubItems = [
 export const AppSidebar = ({ activeView, activeSubView, onViewChange, isMobileOpen = false, onMobileClose, forceCollapsed = false, onboardingHighlight = null, onHighlightClick, onCreateAd }: AppSidebarProps) => {
   const [myContentExpanded, setMyContentExpanded] = useState(() => activeView === "content-library");
   const [brandKitExpanded, setBrandKitExpanded] = useState(() => activeView === "brand-kit");
-  // Collapsed by default on mobile/tablet, expanded on desktop
+  // Desktop: expanded by default. Mobile/tablet: sidebar is the Sheet (right drawer), so this only affects desktop.
   const [isCollapsed, setIsCollapsed] = useState(() => {
     if (typeof window !== 'undefined') {
-      return window.innerWidth < 1024; // Tailwind's lg breakpoint
+      return window.innerWidth < 1024; // lg breakpoint: below = treat as mobile/tablet (collapsed), >= lg = desktop (expanded)
     }
-    return false;
+    return false; // SSR: assume desktop, expanded
   });
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [planInfo, setPlanInfo] = useState<{
@@ -202,23 +204,32 @@ export const AppSidebar = ({ activeView, activeSubView, onViewChange, isMobileOp
 
   return (
     <>
-      {/* Mobile Overlay */}
+      {/* Mobile Header: full width, order 1 so it stacks above main on mobile; only plan + hamburger (right) */}
+      <div className="w-full flex-shrink-0 order-1 lg:order-none lg:hidden">
+        <AppMobileHeader
+          planInfo={planInfo ? { planName: planInfo.planName, selectedFrequency: planInfo.selectedFrequency, imagePostsLimit: planInfo.imagePostsLimit, videoPostsLimit: planInfo.videoPostsLimit } : null}
+          onUpgrade={() => setShowPricingModal(true)}
+          onLogout={handleLogout}
+          logoUrl={logoUrl}
+        />
+      </div>
+
+      {/* Mobile Overlay - only when sidebar is open (mobile uses header sheet) */}
       {isMobileOpen && (
         <div 
-          className="fixed inset-0 bg-black/50 z-[60] md:hidden"
+          className="fixed inset-0 bg-black/50 z-[60] lg:hidden order-4"
           onClick={onMobileClose}
         />
       )}
 
-      {/* Sidebar */}
+      {/* Desktop only: sidebar on LEFT, expanded by default. z-30 + overflow-visible so chevron stays visible (e.g. on Brand Kit with sticky header). */}
+      <div className="hidden lg:flex lg:flex-shrink-0 lg:order-1 order-4 relative z-30 overflow-visible">
       <aside 
         className={cn(
-          "bg-[hsl(var(--sidebar-wanderlust-bg))] border-r border-sidebar-border h-screen flex flex-col transition-all duration-300 relative",
-          // Mobile: Fixed positioning, slide in/out
-          "fixed md:static top-0 left-0 z-[70]",
-          isMobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
-          // Width based on collapsed state (only applies to tablet/desktop)
-          collapsed ? "w-64 md:w-16" : "w-64"
+          "bg-[hsl(var(--sidebar-wanderlust-bg))] border-r border-sidebar-border h-screen flex flex-col transition-all duration-300 relative overflow-visible",
+          "static top-0 left-0",
+          "w-64",
+          collapsed ? "lg:w-16" : "lg:w-64"
         )}
       >
         {/* Logo Section */}
@@ -276,12 +287,14 @@ export const AppSidebar = ({ activeView, activeSubView, onViewChange, isMobileOp
           </div>
         )}
 
-        {/* Collapse Toggle Button (Hidden on mobile and when force collapsed) */}
+        {/* Collapse/expand chevron on right edge (desktop): sits between sidebar and main; high z so it’s on top */}
         {!forceCollapsed && (
           <button
+            type="button"
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="hidden md:block absolute -right-3 top-20 bg-[hsl(var(--sidebar-wanderlust-selected))] border border-sidebar-border rounded-full p-1 hover:bg-[hsl(var(--sidebar-wanderlust-selected))] hover:brightness-95 transition-colors z-10"
+            className="hidden lg:flex absolute right-0 top-20 -translate-y-1/2 translate-x-1/2 z-[110] items-center justify-center w-7 h-7 rounded-full bg-[hsl(var(--sidebar-wanderlust-selected))] border-2 border-sidebar-border shadow-md hover:bg-[hsl(var(--sidebar-wanderlust-selected))] hover:brightness-95 transition-colors"
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
             {collapsed ? (
               <ChevronRight className="w-4 h-4 text-sidebar-foreground" />
@@ -522,6 +535,12 @@ export const AppSidebar = ({ activeView, activeSubView, onViewChange, isMobileOp
           </button>
         </div>
       </aside>
+      </div>
+
+      {/* Mobile Bottom Nav: full width, order 3 so it stacks below main on mobile */}
+      <div className="w-full flex-shrink-0 order-3 lg:order-none lg:hidden">
+        <AppMobileBottomNav onCreateAd={onCreateAd} />
+      </div>
 
       {/* Pricing Modal */}
       <PricingModal

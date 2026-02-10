@@ -50,21 +50,11 @@ export default function CalendarPage() {
       if (data.success && data.data) {
         setUsageData(data.data);
         if (data.data.isAccountActive === false) return;
-        if (data.data.mustSubscribeToFreemium) {
-          setMustSubscribeToFreemium(true);
-          setQuotaType("both");
-          setCanSkipPricingModal(false);
-          trackLimitsReached("calendar_create", "both");
-          setShowUpgradePricingModal(true);
-          return;
-        }
-        setMustSubscribeToFreemium(false);
+        // Same as Discover/Brands: quota takes precedence; only show pricing when no images left
         const noImagesLeft = data.data.remainingImages === 0;
         if (noImagesLeft) {
-          setQuotaType("both");
-          setCanSkipPricingModal(false);
           trackLimitsReached("calendar_create", "both");
-          setShowUpgradePricingModal(true);
+          setShowPricingModal(true);
         } else {
           setShowCreateAdFlow(true);
         }
@@ -180,7 +170,7 @@ export default function CalendarPage() {
         {/* Calendar Header + Content */}
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex-shrink-0 flex items-center justify-end gap-4 px-4 md:px-6 py-4 border-b border-border bg-[hsl(var(--app-content-bg))]">
-            <h1 className="text-2xl md:text-3xl font-bold mr-auto">Calendar</h1>
+            <h1 className="text-2xl lg:text-3xl font-bold text-foreground font-display mr-auto">Calendar</h1>
             <TutorialButton screen="calendar" />
           </div>
           <div className="flex-1 overflow-y-auto p-4 md:p-6">
@@ -191,7 +181,8 @@ export default function CalendarPage() {
       <OnboardingPricingModal
         open={showPricingModal}
         onClose={() => setShowPricingModal(false)}
-        userFlow={userFlow}
+        userFlow={usageData?.initialAcquisitionFlow || userFlow}
+        isOnboardingFlow={true}
       />
 
       <PricingModal

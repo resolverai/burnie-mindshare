@@ -646,30 +646,19 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
           setShowInactiveAccountDialog(true);
           return;
         }
-        if (data.data.mustSubscribeToFreemium) {
-          setMustSubscribeToFreemium(true);
-          setQuotaType('both');
-          setCanSkipPricingModal(false);
-          trackLimitsReached('content_library_create', 'both');
-          setShowPricingModal(true);
-          return;
-        }
-        setMustSubscribeToFreemium(false);
         if (data.data.isTrialLimitExceeded) {
           trackLimitsReached('content_library_trial', 'both');
           setShowTrialLimitDialog(true);
           return;
         }
-        // Video limits bypassed for now - only check image quota
+        // Same as Discover/Brands: quota takes precedence; only show pricing when no images left
         const noImagesLeft = data.data.remainingImages === 0;
         if (noImagesLeft) {
-          setQuotaType('both');
-          setCanSkipPricingModal(false);
           trackLimitsReached('content_library_create', 'both');
-          setShowPricingModal(true);
-        } else {
-          setShowCreateAdFlow(true);
+          onShowPricingModal?.();
+          return;
         }
+        setShowCreateAdFlow(true);
       } else {
         // API error or no data - proceed to Create Ad flow (same as Discover)
         setShowCreateAdFlow(true);
@@ -727,9 +716,9 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
 
   return (
     <div className="min-h-screen bg-[hsl(var(--app-content-bg))]">
-      {/* Search + Content state tabs + View toggle - Discover style */}
-      <div className="border-b border-border bg-[hsl(var(--app-content-bg))] px-2 md:px-3 lg:px-4 py-4">
-        <div className="max-w-7xl mx-auto flex flex-col gap-4">
+      {/* Search + Content state tabs + View toggle (wander-style px-4) */}
+      <div className="border-b border-border bg-[hsl(var(--app-content-bg))] px-4 py-4 lg:py-5">
+        <div className="flex flex-col gap-4">
           {/* Search bar - same style as Discover */}
           <div className="w-full">
             <div className="flex items-center gap-3 px-4 py-2.5 max-w-2xl h-10 border border-[hsl(var(--discover-input-border))] rounded-full bg-[hsl(var(--app-content-bg))]">
@@ -743,8 +732,8 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
               />
             </div>
           </div>
-          {/* Content state tabs + grid/list toggle (toggle next to Published tab) */}
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Content state tabs + grid/list toggle - hidden for now (functionality preserved) */}
+          <div className="hidden flex flex-wrap items-center gap-2">
             <div className="flex items-center bg-secondary rounded-full p-1">
               {(["all", "draft", "scheduled", "published"] as const).map((tab) => (
                 <button
@@ -782,8 +771,8 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
         </div>
       </div>
 
-      {/* Content Grid */}
-      <div className="max-w-7xl mx-auto px-2 md:px-3 lg:px-4 py-4 md:py-6 pb-24">
+      {/* Content Grid (wander-style px-4) */}
+      <div className="px-4 py-4 lg:py-5 pb-24">
         {allContent.length === 0 && !isLoading ? (
           <div className="text-center py-16">
             <p className="text-muted-foreground">No content found</p>
@@ -828,7 +817,8 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
                       </div>
                     </td>
                     <td className="px-4 py-4">
-                      <Badge className={getStatusColor(item.status)}>{formatStatusLabel(item.status)}</Badge>
+                      {/* Status badge - hidden for now */}
+                      <Badge className={`hidden ${getStatusColor(item.status)}`}>{formatStatusLabel(item.status)}</Badge>
                     </td>
                     <td className="px-4 py-4 text-sm text-muted-foreground">{item.date} {item.time}</td>
                   </tr>
@@ -907,8 +897,9 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
                         className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform"
                       />
                       )}
+                      {/* Status badge - hidden for now */}
                       <Badge
-                        className={`absolute top-2 right-2 z-10 shadow-sm ${getStatusColor(item.status)}`}
+                        className={`hidden absolute top-2 right-2 z-10 shadow-sm ${getStatusColor(item.status)}`}
                       >
                         {formatStatusLabel(item.status)}
                       </Badge>

@@ -2796,7 +2796,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               setShowPostDetail(true);
             };
 
-            const commonCardClasses = "relative rounded-lg overflow-hidden border border-neutral-200/80 bg-white shadow-sm flex flex-col min-h-0 group w-[280px] sm:w-[300px] shrink-0";
+            const commonCardClasses = "relative rounded-lg overflow-hidden border border-neutral-200/80 bg-white shadow-sm flex flex-col min-h-0 group w-[min(100%,280px)] sm:w-[300px] shrink-0";
             const loadingPlaceholder = (
               <div className={`relative min-h-[200px] ${adPreviewTab === "ig_reel" ? "aspect-[9/16]" : adPreviewTab === "facebook" ? "aspect-video" : "aspect-[4/5]"}`}>
                 {post.isFailed ? (
@@ -2827,7 +2827,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               return (
                 <div
                   key={post.id}
-                  className={`${commonCardClasses} w-[260px] sm:w-[280px] cursor-pointer hover:shadow-lg transition-shadow aspect-[9/16] max-h-[min(520px,60vh)] overflow-hidden`}
+                  className={`${commonCardClasses} w-[min(100%,260px)] sm:w-[280px] cursor-pointer hover:shadow-lg transition-shadow aspect-[9/16] max-h-[min(520px,60vh)] overflow-hidden`}
                   onClick={handleCardClick}
                 >
                   {/* Reel-style: full image with overlays on top (like real IG Reels) */}
@@ -2885,7 +2885,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               return (
                 <div
                   key={post.id}
-                  className={`${commonCardClasses} w-[320px] sm:w-[340px] cursor-pointer hover:shadow-lg transition-shadow`}
+                  className={`${commonCardClasses} w-[min(100%,320px)] sm:w-[340px] cursor-pointer hover:shadow-lg transition-shadow`}
                   onClick={handleCardClick}
                 >
                   <div className="w-full flex flex-col bg-white">
@@ -2987,73 +2987,79 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
           };
 
           return (
-            <div className="flex flex-col h-full min-h-0">
-              <div className="text-center mb-2 shrink-0">
-                <h2 className="text-xl sm:text-2xl md:text-3xl font-bold mb-1 text-neutral-900">
+            <div className="flex flex-col h-full min-h-0 px-3 sm:px-0">
+              <div className="text-center mb-2 sm:mb-3 shrink-0 px-1">
+                <h2 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold mb-1 text-neutral-900">
                   {allComplete ? "Your ads are ready — unlock full access" : "Crafting your ad now"}
                 </h2>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-xs sm:text-sm text-muted-foreground">
                   {allComplete
                     ? "Edit, export, and generate more ads by starting your free trial."
                     : "Our AI is generating scroll-stopping ads for your brand"}
                 </p>
               </div>
-              <div className="flex justify-center gap-2 mb-4 shrink-0">
+              {/* Format tabs: wrap on small screens, smaller touch targets on mobile */}
+              <div className="flex flex-wrap justify-center gap-2 mb-3 sm:mb-4 shrink-0">
                 <button
                   type="button"
                   onClick={() => setAdPreviewTab("ig_post")}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  className={`flex items-center gap-1.5 sm:gap-2 px-3 py-2 sm:px-4 sm:py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-colors shrink-0 ${
                     adPreviewTab === "ig_post"
                       ? "bg-neutral-900 text-white"
                       : "bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-50"
                   }`}
                 >
-                  <Instagram className="w-4 h-4" />
+                  <Instagram className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   IG Post
                 </button>
                 <button
                   type="button"
                   onClick={() => setAdPreviewTab("ig_reel")}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  className={`flex items-center gap-1.5 sm:gap-2 px-3 py-2 sm:px-4 sm:py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-colors shrink-0 ${
                     adPreviewTab === "ig_reel"
                       ? "bg-neutral-900 text-white"
                       : "bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-50"
                   }`}
                 >
-                  <Instagram className="w-4 h-4" />
+                  <Instagram className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   IG Reel
                 </button>
                 <button
                   type="button"
                   onClick={() => setAdPreviewTab("facebook")}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  className={`flex items-center gap-1.5 sm:gap-2 px-3 py-2 sm:px-4 sm:py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-colors shrink-0 ${
                     adPreviewTab === "facebook"
                       ? "bg-neutral-900 text-white"
                       : "bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-50"
                   }`}
                 >
-                  <Facebook className="w-4 h-4" />
+                  <Facebook className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   Facebook
                 </button>
               </div>
-              <div className="flex-none flex justify-center items-center gap-4 md:gap-6 py-4 px-1">
-                {displayPosts.map((post, index) => renderAdCard(post, index))}
-              </div>
-              {allComplete && usageData?.hasVisitedDiscover === false && (
-                <div className="flex flex-col items-center mt-6 mb-10 pb-16 shrink-0 gap-3">
-                  <Button
-                    onClick={() => {
-                      trackExploreMoreFeaturesClicked("generate_dialog_onboarding");
-                      onDialogClosed?.();
-                      router.push("/discover");
-                    }}
-                    variant="outline"
-                    className="bg-neutral-900 hover:bg-neutral-800 text-white border-neutral-900 h-12 px-8 rounded-xl"
-                  >
-                    Explore More Features
-                  </Button>
+              {/* Single vertical scroll on mobile: both cards stacked then button at end. Desktop: cards side-by-side, button below. */}
+              <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col">
+                {/* Cards: stacked vertically on mobile (scroll to see both + captions); side-by-side on md+ */}
+                <div className="flex flex-col md:flex-row gap-4 md:gap-6 justify-center items-center py-2 md:py-4 px-2 md:px-1 shrink-0">
+                  {displayPosts.map((post, index) => renderAdCard(post, index))}
                 </div>
-              )}
+                {/* Explore More Features: after both contents when scrolling (mobile) or below cards (desktop) */}
+                {allComplete && usageData?.hasVisitedDiscover === false && (
+                  <div className="flex flex-col items-center pt-6 pb-8 sm:pb-12 md:pt-4 md:mb-10 shrink-0 gap-3 px-2">
+                    <Button
+                      onClick={() => {
+                        trackExploreMoreFeaturesClicked("generate_dialog_onboarding");
+                        onDialogClosed?.();
+                        router.push("/discover");
+                      }}
+                      variant="outline"
+                      className="w-full sm:w-auto bg-neutral-900 hover:bg-neutral-800 text-white border-neutral-900 h-11 sm:h-12 px-6 sm:px-8 rounded-xl text-sm sm:text-base"
+                    >
+                      Explore More Features
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
           );
         }

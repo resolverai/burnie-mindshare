@@ -7,9 +7,7 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { DiscoverScreen } from "@/components/pages/DiscoverScreen";
 import { CreateAdFlowModal, type PreselectedInspiration } from "@/components/pages/CreateAdFlowModal";
 import { OnboardingPricingModal } from "@/components/OnboardingPricingModal";
-import { Loader2, Menu } from "lucide-react";
-import Image from "next/image";
-import dvybLogo from "@/assets/dvyb-logo.png";
+import { Loader2 } from "lucide-react";
 import { dvybApi } from "@/lib/api";
 import { trackLimitsReached } from "@/lib/mixpanel";
 
@@ -154,7 +152,7 @@ function DiscoverPageInner() {
   }
 
   return (
-    <div className="flex h-screen bg-[hsl(var(--app-content-bg))] overflow-hidden">
+    <div className="flex flex-col lg:flex-row h-screen bg-[hsl(var(--app-content-bg))] overflow-hidden">
       <AppSidebar
         activeView={activeView}
         onViewChange={handleViewChange}
@@ -163,21 +161,7 @@ function DiscoverPageInner() {
         onCreateAd={() => handleCreateAd()}
       />
 
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="md:hidden flex items-center justify-between px-4 py-3 border-b border-[hsl(var(--landing-nav-bar-border))] bg-[hsl(var(--app-content-bg))]">
-          <button
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="p-2 hover:bg-muted rounded-lg transition-colors"
-            aria-label="Toggle menu"
-          >
-            <Menu className="w-6 h-6 text-foreground" />
-          </button>
-          <div className="flex items-center gap-2">
-            <Image src={dvybLogo} alt="Dvyb Logo" width={80} height={32} className="object-contain" priority />
-          </div>
-          <div className="w-10" />
-        </div>
-
+      <div className="flex-1 flex flex-col overflow-hidden overflow-y-auto pb-24 lg:pb-0 order-2 min-h-0">
         <DiscoverScreen
           onCreateAd={handleCreateAd}
           hasActiveSubscription={hasActiveSubscription === true}

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Check, Search, Building2, Users, Image as ImageIcon, Loader2 } from "lucide-react";
+import { Check, Search, Building2, Users, Image as ImageIcon, Loader2, X } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { dvybApi } from "@/lib/api";
@@ -182,10 +182,21 @@ export function OnboardingPricingModal({
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) { setHasVisitedDiscover(null); onClose(); } }}>
       <DialogContent
-        className="max-w-md p-0 overflow-hidden"
-        hideCloseButton={false}
+        className="max-w-md w-[95vw] sm:w-full max-h-[90vh] p-0 overflow-hidden flex flex-col"
+        hideCloseButton={true}
       >
-        <div className="p-8">
+        {/* Sticky close button: always visible on mobile when content scrolls */}
+        <div className="sticky top-0 z-10 flex justify-end shrink-0 bg-background pt-3 pr-3 pb-0 pl-0 rounded-t-lg">
+          <button
+            type="button"
+            onClick={() => { setHasVisitedDiscover(null); onClose(); }}
+            className="rounded-full p-2 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto p-6 sm:p-8 pt-2">
           <h2 className="sr-only">Upgrade to {plan?.planName || "Pro"}</h2>
           {loading ? (
             <div className="flex flex-col items-center justify-center py-16">

@@ -208,12 +208,21 @@ const LANGUAGE_MAP: Record<string, string> = {
   French: 'fr',
   German: 'de',
 };
+/** Filter label (from frontend) -> full country name for display */
 const COUNTRY_MAP: Record<string, string> = {
   US: 'United States',
   UK: 'United Kingdom',
   Canada: 'Canada',
   Australia: 'Australia',
   Germany: 'Germany',
+};
+/** Country name -> ISO code (so we can match when DB stores codes e.g. "US", "CA") */
+const COUNTRY_NAME_TO_CODE: Record<string, string> = {
+  'United States': 'US',
+  'United Kingdom': 'UK',
+  Canada: 'CA',
+  Australia: 'AU',
+  Germany: 'DE',
 };
 
 /** Brand context for GPT-4o matching (from dvyb_context or dvyb_website_analysis) */
@@ -468,10 +477,18 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
     }
   }
   if (country && country !== 'All' && country !== 'ALL') {
-    const countryVal = COUNTRY_MAP[country] || country;
-    qb = qb.andWhere("ad.targetCountries::text ILIKE :country", {
-      country: `%${countryVal}%`,
+    // targetCountries in dvyb_brand_ads can be stored as codes ("US", "CA") or names ("United States")
+    const countryName = COUNTRY_MAP[country] || country;
+    const countryCode = COUNTRY_NAME_TO_CODE[countryName] || country;
+    const valuesToMatch = Array.from(new Set([country, countryName, countryCode].filter(Boolean)));
+    const orConditions = valuesToMatch
+      .map((_, i) => `ad.targetCountries @> :countryVal${i}::jsonb`)
+      .join(' OR ');
+    const params: Record<string, string> = {};
+    valuesToMatch.forEach((v, i) => {
+      params[`countryVal${i}`] = JSON.stringify([v]);
     });
+    qb = qb.andWhere(`(${orConditions})`, params);
   }
   if (language && language !== 'All') {
     const langVal = LANGUAGE_MAP[language] || language.toLowerCase().slice(0, 2);

@@ -48,21 +48,11 @@ export default function BrandPlanPage() {
       if (data.success && data.data) {
         setUsageData(data.data);
         if (data.data.isAccountActive === false) return;
-        if (data.data.mustSubscribeToFreemium) {
-          setMustSubscribeToFreemium(true);
-          setQuotaType("both");
-          setCanSkipPricingModal(false);
-          trackLimitsReached("brand_plan_create", "both");
-          setShowUpgradePricingModal(true);
-          return;
-        }
-        setMustSubscribeToFreemium(false);
+        // Same as Discover/Brands: quota takes precedence; only show pricing when no images left
         const noImagesLeft = data.data.remainingImages === 0;
         if (noImagesLeft) {
-          setQuotaType("both");
-          setCanSkipPricingModal(false);
           trackLimitsReached("brand_plan_create", "both");
-          setShowUpgradePricingModal(true);
+          setShowPricingModal(true);
         } else {
           setShowCreateAdFlow(true);
         }
@@ -167,7 +157,7 @@ export default function BrandPlanPage() {
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-7xl mx-auto px-2 md:px-3 lg:px-4 py-4 md:py-6">
             <div className="flex items-center justify-end gap-4 mb-6">
-              <h1 className="text-3xl font-bold text-foreground mr-auto">Brand Plan</h1>
+              <h1 className="text-2xl lg:text-3xl font-bold text-foreground font-display mr-auto">Brand Plan</h1>
               <TutorialButton screen="brand-plan" />
             </div>
             <div className="text-center py-20">
@@ -179,7 +169,8 @@ export default function BrandPlanPage() {
       <OnboardingPricingModal
         open={showPricingModal}
         onClose={() => setShowPricingModal(false)}
-        userFlow={userFlow}
+        userFlow={usageData?.initialAcquisitionFlow || userFlow}
+        isOnboardingFlow={true}
       />
 
       <PricingModal

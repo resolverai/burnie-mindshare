@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { productsApi, brandsApi, adhocGenerationApi, contextApi } from "@/lib/api";
 import { trackCreateAdFlowRelevantAdsFetched } from "@/lib/mixpanel";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import { GenerateContentDialog } from "@/components/onboarding/GenerateContentDialog";
 
 type Step = "product" | "ad" | "generating";
@@ -36,13 +37,13 @@ interface DiscoverAd {
 
 const ALLOWED_PRODUCT_IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
 
-// Choose Product modal: dimensions for 3 columns grid with scroll
+// Choose Product modal: responsive; 2-col grid on mobile/tablet, 3-col on desktop
 const productModalClass =
-  "w-[min(90vw,560px)] h-[min(85vh,640px)] flex flex-col p-0 gap-0 bg-[hsl(0,0%,98%)] border-neutral-200/80 text-neutral-900 rounded-2xl shadow-xl overflow-hidden";
+  "w-[min(95vw,560px)] max-h-[90vh] sm:max-h-[85vh] h-[min(90vh,640px)] flex flex-col p-0 gap-0 bg-[hsl(0,0%,98%)] border-neutral-200/80 text-neutral-900 rounded-2xl shadow-xl overflow-hidden";
 
-// Choose Ad modal: width matches floating bar (90vw)
+// Choose Ad modal: responsive; stacks on mobile/tablet, side-by-side on desktop
 const adModalClass =
-  "w-[90vw] max-w-[90vw] h-[min(90vh,680px)] min-h-[min(90vh,680px)] flex flex-col p-0 gap-0 bg-[hsl(0,0%,98%)] border-neutral-200/80 text-neutral-900 rounded-2xl shadow-xl overflow-hidden";
+  "w-[95vw] sm:w-[90vw] max-w-[95vw] sm:max-w-[90vw] max-h-[90vh] h-[min(90vh,680px)] min-h-[min(80vh,500px)] flex flex-col p-0 gap-0 bg-[hsl(0,0%,98%)] border-neutral-200/80 text-neutral-900 rounded-2xl shadow-xl overflow-hidden";
 
 export interface PreselectedInspiration {
   imageUrl: string | null;
@@ -85,6 +86,8 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
   const [isUploading, setIsUploading] = useState(false);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /** On mobile/tablet: which inspiration tab is active ("templates" | "custom") */
+  const [inspirationTab, setInspirationTab] = useState<"templates" | "custom">("templates");
 
   // Generating
   const [showGenerateDialog, setShowGenerateDialog] = useState(false);
@@ -479,14 +482,14 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
                 className="hidden"
                 onChange={handleProductFileSelect}
               />
-              <div className="px-6 py-4 border-b border-border shrink-0">
-                <h2 className="text-xl font-bold mb-2 text-center text-neutral-900">
+              <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-border shrink-0">
+                <h2 className="text-lg sm:text-xl font-bold mb-1.5 sm:mb-2 text-center text-neutral-900">
                   Choose a product to recreate this ad
                 </h2>
-                <p className="text-muted-foreground text-center text-sm mb-2">
+                <p className="text-muted-foreground text-center text-xs sm:text-sm mb-1.5 sm:mb-2">
                   Select the product you want to create an ad for
                 </p>
-                <p className="text-muted-foreground text-center text-xs mb-4">
+                <p className="text-muted-foreground text-center text-xs mb-3 sm:mb-4">
                   Drag and drop an image onto the Add Product card, or click to browse
                 </p>
                 <div className="flex items-center gap-3 bg-neutral-100 rounded-full px-4 py-2.5 border border-neutral-200 max-w-md mx-auto">
@@ -501,7 +504,7 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
                 </div>
               </div>
               <div
-                className={`flex-1 min-h-0 overflow-y-auto p-6 flex flex-col transition-colors ${
+                className={`flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 flex flex-col transition-colors ${
                   isProductDraggingOver ? "bg-primary/5 border-2 border-dashed border-primary rounded-lg" : ""
                 }`}
                 onDragOver={handleProductDragOver}
@@ -532,7 +535,7 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
                   </div>
                 ) : (
                   <>
-                    <div className="grid grid-cols-3 gap-3 content-start items-start pb-4">
+                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3 content-start items-start pb-4">
                       <button
                         type="button"
                         onClick={() => !isProductUploading && productFileInputRef.current?.click()}
@@ -598,7 +601,7 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
                   </>
                 )}
               </div>
-              <div className="px-6 py-4 border-t border-border flex items-center justify-between">
+              <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-border flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
                   onClick={() => productFileInputRef.current?.click()}
@@ -612,7 +615,7 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
                   )}
                   Add new product
                 </button>
-                <div className="flex gap-2">
+                <div className="flex gap-2 ml-auto">
                   <Button variant="outline" onClick={() => onOpenChange(false)}>
                     Cancel
                   </Button>
@@ -631,18 +634,45 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
           {/* Step 2: Choose Ad to Replicate - Left/Right split, no scroll */}
           {step === "ad" && (
             <>
-              <div className="px-6 py-4 border-b border-border shrink-0">
-                <h2 className="text-xl font-bold mb-1 text-center text-neutral-900">
+              <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-border shrink-0">
+                <h2 className="text-lg sm:text-xl font-bold mb-1 text-center text-neutral-900">
                   Choose an ad to replicate
                 </h2>
-                <p className="text-muted-foreground text-center text-sm">
+                <p className="text-muted-foreground text-center text-xs sm:text-sm">
                   Select from templates or add your own inspiration
                 </p>
               </div>
 
-              <div className="flex-1 min-h-0 flex overflow-hidden">
-                {/* Left: Ad creative templates - scrollable when more images */}
-                <div className="flex-1 min-w-0 flex flex-col p-5 min-h-0">
+              {/* Mobile/tablet: tab bar for Select inspiration vs Custom Inspiration */}
+              <div className="lg:hidden flex items-center gap-1 p-2 bg-secondary rounded-full mx-4 mb-2 border border-border">
+                <button
+                  type="button"
+                  onClick={() => setInspirationTab("templates")}
+                  className={`flex-1 py-2.5 px-3 rounded-full text-sm font-medium transition-all ${
+                    inspirationTab === "templates" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Select inspiration
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInspirationTab("custom")}
+                  className={`flex-1 py-2.5 px-3 rounded-full text-sm font-medium transition-all ${
+                    inspirationTab === "custom" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Custom Inspiration
+                </button>
+              </div>
+
+              <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
+                {/* Left: Ad creative templates - on mobile/tablet only visible when tab is "templates" */}
+                <div
+                  className={cn(
+                    "flex-1 min-h-0 min-w-0 flex flex-col p-4 sm:p-5 overflow-hidden",
+                    inspirationTab === "templates" ? "flex" : "hidden lg:flex"
+                  )}
+                >
                   <div className="flex items-center gap-3 bg-neutral-100 rounded-full px-4 py-2.5 border border-neutral-200 mb-4 shrink-0">
                     <Search className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                     <input
@@ -662,8 +692,8 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
                       No ads match your search.
                     </div>
                   ) : (
-                    <div className="flex-1 min-h-0 overflow-y-auto p-3">
-                      <div className="columns-[160px] md:columns-[180px] lg:columns-[200px] gap-4">
+                    <div className="flex-1 min-h-0 overflow-y-auto p-2 sm:p-3">
+                      <div className="columns-2 lg:columns-[200px] gap-3 sm:gap-4">
                         {filteredAds.map((ad) => {
                           const isSelected = selectedAdIds.has(ad.id);
                           const mediaUrl = ad.isVideo ? ad.videoSrc : ad.image;
@@ -717,16 +747,21 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
                   )}
                 </div>
 
-                {/* Center: OR divider */}
-                <div className="relative flex flex-col items-center justify-center w-12 shrink-0 bg-[hsl(0,0%,98%)]">
+                {/* OR divider: desktop only (mobile/tablet use tabs instead) */}
+                <div className="hidden lg:flex relative flex-col items-center justify-center w-12 shrink-0 bg-[hsl(0,0%,98%)]">
                   <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-border" />
                   <span className="relative z-10 bg-[hsl(0,0%,98%)] px-2 text-base font-bold text-muted-foreground">
                     OR
                   </span>
                 </div>
 
-                {/* Right: Custom inspiration + Instructions */}
-                <div className="flex-1 min-w-0 flex flex-col gap-4 p-5 overflow-hidden">
+                {/* Right: Custom inspiration + Instructions; on mobile/tablet only visible when tab is "custom" */}
+                <div
+                  className={cn(
+                    "flex-1 min-h-0 min-w-0 flex flex-col gap-3 sm:gap-4 p-4 sm:p-5 overflow-y-auto",
+                    inspirationTab === "custom" ? "flex" : "hidden lg:flex"
+                  )}
+                >
                   <div className="bg-neutral-100 rounded-xl p-4 border border-neutral-200 shrink-0">
                     <div className="flex items-center gap-2 mb-2">
                       <Upload className="w-4 h-4 text-muted-foreground" />

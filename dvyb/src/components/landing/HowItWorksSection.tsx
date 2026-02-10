@@ -21,25 +21,25 @@ const previewImages = [
 
 export function HowItWorksSection() {
   return (
-    <section id="how-it-works" className="py-24 px-6 scroll-mt-20" style={{ background: "var(--gradient-section-1)" }}>
+    <section id="how-it-works" className="py-16 sm:py-24 px-4 sm:px-6 scroll-mt-20" style={{ background: "var(--gradient-section-1)" }}>
       <div className="container mx-auto">
-        <h2 className="text-3xl md:text-4xl lg:text-5xl font-display font-semibold text-center mb-16">
+        <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-display font-semibold text-center mb-10 sm:mb-16 px-2">
           How it works — <span className="text-cta">3 simple steps</span>
         </h2>
-        <div className="grid md:grid-cols-2 gap-16 items-start">
-          <div className="space-y-12">
+        <div className="grid md:grid-cols-2 gap-10 sm:gap-16 items-start">
+          <div className="space-y-8 sm:space-y-12">
             {steps.map((step, index) => (
               <div
                 key={step.number}
-                className="flex gap-6 animate-slide-in"
+                className="flex gap-4 sm:gap-6 animate-slide-in"
                 style={{ animationDelay: `${index * 0.1}s` }}
               >
-                <span className="text-5xl md:text-6xl font-display font-semibold text-muted-foreground/50">
+                <span className="text-4xl sm:text-5xl md:text-6xl font-display font-semibold text-muted-foreground/50 shrink-0">
                   {step.number}.
                 </span>
-                <div>
-                  <h3 className="text-xl md:text-2xl font-display font-semibold mb-3">{step.title}</h3>
-                  <p className="text-muted-foreground text-base md:text-lg leading-relaxed">
+                <div className="min-w-0">
+                  <h3 className="text-lg sm:text-xl md:text-2xl font-display font-semibold mb-2 sm:mb-3">{step.title}</h3>
+                  <p className="text-muted-foreground text-sm sm:text-base md:text-lg leading-relaxed">
                     {step.highlight ? (
                       <>
                         {step.description.split(step.highlight).map((part, i, arr) => (
@@ -57,23 +57,23 @@ export function HowItWorksSection() {
               </div>
             ))}
           </div>
-          <div className="bg-card rounded-3xl p-8 shadow-card border border-border/50">
-            <div className="flex items-center gap-3 bg-secondary/50 rounded-full px-5 py-3 mb-6 border border-border/50">
-              <Search className="w-4 h-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">Search by industry, format, goal...</span>
+          <div className="bg-card rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 shadow-card border border-border/50">
+            <div className="flex items-center gap-3 bg-secondary/50 rounded-full px-4 sm:px-5 py-2.5 sm:py-3 mb-4 sm:mb-6 border border-border/50">
+              <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+              <span className="text-xs sm:text-sm text-muted-foreground truncate">Search by industry, format, goal...</span>
             </div>
-            <div className="flex gap-2 mb-8">
+            <div className="flex flex-wrap gap-2 mb-4 sm:mb-8">
               {filters.map((filter) => (
                 <button
                   key={filter}
                   type="button"
-                  className="px-4 py-2 text-xs bg-secondary/50 rounded-full hover:bg-secondary transition-colors border border-border/50"
+                  className="px-3 sm:px-4 py-1.5 sm:py-2 text-xs bg-secondary/50 rounded-full hover:bg-secondary transition-colors border border-border/50"
                 >
                   {filter} ▾
                 </button>
               ))}
             </div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-4">
               {previewImages.map((image, i) => (
                 <div
                   key={i}

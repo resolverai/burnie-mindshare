@@ -883,7 +883,7 @@ export const trackThemeChanged = (theme: 'light' | 'dark') => {
 };
 
 // --- UPGRADE ---
-export const trackUpgradeButtonClicked = (source: 'sidebar' | 'pricing_modal' | 'limits_modal' | 'trial_limit' | 'other') => {
+export const trackUpgradeButtonClicked = (source: 'sidebar' | 'mobile_header' | 'pricing_modal' | 'limits_modal' | 'trial_limit' | 'other') => {
   trackEvent('Upgrade Button Clicked', { source });
 };
 

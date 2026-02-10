@@ -391,7 +391,7 @@ export const CalendarView = () => {
           {/* Mobile Header - Stacked Layout */}
           <div className="flex flex-col gap-3 md:hidden">
           <div className="flex items-center justify-between">
-              <h1 className="text-xl font-bold text-foreground">Calendar</h1>
+              <h1 className="text-2xl lg:text-3xl font-bold text-foreground font-display">Calendar</h1>
               <div className="flex items-center gap-1">
                 <Button variant="ghost" size="icon" onClick={handlePreviousWeek}>
                   <ChevronLeft className="w-5 h-5" />
@@ -425,7 +425,7 @@ export const CalendarView = () => {
           {/* Desktop Header - Original Layout */}
           <div className="hidden md:flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <h1 className="text-2xl font-bold text-foreground">Calendar</h1>
+              <h1 className="text-2xl lg:text-3xl font-bold text-foreground font-display">Calendar</h1>
               <div className="flex items-center gap-2">
                 <Button variant="ghost" size="icon" onClick={handlePreviousWeek}>
                   <ChevronLeft className="w-5 h-5" />

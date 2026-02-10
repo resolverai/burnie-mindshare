@@ -298,11 +298,11 @@ export function MyContentPage({
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      {/* Header - Row 1: My Content + Create New */}
+      {/* Header - Row 1: My Content + Create (wander-style px-4, "+ Create" label) */}
       <div className="flex-shrink-0 border-b border-border bg-[hsl(var(--app-content-bg))]">
-          <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-5">
+          <div className="px-4 py-4 lg:py-5">
           <div className="flex flex-row items-center justify-between gap-4">
-            <h1 className="text-2xl lg:text-3xl font-bold">My Content</h1>
+            <h1 className="text-2xl lg:text-3xl font-bold text-foreground font-display">My Content</h1>
             <div className="flex items-center gap-2 shrink-0">
               {activeTab === "my-ads" && (
                 <Button
@@ -310,9 +310,10 @@ export function MyContentPage({
                     trackMyContentCreateNewClicked();
                     contentLibraryCreateNewRef.current?.openCreateNew();
                   }}
-                  className="bg-foreground text-background hover:bg-foreground/90 rounded-lg px-4 py-2 font-medium shrink-0"
+                  className="flex items-center gap-2 bg-foreground text-background hover:bg-foreground/90 rounded-lg px-4 py-2 font-medium shrink-0"
                 >
-                  Create New
+                  <Plus className="w-4 h-4" />
+                  + Create
                 </Button>
               )}
               {activeTab === "my-products" && (
@@ -329,34 +330,32 @@ export function MyContentPage({
               <TutorialButton screen="my-content" />
             </div>
           </div>
-          {/* Row 2: Content type tabs */}
-          <div className="flex items-center mt-4">
-            <div className="flex items-center bg-secondary rounded-full p-1">
-              <button
-                onClick={() => { onTabChange("my-ads"); trackMyContentTabSwitched("my-ads"); }}
-                className={`px-3 lg:px-4 py-2 rounded-full text-xs lg:text-sm font-medium transition-all ${
-                  activeTab === "my-ads" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                My Ads
-              </button>
-              <button
-                onClick={() => { onTabChange("my-products"); trackMyContentTabSwitched("my-products"); }}
-                className={`px-3 lg:px-4 py-2 rounded-full text-xs lg:text-sm font-medium transition-all ${
-                  activeTab === "my-products" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Products
-              </button>
-              <button
-                onClick={() => { onTabChange("saved-ads"); trackMyContentTabSwitched("saved-ads"); }}
-                className={`px-3 lg:px-4 py-2 rounded-full text-xs lg:text-sm font-medium transition-all ${
-                  activeTab === "saved-ads" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Saved
-              </button>
-            </div>
+          {/* Row 2: Content type tabs - justify between on mobile/tablet only; natural width on desktop */}
+          <div className="flex items-center justify-between mt-4 w-full lg:w-max bg-secondary rounded-full p-1">
+            <button
+              onClick={() => { onTabChange("my-ads"); trackMyContentTabSwitched("my-ads"); }}
+              className={`flex-1 lg:flex-initial px-3 lg:px-4 py-2 rounded-full text-xs lg:text-sm font-medium transition-all ${
+                activeTab === "my-ads" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              My Ads
+            </button>
+            <button
+              onClick={() => { onTabChange("my-products"); trackMyContentTabSwitched("my-products"); }}
+              className={`flex-1 lg:flex-initial px-3 lg:px-4 py-2 rounded-full text-xs lg:text-sm font-medium transition-all ${
+                activeTab === "my-products" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Products
+            </button>
+            <button
+              onClick={() => { onTabChange("saved-ads"); trackMyContentTabSwitched("saved-ads"); }}
+              className={`flex-1 lg:flex-initial px-3 lg:px-4 py-2 rounded-full text-xs lg:text-sm font-medium transition-all ${
+                activeTab === "saved-ads" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Saved
+            </button>
           </div>
         </div>
       </div>
@@ -374,7 +373,7 @@ export function MyContentPage({
 
         {activeTab === "my-products" && (
           <div
-            className={`max-w-7xl mx-auto px-4 md:px-6 py-6 min-h-[300px] rounded-xl transition-colors ${
+            className={`px-4 py-6 min-h-[300px] rounded-xl transition-colors ${
               isDraggingOver ? "bg-primary/5 border-2 border-dashed border-primary" : ""
             }`}
             onDrop={handleDrop}
@@ -490,7 +489,7 @@ export function MyContentPage({
         )}
 
         {activeTab === "saved-ads" && (
-          <div className="max-w-7xl mx-auto px-4 md:px-6 py-6">
+          <div className="px-4 py-6">
             {savedLoading ? (
               <div className="flex flex-col items-center justify-center py-20">
                 <Loader2 className="w-10 h-10 animate-spin text-muted-foreground mb-4" />

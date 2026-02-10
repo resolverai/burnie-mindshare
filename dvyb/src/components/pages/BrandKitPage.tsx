@@ -1076,18 +1076,43 @@ export const BrandKitPage = ({ activeTab: controlledTab, onTabChange }: BrandKit
   return (
     <div className="min-h-screen bg-[hsl(var(--app-content-bg))]">
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        {/* Sticky header - Brand Kit: heading + Save (row 1), subheading, tabs (row 2) */}
-        <div className="sticky top-0 z-50 bg-[hsl(var(--app-content-bg))] border-b border-[hsl(var(--landing-nav-bar-border))]">
-          <div className="px-2 md:px-3 lg:px-4 py-4 md:py-5">
-            {/* Row 1: Heading + Tutorial + Save Changes (black) - same horizontal row */}
+        {/* Header: sticky on mobile/tablet (z-10); static on desktop so sidebar chevron stays visible (same as Discover/Brands) */}
+        <div className="sticky top-0 z-10 lg:static bg-[hsl(var(--app-content-bg))] border-b border-[hsl(var(--landing-nav-bar-border))]">
+          <div className="px-4 py-4 lg:py-5">
+            {/* Row 1: Heading only on mobile; heading + buttons on desktop */}
             <div className="flex flex-row items-center justify-between gap-4">
-              <h1 className="text-xl md:text-2xl font-bold text-foreground">Brand Kit</h1>
-              <div className="flex items-center gap-2 shrink-0">
+              <h1 className="text-2xl lg:text-3xl font-bold text-foreground font-display">Brand Kit</h1>
+              <div className="hidden lg:flex items-center gap-2 shrink-0">
+                <Button 
+                  onClick={handleSaveAll}
+                  disabled={isSaving || !hasUnsavedChanges}
+                  size="sm"
+                  className="flex-shrink-0 rounded-full bg-black text-white hover:bg-black/90 border-0 px-4 py-2 h-9 text-sm font-medium"
+                >
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-2" />
+                      Save Changes
+                    </>
+                  )}
+                </Button>
+                <TutorialButton screen="brand-kit" />
+              </div>
+            </div>
+            {/* Subheading */}
+            <p className="text-sm text-muted-foreground mt-1">Manage your brand assets and guidelines</p>
+            {/* Mobile only: Save Changes + Tutorial below subtitle */}
+            <div className="flex lg:hidden items-center gap-2 mt-3">
               <Button 
                 onClick={handleSaveAll}
                 disabled={isSaving || !hasUnsavedChanges}
                 size="sm"
-                className="flex-shrink-0 rounded-full bg-black text-white hover:bg-black/90 border-0 px-4 py-2 h-9 text-sm font-medium"
+                className="rounded-full bg-black text-white hover:bg-black/90 border-0 px-4 py-2 h-9 text-sm font-medium"
               >
                 {isSaving ? (
                   <>
@@ -1101,23 +1126,30 @@ export const BrandKitPage = ({ activeTab: controlledTab, onTabChange }: BrandKit
                   </>
                 )}
               </Button>
-                <TutorialButton screen="brand-kit" />
-              </div>
+              <TutorialButton screen="brand-kit" />
             </div>
-            {/* Subheading */}
-            <p className="text-sm text-muted-foreground mt-1">Manage your brand assets and guidelines</p>
-            {/* Row 2: Tabs */}
-            <div className="mt-4 pt-2">
-              <TabsList className="inline-flex w-max h-auto p-0 bg-transparent gap-6 border-0 rounded-none">
-                <TabsTrigger value="style" className="text-xs md:text-sm whitespace-nowrap rounded-none border-b-2 border-transparent data-[state=active]:border-black data-[state=active]:bg-transparent data-[state=active]:shadow-none px-0 pb-2 -mb-px text-muted-foreground data-[state=active]:text-foreground data-[state=active]:font-semibold font-medium">Style</TabsTrigger>
-                <TabsTrigger value="source-materials" className="text-xs md:text-sm whitespace-nowrap rounded-none border-b-2 border-transparent data-[state=active]:border-black data-[state=active]:bg-transparent data-[state=active]:shadow-none px-0 pb-2 -mb-px text-muted-foreground data-[state=active]:text-foreground data-[state=active]:font-semibold font-medium">Source Materials</TabsTrigger>
+            {/* Tabs - pill style: justify between on mobile/tablet only; natural width on desktop */}
+            <div className="mt-4 pt-2 w-full lg:w-max">
+              <TabsList className="flex w-full lg:w-auto h-auto p-1 bg-secondary rounded-full border-0">
+                <TabsTrigger
+                  value="style"
+                  className="flex-1 lg:flex-initial text-xs md:text-sm rounded-full border-0 px-3 lg:px-4 py-2 font-medium text-center data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground data-[state=active]:bg-foreground data-[state=active]:text-background data-[state=active]:shadow-sm"
+                >
+                  Style
+                </TabsTrigger>
+                <TabsTrigger
+                  value="source-materials"
+                  className="flex-1 lg:flex-initial text-xs md:text-sm rounded-full border-0 px-3 lg:px-4 py-2 font-medium text-center data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground data-[state=active]:bg-foreground data-[state=active]:text-background data-[state=active]:shadow-sm"
+                >
+                  Source Materials
+                </TabsTrigger>
               </TabsList>
             </div>
           </div>
         </div>
 
-        {/* Content */}
-        <div className="px-2 md:px-3 lg:px-4 py-4 md:py-6">
+        {/* Content (wander-style px-4) */}
+        <div className="px-4 py-4 lg:py-5">
 
           {/* Source Materials Tab - Webpages and Integrations only */}
           <TabsContent value="source-materials" className="mt-0">
