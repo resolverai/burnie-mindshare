@@ -3,7 +3,9 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { Search, Check, ArrowRight, Loader2, Upload, Plus } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Search, Check, ArrowRight, Loader2, Upload, Plus, Globe } from "lucide-react";
 import { brandsApi, authApi, contextApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -14,9 +16,21 @@ import {
   trackOnboardingProductChosen,
   trackOnboardingRelevantAdsFetched,
   trackOnboardingInspirationSelected,
+  trackWebsiteAnalysisStarted,
+  trackWebsiteAnalysisCompleted,
 } from "@/lib/mixpanel";
 
-type Step = "inspiration" | "product" | "login";
+const ANALYSIS_STEPS = [
+  { percent: 0, label: "Analyzing your brand identity" },
+  { percent: 20, label: "Studying ads in your industry" },
+  { percent: 35, label: "Learning what converts for similar brands" },
+  { percent: 55, label: "Preparing your ad templates" },
+  { percent: 65, label: "Creating brand profile" },
+  { percent: 85, label: "Downloading product collateral" },
+  { percent: 100, label: "Your brand is ready. Let's create ads." },
+];
+
+type Step = "website" | "analyzing" | "inspiration" | "product" | "login";
 
 interface DiscoverAd {
   id: number;
@@ -32,14 +46,51 @@ interface DiscoverAd {
 
 const ALLOWED_PRODUCT_IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
 
+function normalizeUrl(url: string): string {
+  let u = url.trim();
+  if (!u) return "";
+  if (!/^https?:\/\//i.test(u)) u = "https://" + u;
+  return u;
+}
+
+function isValidWebsiteUrl(input: string): boolean {
+  const value = input.trim();
+  if (!value) return false;
+  const toParse = /^https?:\/\//i.test(value) ? value : "https://" + value;
+  try {
+    const parsed = new URL(toParse);
+    const host = parsed.hostname;
+    if (!host || host.includes(" ")) return false;
+    const parts = host.split(".");
+    if (parts.length < 2) return false;
+    const tld = parts[parts.length - 1];
+    return tld.length >= 2 && /^[a-zA-Z]{2,}$/.test(tld);
+  } catch {
+    return false;
+  }
+}
+
 interface OnboardingFlowModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** When set, modal opens on "analyzing" step with this URL (from Hero); otherwise opens on "website" step. */
+  initialWebsiteUrl?: string | null;
 }
 
-export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalProps) {
+export function OnboardingFlowModal({ open, onOpenChange, initialWebsiteUrl }: OnboardingFlowModalProps) {
   const { toast } = useToast();
-  const [step, setStep] = useState<Step>("product");
+  const [step, setStep] = useState<Step>("website");
+
+  // Website step (when opened without URL from Hero)
+  const [websiteInputUrl, setWebsiteInputUrl] = useState("");
+  const [websiteInputError, setWebsiteInputError] = useState<string | null>(null);
+
+  // Analyzing step
+  const [analyzingUrl, setAnalyzingUrl] = useState<string | null>(null);
+  const [analysisProgress, setAnalysisProgress] = useState(0);
+  const [analysisStepIndex, setAnalysisStepIndex] = useState(0);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const analysisStartTimeRef = useRef<number>(0);
 
   // Inspiration state (discover ads from dvyb_brand_ads)
   const [discoverAds, setDiscoverAds] = useState<DiscoverAd[]>([]);
@@ -70,12 +121,75 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
   useEffect(() => {
     if (!open) return;
     hasFetchedAds.current = false;
-    setStep("product");
     setDomainProductsLoading(true);
     setDomainProducts([]);
     setDomainProductsDone(false);
     setCustomInspirationS3Url(null);
     setCustomInspirationFile(null);
+    setWebsiteInputUrl("");
+    setWebsiteInputError(null);
+    setAnalysisProgress(0);
+    setAnalysisStepIndex(0);
+    setIsAnalyzing(false);
+    if (initialWebsiteUrl?.trim()) {
+      setAnalyzingUrl(initialWebsiteUrl.trim());
+      setStep("analyzing");
+    } else {
+      setAnalyzingUrl(null);
+      setStep("website");
+    }
+  }, [open, initialWebsiteUrl]);
+
+  const analysisStartedRef = useRef(false);
+
+  useEffect(() => {
+    if (!open || step !== "analyzing" || !analyzingUrl?.trim()) return;
+    if (analysisStartedRef.current) return;
+    analysisStartedRef.current = true;
+    const url = normalizeUrl(analyzingUrl);
+    localStorage.setItem("dvyb_pending_website_url", url);
+    trackWebsiteAnalysisStarted(url);
+    analysisStartTimeRef.current = Date.now();
+    setIsAnalyzing(true);
+    setAnalysisProgress(ANALYSIS_STEPS[0].percent);
+    setAnalysisStepIndex(0);
+
+    let stepIdx = 0;
+    const progressInterval = setInterval(() => {
+      if (stepIdx < ANALYSIS_STEPS.length - 1) {
+        stepIdx += 1;
+        setAnalysisStepIndex(stepIdx);
+        setAnalysisProgress(ANALYSIS_STEPS[stepIdx].percent);
+      }
+    }, 1200);
+
+    const run = async () => {
+      try {
+        const response = await contextApi.analyzeWebsiteGuest(url);
+        if (response.success && response.data) {
+          localStorage.setItem("dvyb_website_analysis", JSON.stringify(response.data));
+          trackWebsiteAnalysisCompleted(url, Date.now() - analysisStartTimeRef.current);
+          setAnalysisProgress(100);
+          setAnalysisStepIndex(ANALYSIS_STEPS.length - 1);
+          setTimeout(() => setStep("product"), 800);
+        } else {
+          throw new Error("Website analysis failed");
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Could not analyze your website. Please try again.";
+        toast({ title: "Analysis Failed", description: message, variant: "destructive" });
+      } finally {
+        setIsAnalyzing(false);
+      }
+    };
+    run();
+    return () => {
+      clearInterval(progressInterval);
+    };
+  }, [open, step, analyzingUrl, toast]);
+
+  useEffect(() => {
+    if (!open) analysisStartedRef.current = false;
   }, [open]);
 
   useEffect(() => {
@@ -452,6 +566,22 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
     }
   };
 
+  const handleWebsiteContinue = () => {
+    if (!websiteInputUrl.trim()) {
+      setWebsiteInputError("Please enter your website URL.");
+      return;
+    }
+    if (!isValidWebsiteUrl(websiteInputUrl)) {
+      setWebsiteInputError("Please enter a valid URL (e.g. yourbrand.com or https://yourbrand.com).");
+      return;
+    }
+    setWebsiteInputError(null);
+    const url = normalizeUrl(websiteInputUrl);
+    localStorage.setItem("dvyb_pending_website_url", url);
+    setAnalyzingUrl(url);
+    setStep("analyzing");
+  };
+
   const handleInteractOutside = (e: Event) => {
     const target = e.target as HTMLElement;
     if (target.closest?.("[data-floating-bar]")) {
@@ -465,7 +595,87 @@ export function OnboardingFlowModal({ open, onOpenChange }: OnboardingFlowModalP
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className={modalShellClass} onInteractOutside={handleInteractOutside}>
-        {/* Step 1: Product */}
+        {/* Step: Website (when opened without URL from Hero) */}
+        {step === "website" && (
+          <div className="flex flex-col items-center justify-center flex-1 px-4 sm:px-6 py-8 sm:py-12 min-h-0">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-neutral-200/80 flex items-center justify-center shrink-0 mb-4">
+              <Globe className="w-6 h-6 sm:w-7 sm:h-7 text-neutral-600" />
+            </div>
+            <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-center text-neutral-900 mb-2">
+              Enter your website
+            </h2>
+            <p className="text-xs sm:text-sm text-neutral-600 text-center max-w-md mb-6">
+              We&apos;ll analyze your brand and then take you through product and inspiration.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3 w-full max-w-md">
+              <Input
+                type="text"
+                placeholder="https://yourbrand.com"
+                value={websiteInputUrl}
+                onChange={(e) => {
+                  setWebsiteInputUrl(e.target.value);
+                  if (websiteInputError) setWebsiteInputError(null);
+                }}
+                onKeyDown={(e) => e.key === "Enter" && handleWebsiteContinue()}
+                className="flex-1 min-w-0 h-12 rounded-2xl border-2 bg-white text-neutral-900"
+              />
+              <Button
+                type="button"
+                onClick={handleWebsiteContinue}
+                disabled={!websiteInputUrl.trim()}
+                className="rounded-2xl h-12 px-6 bg-neutral-900 text-white hover:bg-neutral-800"
+              >
+                Continue
+              </Button>
+            </div>
+            {websiteInputError && (
+              <p className="mt-2 text-xs text-red-500 text-center w-full max-w-md">{websiteInputError}</p>
+            )}
+          </div>
+        )}
+
+        {/* Step: Analyzing (after URL from Hero or website step) */}
+        {step === "analyzing" && (
+          <div className="flex flex-col items-center justify-center flex-1 px-4 sm:px-6 py-8 sm:py-12 min-h-0">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-neutral-200/80 flex items-center justify-center shrink-0 mb-4">
+              <Globe className="w-6 h-6 sm:w-7 sm:h-7 text-neutral-600" />
+            </div>
+            <h2 className="text-xl sm:text-2xl font-bold text-center text-neutral-900 mb-4">
+              {analysisProgress === 100 ? "Your brand is ready. Let's create ads." : "Understanding your brand and market"}
+            </h2>
+            <div className="w-full max-w-xl space-y-5">
+              <div className="h-3 bg-neutral-200 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-neutral-900 transition-all duration-300 ease-out rounded-full"
+                  style={{ width: `${analysisProgress}%` }}
+                />
+              </div>
+              <div className="flex flex-wrap justify-center gap-2 sm:gap-3">
+                {ANALYSIS_STEPS.map((s, idx) => (
+                  <div
+                    key={idx}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm transition-all ${
+                      idx < analysisStepIndex
+                        ? "bg-neutral-200 text-neutral-700"
+                        : idx === analysisStepIndex
+                          ? "bg-neutral-900 text-white"
+                          : "bg-neutral-100 text-neutral-500"
+                    }`}
+                  >
+                    {idx < analysisStepIndex && <Check className="w-3.5 h-3.5 shrink-0" />}
+                    <span>{s.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <p className="text-xs text-neutral-500 text-center mt-4 flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+              This takes about 30 seconds
+            </p>
+          </div>
+        )}
+
+        {/* Step: Product */}
         {step === "product" && (
           <>
             <div className="px-4 sm:px-6 py-4 sm:py-6 border-b border-border shrink-0">

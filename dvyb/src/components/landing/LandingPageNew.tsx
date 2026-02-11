@@ -9,6 +9,7 @@ import { NotRegisteredModal } from "./NotRegisteredModal";
 import { DiscoverPreview } from "./DiscoverPreview";
 import { BrandsSection } from "./BrandsSection";
 import { HowItWorksSection } from "./HowItWorksSection";
+import { LandingVideoSection } from "./LandingVideoSection";
 import { FeaturesSection } from "./FeaturesSection";
 import { TestimonialsSection } from "./TestimonialsSection";
 import { FooterLanding } from "./FooterLanding";
@@ -31,19 +32,18 @@ interface LandingPageNewProps {
 }
 
 /**
- * New landing page design for dvyb (website analysis flow).
- * Hero has no website input — only CTAs. Website URL is collected in a modal
- * when the user clicks "Create your first brand ad" or nav "Get Started".
- * After analysis completes, the onboarding flow modal is shown: inspiration → product → login,
- * all in one seamless modal (no close/reopen between steps).
+ * New landing page design for dvyb (wander-connect style).
+ * Hero has website URL input; on submit the unified onboarding modal opens and shows
+ * analysis progress, then product → inspiration → login.
+ * "Get Started" (nav or DiscoverPreview) opens the same modal with website step first.
  * After Google login, user returns here with content generation job - GenerateContentDialog opens automatically.
  */
 export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: LandingPageNewProps) {
   const router = useRouter();
   const { isAuthenticated, isLoading } = useAuth();
   const { completeStep } = useOnboardingGuide();
-  const [websiteModalOpen, setWebsiteModalOpen] = useState(false);
   const [onboardingModalOpen, setOnboardingModalOpen] = useState(false);
+  const [initialWebsiteUrl, setInitialWebsiteUrl] = useState<string | null>(null);
   const [showGenerateDialog, setShowGenerateDialog] = useState(false);
   const [onboardingJobId, setOnboardingJobId] = useState<string | null>(null);
   const [showNotRegisteredModal, setShowNotRegisteredModal] = useState(false);
@@ -105,7 +105,8 @@ export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: 
 
   useEffect(() => {
     if (initialOpenWebsiteModal) {
-      setWebsiteModalOpen(true);
+      setInitialWebsiteUrl(null);
+      setOnboardingModalOpen(true);
     }
   }, [initialOpenWebsiteModal]);
 
@@ -125,19 +126,18 @@ export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: 
   }, [completeStep]);
 
   const handleGetStarted = () => {
-    setOnboardingModalOpen(false);
-    setWebsiteModalOpen(true);
-  };
-
-  const handleWebsiteModalOpenChange = (open: boolean) => {
-    if (open) {
-      setOnboardingModalOpen(false);
-    }
-    setWebsiteModalOpen(open);
-  };
-
-  const handleShowInspirationModal = () => {
+    setInitialWebsiteUrl(null);
     setOnboardingModalOpen(true);
+  };
+
+  const handleOpenOnboardingWithUrl = (url: string) => {
+    setInitialWebsiteUrl(url);
+    setOnboardingModalOpen(true);
+  };
+
+  const handleOnboardingModalOpenChange = (open: boolean) => {
+    setOnboardingModalOpen(open);
+    if (!open) setInitialWebsiteUrl(null);
   };
 
   return (
@@ -146,20 +146,23 @@ export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: 
       <main>
         <HeroSection
           onAnalysisComplete={onAnalysisComplete}
-          onShowInspirationModal={handleShowInspirationModal}
-          websiteModalOpen={websiteModalOpen}
-          onWebsiteModalOpenChange={handleWebsiteModalOpenChange}
+          onOpenOnboardingWithUrl={handleOpenOnboardingWithUrl}
           adCount={adCount}
           floatingTiles={floatingTiles}
         />
         <DiscoverPreview onOpenWebsiteModal={handleGetStarted} />
         <BrandsSection />
-        <HowItWorksSection />
+        <LandingVideoSection />
+        {false && <HowItWorksSection />}
         {false && <FeaturesSection />}
         <TestimonialsSection />
       </main>
       <FooterLanding />
-      <OnboardingFlowModal open={onboardingModalOpen} onOpenChange={setOnboardingModalOpen} />
+      <OnboardingFlowModal
+        open={onboardingModalOpen}
+        onOpenChange={handleOnboardingModalOpenChange}
+        initialWebsiteUrl={initialWebsiteUrl}
+      />
       <NotRegisteredModal
         open={showNotRegisteredModal}
         onOpenChange={setShowNotRegisteredModal}

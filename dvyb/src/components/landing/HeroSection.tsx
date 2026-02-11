@@ -62,6 +62,8 @@ function isValidWebsiteUrl(input: string): boolean {
 interface HeroSectionProps {
   onAnalysisComplete?: (url: string) => void;
   onShowInspirationModal?: () => void;
+  /** When set, URL is collected in Hero and this is called with normalized URL to open unified onboarding modal (wander-connect style). */
+  onOpenOnboardingWithUrl?: (url: string) => void;
   websiteModalOpen?: boolean;
   onWebsiteModalOpenChange?: (open: boolean) => void;
   adCount?: number;
@@ -71,6 +73,7 @@ interface HeroSectionProps {
 export function HeroSection({
   onAnalysisComplete,
   onShowInspirationModal,
+  onOpenOnboardingWithUrl,
   websiteModalOpen,
   onWebsiteModalOpenChange,
   adCount = 0,
@@ -88,16 +91,18 @@ export function HeroSection({
   const router = useRouter();
   const { toast } = useToast();
 
-  // Reset form when website modal opens
+  const useHeroUrlFlow = !!onOpenOnboardingWithUrl;
+
+  // Reset form when website modal opens (only when not using Hero URL flow)
   useEffect(() => {
-    if (isModalOpen) {
+    if (!useHeroUrlFlow && isModalOpen) {
       setWebsiteUrl("");
       setWebsiteError(null);
       setIsAnalyzing(false);
       setCurrentStepIndex(0);
       setCurrentProgress(0);
     }
-  }, [isModalOpen]);
+  }, [useHeroUrlFlow, isModalOpen]);
 
   // Progress steps during analysis
   useEffect(() => {
@@ -118,6 +123,20 @@ export function HeroSection({
     }, 1200);
     return () => clearInterval(stepInterval);
   }, [isAnalyzing]);
+
+  /** When URL is in Hero (wander-connect style): validate and open unified onboarding modal with URL; analysis runs inside modal. */
+  const handleHeroSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!websiteUrl.trim()) return;
+    if (!isValidWebsiteUrl(websiteUrl)) {
+      setWebsiteError("Please enter a valid website URL like yourbrand.com or https://yourbrand.com.");
+      return;
+    }
+    setWebsiteError(null);
+    const normalizedUrl = normalizeUrl(websiteUrl);
+    localStorage.setItem("dvyb_pending_website_url", normalizedUrl);
+    onOpenOnboardingWithUrl?.(normalizedUrl);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -167,7 +186,7 @@ export function HeroSection({
   return (
     <>
       {/* Hero: responsive padding and typography (wander-discover-connect style) */}
-      <section className="relative pt-24 sm:pt-28 pb-6 sm:pb-8 px-4 sm:px-6 overflow-hidden">
+      <section id="hero" className="relative pt-24 sm:pt-28 pb-6 sm:pb-8 px-4 sm:px-6 overflow-hidden">
         {/* Layered background */}
         <div className="absolute inset-0 pointer-events-none" style={{ background: "var(--gradient-hero)" }} />
 
@@ -233,15 +252,43 @@ export function HeroSection({
             </p>
 
             <div className="flex flex-col items-center gap-5 animate-fade-up" style={{ animationDelay: "0.2s" }}>
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(true)}
-                className="group relative w-full sm:w-auto px-8 py-4 sm:px-10 sm:py-5 bg-cta text-cta-foreground rounded-full font-semibold text-base sm:text-lg transition-all duration-300 hover:scale-105"
-                style={{ boxShadow: "0 0 40px -10px hsl(25 100% 55% / 0.5)" }}
-              >
-                <span className="relative z-10">Try for free</span>
-                <div className="absolute inset-0 rounded-full bg-cta opacity-0 group-hover:opacity-100 blur-xl transition-opacity duration-300" />
-              </button>
+              {useHeroUrlFlow ? (
+                <form onSubmit={handleHeroSubmit} className="flex flex-col sm:flex-row gap-3 w-full max-w-xl">
+                  <Input
+                    id="hero-website-input"
+                    type="text"
+                    placeholder="https://yourbrand.com"
+                    value={websiteUrl}
+                    onChange={(e) => {
+                      setWebsiteUrl(e.target.value);
+                      if (websiteError) setWebsiteError(null);
+                    }}
+                    className="flex-1 min-w-0 h-12 sm:h-14 text-base px-4 sm:px-5 rounded-full border-2 border-foreground dark:border-cta bg-card/80 backdrop-blur-sm shadow-soft"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!websiteUrl.trim()}
+                    className="group relative h-12 sm:h-14 px-6 sm:px-8 bg-cta text-cta-foreground rounded-full font-semibold text-base sm:text-lg transition-all duration-300 hover:scale-105 flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-60 disabled:hover:scale-100"
+                    style={{ boxShadow: "0 0 40px -10px hsl(25 100% 55% / 0.5)" }}
+                  >
+                    Try for free
+                    <span aria-hidden>→</span>
+                  </button>
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(true)}
+                  className="group relative w-full sm:w-auto px-8 py-4 sm:px-10 sm:py-5 bg-cta text-cta-foreground rounded-full font-semibold text-base sm:text-lg transition-all duration-300 hover:scale-105"
+                  style={{ boxShadow: "0 0 40px -10px hsl(25 100% 55% / 0.5)" }}
+                >
+                  <span className="relative z-10">Try for free</span>
+                  <div className="absolute inset-0 rounded-full bg-cta opacity-0 group-hover:opacity-100 blur-xl transition-opacity duration-300" />
+                </button>
+              )}
+              {websiteError && useHeroUrlFlow && (
+                <p className="text-xs text-red-500 text-center -mt-2 w-full max-w-xl">{websiteError}</p>
+              )}
               <p className="text-sm text-muted-foreground tracking-wide">
                 Takes ~2 minutes · No credit card required
               </p>
@@ -297,7 +344,8 @@ export function HeroSection({
         </div>
       </section>
 
-      {/* dvyb website modal (replaces wander OnboardingModal) */}
+      {/* dvyb website modal (only when URL is not collected in Hero — e.g. Get Started from nav opens this) */}
+      {!useHeroUrlFlow && (
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
         <DialogContent className="w-[min(96vw,1120px)] sm:w-[min(92vw,1240px)] max-w-none min-h-[min(80vh,560px)] sm:min-h-[min(88vh,720px)] p-4 sm:p-8 md:p-14 lg:p-20 bg-[hsl(0,0%,98%)] border-neutral-200/80 text-neutral-900 rounded-2xl shadow-xl">
           <div className="flex flex-col items-center text-center space-y-4 sm:space-y-5 pt-1 max-w-xl mx-auto">
@@ -397,6 +445,7 @@ export function HeroSection({
           </form>
         </DialogContent>
       </Dialog>
+      )}
     </>
   );
 }
