@@ -684,8 +684,20 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
                     />
                   </div>
                   {adsLoading ? (
-                    <div className="flex justify-center items-center flex-1">
-                      <p className="text-muted-foreground">Loading ads...</p>
+                    <div className="flex flex-col items-center justify-center flex-1 gap-6">
+                      <div className="relative">
+                        <div className="w-16 h-16 rounded-full border-4 border-neutral-200 border-t-neutral-900 animate-spin" />
+                        <div className="absolute inset-0 w-16 h-16 rounded-full border-4 border-transparent border-t-neutral-400 animate-spin" style={{ animationDirection: "reverse", animationDuration: "1.5s" }} />
+                      </div>
+                      <p className="text-muted-foreground text-center max-w-xs">
+                        Please wait… we&apos;re finding ads that match your product.
+                      </p>
+                      <p className="text-xs text-muted-foreground">This usually takes a few seconds</p>
+                    </div>
+                  ) : discoverAds.length === 0 ? (
+                    <div className="flex flex-col justify-center items-center flex-1 text-muted-foreground text-center max-w-sm gap-2 px-4">
+                      <p className="font-medium">No matching ads.</p>
+                      <p className="text-sm">We&apos;re relentlessly enriching our ad library. Come back later — or use &quot;Custom Inspiration&quot; on the right to add your own reference.</p>
                     </div>
                   ) : filteredAds.length === 0 ? (
                     <div className="flex justify-center items-center flex-1 text-muted-foreground text-center">

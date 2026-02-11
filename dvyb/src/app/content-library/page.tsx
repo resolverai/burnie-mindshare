@@ -43,26 +43,12 @@ function ContentLibraryPageInner() {
   const createAdTriggerRef = useRef<(() => void) | null>(null);
 
   const handleCreateAdFromSidebar = useCallback(async () => {
-    // Ad creation: only show pricing when limits exhausted (not when free trial with quota left)
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "https://mindshareapi.burnie.io"}/dvyb/account/usage`,
-        {
-          credentials: "include",
-          headers: {
-            ...(() => {
-              const accountId = localStorage.getItem("dvyb_account_id");
-              return accountId ? { "X-DVYB-Account-ID": accountId } : {};
-            })(),
-          },
-        }
-      );
-      const data = await response.json();
-      if (data.success && data.data) {
-        setUsageData(data.data);
-        if (data.data.isAccountActive === false) return;
-        // Same as Discover/Brands: quota takes precedence; only show pricing when no images left
-        const noImagesLeft = data.data.remainingImages === 0;
+      const res = await dvybApi.account.getUsage();
+      if (res.success && res.data) {
+        setUsageData(res.data);
+        if (res.data.isAccountActive === false) return;
+        const noImagesLeft = res.data.remainingImages === 0;
         if (noImagesLeft) {
           trackLimitsReached("content_library_sidebar", "both");
           setShowPricingModal(true);

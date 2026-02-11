@@ -11,6 +11,8 @@ import { authApi } from "@/lib/api";
 import { trackSignInClicked } from "@/lib/mixpanel";
 import { Loader2, Menu } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 const navItems = [
   { name: "Home", path: "/" },
@@ -39,6 +41,7 @@ export function NavigationLanding({ variant = "default", onGetStarted, showSignI
   const { isAuthenticated, isLoading } = useAuth();
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [signInChoiceOpen, setSignInChoiceOpen] = useState(false);
   const navLinks = hideExplore ? navItems.filter((i) => i.path !== "/explore") : navItems;
   const mobileLinks = hideExplore ? MOBILE_NAV_LINKS.filter((i) => i.path !== "/explore") : MOBILE_NAV_LINKS;
 
@@ -133,7 +136,7 @@ export function NavigationLanding({ variant = "default", onGetStarted, showSignI
             {showSignIn && !isLoading && !isAuthenticated && (
               <button
                 type="button"
-                onClick={handleSignIn}
+                onClick={() => setSignInChoiceOpen(true)}
                 disabled={isSigningIn}
                 className={cn(
                   "px-4 sm:px-5 py-2 sm:py-2.5 rounded-full text-sm font-medium transition-opacity",
@@ -142,11 +145,7 @@ export function NavigationLanding({ variant = "default", onGetStarted, showSignI
                     : "text-muted-foreground hover:text-foreground"
                 )}
               >
-                {isSigningIn ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  "Sign In"
-                )}
+                Sign In
               </button>
             )}
             <button
@@ -160,6 +159,37 @@ export function NavigationLanding({ variant = "default", onGetStarted, showSignI
           </div>
         </div>
       </div>
+
+      <Dialog open={signInChoiceOpen} onOpenChange={setSignInChoiceOpen}>
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-md p-4 sm:p-6 rounded-xl sm:rounded-lg">
+          <p className="text-center text-foreground text-sm sm:text-base px-1">
+            If you have an account with us, press <strong>Proceed</strong>. Otherwise, press <strong>Get Started</strong>.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center mt-4 sm:mt-6">
+            <Button
+              type="button"
+              onClick={() => {
+                setSignInChoiceOpen(false);
+                onGetStarted?.();
+              }}
+              className="w-full sm:w-auto rounded-full px-6 py-2.5 bg-[hsl(var(--landing-cta-orange))] text-white hover:opacity-90 border-0 font-medium"
+            >
+              Get Started
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                setSignInChoiceOpen(false);
+                handleSignIn();
+              }}
+              disabled={isSigningIn}
+              className="w-full sm:w-auto rounded-full px-6 py-2.5 bg-black text-white hover:bg-black/90 border-0 font-medium"
+            >
+              {isSigningIn ? <Loader2 className="w-4 h-4 animate-spin" /> : "Proceed"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </nav>
   );
 }

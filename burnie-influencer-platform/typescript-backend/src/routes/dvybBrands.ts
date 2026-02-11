@@ -336,6 +336,8 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
   let categoriesToFilter: string[] = [];
   let categorySubcategoryPairsToFilter: CategorySubcategoryPair[] = [];
   let brandContext: BrandContextForMatch | undefined;
+  /** True when we used product image for Grok; if Grok returns 0 pairs we return 0 ads (no websiteCategory fallback) */
+  let usedProductImageForGrok = false;
   if (brandContextParam) {
     try {
       const parsed = JSON.parse(decodeURIComponent(brandContextParam)) as BrandContextForMatch;
@@ -364,6 +366,7 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
         .map((r) => ({ category: r.category as string, subcategory: r.subcategory as string }))
         .filter((p) => p.category && p.subcategory);
       if (pairs.length > 0) {
+        usedProductImageForGrok = true;
         categorySubcategoryPairsToFilter = await matchProductToAdsWithGrok(
           productImagePresignedUrl,
           pairs,
@@ -373,9 +376,21 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
           logger.info(
             `Grok matched product image to ${categorySubcategoryPairsToFilter.length} (category, subcategory) pairs`
           );
+        } else {
+          logger.info('Grok returned no related (category, subcategory) pairs for product image — returning 0 ads');
         }
       }
     }
+  }
+
+  // When product image was used and Grok found no related categories, return 0 ads (frontend shows "No matching ads")
+  if (usedProductImageForGrok && categorySubcategoryPairsToFilter.length === 0) {
+    res.json({
+      success: true,
+      data: [],
+      pagination: { page, limit, total: 0, pages: 0 },
+    });
+    return;
   }
 
   if (categorySubcategoryPairsToFilter.length === 0 && websiteCategory) {

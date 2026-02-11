@@ -628,46 +628,32 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
 
   const handleCreateNewClick = useCallback(async () => {
     trackGenerateContentClicked('content_library');
-    // Ad creation: only show pricing when limits exhausted (not when free trial with quota left)
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/usage`, {
-        credentials: 'include',
-        headers: {
-          ...(() => {
-            const accountId = localStorage.getItem('dvyb_account_id');
-            return accountId ? { 'X-DVYB-Account-ID': accountId } : {};
-          })(),
-        },
-      });
-      const data = await response.json();
-      if (data.success && data.data) {
-        setUsageData(data.data);
-        if (data.data.isAccountActive === false) {
+      const res = await accountApi.getUsage();
+      if (res.success && res.data) {
+        setUsageData(res.data);
+        if (res.data.isAccountActive === false) {
           setShowInactiveAccountDialog(true);
           return;
         }
-        if (data.data.isTrialLimitExceeded) {
+        if (res.data.isTrialLimitExceeded) {
           trackLimitsReached('content_library_trial', 'both');
           setShowTrialLimitDialog(true);
           return;
         }
-        // Same as Discover/Brands: quota takes precedence; only show pricing when no images left
-        const noImagesLeft = data.data.remainingImages === 0;
+        const noImagesLeft = res.data.remainingImages === 0;
         if (noImagesLeft) {
           trackLimitsReached('content_library_create', 'both');
           onShowPricingModal?.();
           return;
         }
-        setShowCreateAdFlow(true);
-      } else {
-        // API error or no data - proceed to Create Ad flow (same as Discover)
-        setShowCreateAdFlow(true);
       }
+      setShowCreateAdFlow(true);
     } catch (error) {
       console.error('Failed to check usage:', error);
       setShowCreateAdFlow(true);
     }
-  }, []);
+  }, [onShowPricingModal]);
 
   useImperativeHandle(ref, () => ({
     openCreateNew: handleCreateNewClick,
@@ -675,21 +661,9 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
 
   const handleShowUpgradeModalForEdit = useCallback(async () => {
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "https://mindshareapi.burnie.io"}/dvyb/account/usage`,
-        {
-          credentials: "include",
-          headers: {
-            ...(() => {
-              const accountId = localStorage.getItem("dvyb_account_id");
-              return accountId ? { "X-DVYB-Account-ID": accountId } : {};
-            })(),
-          },
-        }
-      );
-      const data = await response.json();
-      if (data.success && data.data) {
-        setUsageData(data.data);
+      const res = await accountApi.getUsage();
+      if (res.success && res.data) {
+        setUsageData(res.data);
         setQuotaType("image");
         setCanSkipPricingModal(false);
         setMustSubscribeToFreemium(false);
@@ -792,10 +766,16 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
                   <tr
                     key={item.id}
                     className="hover:bg-secondary/30 transition-colors cursor-pointer"
-                    onClick={() => {
-                      if (hasActiveSubscription !== true && onShowPricingModal) {
-                        onShowPricingModal();
-                        return;
+                    onClick={async () => {
+                      try {
+                        const res = await accountApi.getUsage();
+                        const canAccess = res.success && res.data?.hasActiveSubscription === true;
+                        if (!canAccess && onShowPricingModal) {
+                          onShowPricingModal();
+                          return;
+                        }
+                      } catch {
+                        if (onShowPricingModal) { onShowPricingModal(); return; }
                       }
                       const isPosted = item.status === "published" || item.status === "posted";
                       trackContentItemClicked(item.contentId, item.image?.includes('.mp4') ? 'video' : 'image', isPosted ? 'posted' : 'scheduled');
@@ -839,32 +819,29 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
                   contentId: item.contentId,
                   postIndex: item.postIndex,
                 });
-                if (hasActiveSubscription === true) {
-                  trackContentItemClicked(item.contentId, isVideo ? 'video' : 'image', isPosted ? 'posted' : 'scheduled');
-                  setSelectedPost(item);
-                  if (isPosted) setShowAnalyticsDialog(true);
-                  else {
-                    setOpenInEditDesignMode(!isVideo);
-                    setShowPostDetail(true);
-                  }
-                  return;
-                }
-                // Free trial: allow edit once after visiting discover; then show pricing
                 try {
-                  const response = await fetch(
-                    `${process.env.NEXT_PUBLIC_API_URL || "https://mindshareapi.burnie.io"}/dvyb/account/usage`,
-                    { credentials: "include", headers: { ...(localStorage.getItem("dvyb_account_id") ? { "X-DVYB-Account-ID": localStorage.getItem("dvyb_account_id")! } : {}) } }
-                  );
-                  const data = await response.json();
-                  if (data.success && data.data) {
-                    const u = data.data;
-                    const shouldBlock = u.hasVisitedDiscover && (u.freeTrialEditSaveCount ?? 0) >= 1;
-                    if (shouldBlock && onShowPricingModal) {
-                      onShowPricingModal();
-                      return;
+                  const res = await accountApi.getUsage();
+                  const u = res.success ? res.data : null;
+                  const hasAccess = u?.hasActiveSubscription === true;
+                  if (hasAccess) {
+                    trackContentItemClicked(item.contentId, isVideo ? 'video' : 'image', isPosted ? 'posted' : 'scheduled');
+                    setSelectedPost(item);
+                    if (isPosted) setShowAnalyticsDialog(true);
+                    else {
+                      setOpenInEditDesignMode(!isVideo);
+                      setShowPostDetail(true);
                     }
+                    return;
                   }
-                } catch { /* allow edit on error */ }
+                  // Free trial: allow edit once after visiting discover; then show pricing
+                  const shouldBlock = u?.hasVisitedDiscover && (u?.freeTrialEditSaveCount ?? 0) >= 1;
+                  if (shouldBlock && onShowPricingModal) {
+                    onShowPricingModal();
+                    return;
+                  }
+                } catch {
+                  if (onShowPricingModal) { onShowPricingModal(); return; }
+                }
                 trackContentItemClicked(item.contentId, isVideo ? 'video' : 'image', isPosted ? 'posted' : 'scheduled');
                 setSelectedPost(item);
                 if (isPosted) setShowAnalyticsDialog(true);
@@ -923,7 +900,7 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
                           size="sm"
                           variant="outline"
                           className="w-full gap-2 bg-background/80 backdrop-blur-sm"
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation();
                             trackContentDownloadClicked({
                               source: 'content_library',
@@ -931,9 +908,15 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
                               contentId: item.contentId,
                               postIndex: item.postIndex,
                             });
-                            if (hasActiveSubscription !== true && onShowPricingModal) {
-                              onShowPricingModal();
-                              return;
+                            try {
+                              const res = await accountApi.getUsage();
+                              const canAccess = res.success && res.data?.hasActiveSubscription === true;
+                              if (!canAccess && onShowPricingModal) {
+                                onShowPricingModal();
+                                return;
+                              }
+                            } catch {
+                              if (onShowPricingModal) { onShowPricingModal(); return; }
                             }
                             if (item.image) downloadMedia(item);
                           }}

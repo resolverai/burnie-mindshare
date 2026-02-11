@@ -32,6 +32,33 @@ function normalizeUrl(url: string): string {
   return normalized;
 }
 
+function isValidWebsiteUrl(input: string): boolean {
+  let value = input.trim();
+  if (!value) return false;
+
+  // Add scheme if missing so URL() can parse it
+  if (!/^https?:\/\//i.test(value)) {
+    value = "https://" + value;
+  }
+
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname;
+    if (!host || host.includes(" ")) return false;
+
+    const parts = host.split(".");
+    if (parts.length < 2) return false; // require something like domain.tld
+
+    const tld = parts[parts.length - 1];
+    if (tld.length < 2) return false;
+    if (!/^[a-zA-Z]{2,}$/.test(tld)) return false; // basic TLD check
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 interface HeroSectionProps {
   onAnalysisComplete?: (url: string) => void;
   onShowInspirationModal?: () => void;
@@ -54,6 +81,7 @@ export function HeroSection({
   const setIsModalOpen = onWebsiteModalOpenChange ?? setInternalOpen;
 
   const [websiteUrl, setWebsiteUrl] = useState("");
+  const [websiteError, setWebsiteError] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [currentProgress, setCurrentProgress] = useState(0);
@@ -64,6 +92,7 @@ export function HeroSection({
   useEffect(() => {
     if (isModalOpen) {
       setWebsiteUrl("");
+      setWebsiteError(null);
       setIsAnalyzing(false);
       setCurrentStepIndex(0);
       setCurrentProgress(0);
@@ -93,6 +122,13 @@ export function HeroSection({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!websiteUrl.trim()) return;
+
+    if (!isValidWebsiteUrl(websiteUrl)) {
+      setWebsiteError("Please enter a valid website URL like yourbrand.com or https://yourbrand.com.");
+      return;
+    }
+
+    setWebsiteError(null);
 
     const normalizedUrl = normalizeUrl(websiteUrl);
     const startTime = Date.now();
@@ -325,9 +361,12 @@ export function HeroSection({
                 <div className="flex flex-col sm:flex-row gap-3 w-full">
                   <Input
                     type="text"
-                    placeholder="Website or Instagram (e.g. yourbrand.com or @you)"
+                    placeholder="Website URL (e.g. yourbrand.com)"
                     value={websiteUrl}
-                    onChange={(e) => setWebsiteUrl(e.target.value)}
+                    onChange={(e) => {
+                      setWebsiteUrl(e.target.value);
+                      if (websiteError) setWebsiteError(null);
+                    }}
                     className={`flex-1 min-w-0 rounded-2xl border-2 bg-white text-sm sm:text-base text-neutral-900 placeholder:text-neutral-400 h-12 sm:h-14 transition-colors focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ${
                       websiteUrl.trim()
                         ? "border-[hsl(var(--landing-accent-orange))]"
@@ -345,7 +384,12 @@ export function HeroSection({
                     <span aria-hidden>→</span>
                   </Button>
                 </div>
-                <p className="text-xs text-neutral-500 text-center">
+                {websiteError && (
+                  <p className="mt-1 text-xs text-red-500 text-center">
+                    {websiteError}
+                  </p>
+                )}
+                <p className="text-xs text-neutral-500 text-center mt-1">
                   This takes about 30 seconds
                 </p>
               </>

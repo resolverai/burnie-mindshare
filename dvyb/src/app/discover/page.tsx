@@ -80,43 +80,23 @@ function DiscoverPageInner() {
 
   const handleCreateAd = useCallback(
     async (inspiration?: PreselectedInspiration) => {
-      // Ad creation: only show pricing when limits exhausted (not when free trial with quota left)
+      setPreselectedInspiration(inspiration ?? null);
       try {
-        const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL || "https://mindshareapi.burnie.io"}/dvyb/account/usage`,
-          {
-            credentials: "include",
-            headers: {
-              ...(() => {
-                const accountId = localStorage.getItem("dvyb_account_id");
-                return accountId ? { "X-DVYB-Account-ID": accountId } : {};
-              })(),
-            },
-          }
-        );
-        const data = await response.json();
-        if (data.success && data.data) {
-          setUsageData(data.data);
-          if (data.data.isAccountActive === false) {
-            return;
-          }
-          // Video limits bypassed for now - only check image quota
-          // If user has remaining images, allow creation (quota takes precedence over mustSubscribeToFreemium)
-          const noImagesLeft = data.data.remainingImages === 0;
+        const res = await dvybApi.account.getUsage();
+        if (res.success && res.data) {
+          setUsageData(res.data);
+          if (res.data.isAccountActive === false) return;
+          const noImagesLeft = res.data.remainingImages === 0;
           if (noImagesLeft) {
             trackLimitsReached("discover_create_ad", "both");
-            setPreselectedInspiration(inspiration ?? null);
             setShowPricingModal(true);
           } else {
-            setPreselectedInspiration(inspiration ?? null);
             setShowCreateAdFlow(true);
           }
         } else {
-          setPreselectedInspiration(inspiration ?? null);
           setShowCreateAdFlow(true);
         }
       } catch {
-        setPreselectedInspiration(inspiration ?? null);
         setShowCreateAdFlow(true);
       }
     },

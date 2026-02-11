@@ -638,7 +638,7 @@ export const trackOnboardingProductChosen = (data: { productIds: number[]; count
   trackEvent('Onboarding Product Chosen', data);
 };
 
-export const trackOnboardingRelevantAdsFetched = (data: { adCount: number }) => {
+export const trackOnboardingRelevantAdsFetched = (data: { adCount: number; websiteUrl?: string }) => {
   trackEvent('Onboarding Relevant Ads Fetched', data);
 };
 

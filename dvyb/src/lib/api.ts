@@ -206,10 +206,28 @@ export const authApi = {
   },
 };
 
+/** Usage/limits response from GET /dvyb/account/usage - use for backend-driven upgrade gating */
+export interface AccountUsageData {
+  hasActiveSubscription?: boolean;
+  remainingImages?: number;
+  remainingVideos?: number;
+  hasVisitedDiscover?: boolean;
+  freeTrialEditSaveCount?: number;
+  mustSubscribeToFreemium?: boolean;
+  isAccountActive?: boolean;
+  initialAcquisitionFlow?: string;
+  [key: string]: unknown;
+}
+
 // Account API
 export const accountApi = {
   async getAccount() {
     return apiRequest<{ success: boolean; data: any }>('/dvyb/account');
+  },
+
+  /** Get current account usage and limits from backend (source of truth for paid status and quotas) */
+  async getUsage() {
+    return apiRequest<{ success: boolean; data: AccountUsageData }>('/dvyb/account/usage');
   },
 
   async updateAccount(data: any) {
@@ -378,6 +396,26 @@ export const contextApi = {
       throw new Error(data.error || 'Upload failed');
     }
     return data.data as { id: number; s3Key: string; image: string };
+  },
+
+  /**
+   * Upload inspiration image as guest (onboarding when no matching ads).
+   * Uses X-DVYB-API-Key so unauthenticated users can add custom inspiration.
+   */
+  async uploadGuestInspirationImage(file: File): Promise<string> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const apiKey = typeof window !== 'undefined' ? process.env.NEXT_PUBLIC_DVYB_ONBOARDING_API_KEY || '' : '';
+    const response = await fetch(`${API_URL}/dvyb/context/upload-guest-inspiration-image`, {
+      method: 'POST',
+      headers: { 'X-DVYB-API-Key': apiKey },
+      body: formData,
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || 'Upload failed');
+    }
+    return data.s3_url as string;
   },
 };
 

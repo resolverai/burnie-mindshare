@@ -423,20 +423,18 @@ async def match_product_to_ads(request: MatchProductToAdsRequest):
             if parts:
                 brand_context_section = "\n\n## Brand Context\n" + "\n".join(parts)
 
-        system_prompt = """You are an expert at matching products to advertising creative styles. Your role is to identify which ad categories and subcategories would be most relevant for a given product image.
+        system_prompt = """You are an expert at matching products to advertising creative styles. Your role is to identify which ad categories and subcategories are somewhat related to a given product image and brand.
 
 You will receive:
 1. A product image (the user's chosen product)
 2. A list of (category, subcategory) pairs from our ad creative database
 3. Optional brand context
 
-Your task: Select which (category, subcategory) combinations would show ads that are MOST RELEVANT and could be shown to the user based on their chosen product.
-
-Consider: product type, style, target audience, visual coherence. Only select pairs that make sense for this product.
+Your task: Return ONLY (category, subcategory) pairs that are somewhat related to the product and brand. Consider product type, industry, target audience, and visual/creative relevance. If a category is completely unrelated (e.g. antivirus software company vs fashion ads), do NOT include it. You are free to return zero pairs if nothing is related—for example, showing fashion ads to an antivirus company is irrelevant, so in that case return empty matched_pairs.
 
 Respond ONLY with valid JSON. No markdown, no explanation outside the JSON."""
 
-        user_prompt = f"""Look at the product image provided. Then select which of these (category, subcategory) pairs from our ad database are most relevant for this product:
+        user_prompt = f"""Look at the product image provided. From the list below, select only (category, subcategory) pairs that are somewhat related to this product and brand. Do not include pairs that are unrelated (e.g. antivirus brand vs fashion/beauty ads).
 {pairs_str}
 {brand_context_section}
 
@@ -448,7 +446,7 @@ Return a JSON object:
   "reasoning": "Brief explanation"
 }}
 
-Select up to the top 20 (category, subcategory) pairs, ordered by relevance with the BEST match at rank 1, second-best at rank 2, and so on. Use EXACT category and subcategory strings from the list above. If none fit well, return empty matched_pairs."""
+Include only pairs that have some relevance. Order by relevance with the best match first, up to 20 pairs. Use EXACT category and subcategory strings from the list. If no categories are related at all, return empty matched_pairs: []."""
 
         try:
             from xai_sdk import Client

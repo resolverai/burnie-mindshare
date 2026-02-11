@@ -379,19 +379,14 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
       
       const fetchUsageData = async () => {
         try {
-          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/usage`, {
-            credentials: 'include',
-          });
-          const data = await response.json();
-          
-          console.log('📊 Usage data fetched:', data.data);
-          
-          if (data.success && data.data) {
-            setUsageData(data.data);
+          const res = await accountApi.getUsage();
+          const data = res.success ? res.data : null;
+          console.log('📊 Usage data fetched:', data);
+          if (data) {
+            setUsageData(data);
             
-            const { remainingImages, remainingVideos } = data.data;
-            
-            // Calculate individual slider max values (capped at 4)
+            const remainingImages = data.remainingImages ?? 0;
+            const remainingVideos = data.remainingVideos ?? 0;
             const maxImages = Math.min(4, remainingImages);
             const maxVideos = Math.min(4, remainingVideos);
             
@@ -430,7 +425,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
             setVideoPostCount([finalVideos]);
             
             // For product shot flow users, set defaults and skip to content_type step
-            if (data.data.initialAcquisitionFlow === 'product_photoshot' && !initialJobId) {
+            if (data.initialAcquisitionFlow === 'product_photoshot' && !initialJobId) {
               console.log('🎯 Product shot flow user detected - setting defaults and skipping to content_type step');
               setSelectedTopic('Product Showcase');
               setSelectedPlatforms(['instagram', 'twitter', 'linkedin']);
@@ -2701,14 +2696,13 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
             ? generatedPosts.slice(0, expectedImageCount ?? generatedPosts.length)
             : generatedPosts.slice(0, 4);
 
-          const hasActiveSubscription = usageData?.hasActiveSubscription === true;
           const renderAdCard = (post: any, index: number) => {
             const isLoading = post.isGenerating || post.isFailed;
             const caption = post.platformTexts?.instagram || post.description || sampleCaptions[index % sampleCaptions.length];
             const contentId = post.generatedContentId || generatedContentId;
             const postIdx = post.postIndex !== undefined ? post.postIndex : parseInt(post.id) - 1;
             const isVideo = post.image && (post.image.includes('.mp4') || post.image.includes('video'));
-            const handleEdit = (e: React.MouseEvent) => {
+            const handleEdit = async (e: React.MouseEvent) => {
               e.stopPropagation();
               trackContentEditClicked({
                 source: 'generate_dialog',
@@ -2716,27 +2710,32 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                 contentId: contentId,
                 postIndex: postIdx,
               });
-              if (hasActiveSubscription) {
-                setSelectedPost(post);
-                setOpenInEditDesignMode(!isVideo);
-                setShowPostDetail(true);
-                return;
-              }
-              // Create ad flow (adFlowMode): free trial can edit once after visiting discover
-              if (adFlowMode) {
-                const shouldBlock = usageData?.hasVisitedDiscover && (usageData?.freeTrialEditSaveCount ?? 0) >= 1;
-                if (shouldBlock) {
+              try {
+                const res = await accountApi.getUsage();
+                const u = res.success ? res.data : null;
+                const hasAccess = u?.hasActiveSubscription === true;
+                if (hasAccess) {
+                  setSelectedPost(post);
+                  setOpenInEditDesignMode(!isVideo);
+                  setShowPostDetail(true);
+                  return;
+                }
+                if (adFlowMode) {
+                  const shouldBlock = u?.hasVisitedDiscover && (u?.freeTrialEditSaveCount ?? 0) >= 1;
+                  if (shouldBlock) {
+                    setShowDownloadPricingModal(true);
+                    return;
+                  }
+                } else {
                   setShowDownloadPricingModal(true);
                   return;
                 }
-              } else {
-                // Onboarding flow: show pricing when no subscription
+                setSelectedPost(post);
+                setOpenInEditDesignMode(!isVideo);
+                setShowPostDetail(true);
+              } catch {
                 setShowDownloadPricingModal(true);
-                return;
               }
-              setSelectedPost(post);
-              setOpenInEditDesignMode(!isVideo);
-              setShowPostDetail(true);
             };
             const handleDownload = async (e: React.MouseEvent) => {
               e.stopPropagation();
@@ -2746,54 +2745,68 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                 contentId: contentId,
                 postIndex: postIdx,
               });
-              if (hasActiveSubscription) {
-                try {
-                  if (contentId != null && postIdx !== undefined && !isNaN(postIdx)) {
-                    await contentLibraryApi.downloadContentMedia(contentId, postIdx, post.title || 'content');
-                  } else if (post.image) {
-                    const url = post.image;
-                    const res = await fetch(url, { mode: 'cors' });
-                    if (!res.ok) throw new Error('Fetch failed');
-                    const blob = await res.blob();
-                    const isVideo = url.includes('.mp4') || url.includes('video');
-                    const ext = isVideo ? '.mp4' : '.' + (url.match(/\.(jpg|jpeg|png|gif|webp)/i)?.[1]?.toLowerCase() || 'png');
-                    const filename = (post.title || 'content').replace(/[^a-z0-9]/gi, '_').slice(0, 40) + ext;
-                    const a = document.createElement('a');
-                    a.href = URL.createObjectURL(blob);
-                    a.download = filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(a.href);
-                  }
-                } catch (err) {
-                  console.error('Download failed:', err);
-                  toast({ title: 'Download failed', description: 'Could not download content', variant: 'destructive' });
-                }
-              } else {
-                setShowDownloadPricingModal(true);
-              }
-            };
-            const handleCardClick = () => {
-              if (hasActiveSubscription) {
-                setSelectedPost(post);
-                setOpenInEditDesignMode(false);
-                setShowPostDetail(true);
-                return;
-              }
-              if (adFlowMode) {
-                const shouldBlock = usageData?.hasVisitedDiscover && (usageData?.freeTrialEditSaveCount ?? 0) >= 1;
-                if (shouldBlock) {
+              let hasAccess = false;
+              try {
+                const res = await accountApi.getUsage();
+                hasAccess = res.success && res.data?.hasActiveSubscription === true;
+                if (!hasAccess) {
                   setShowDownloadPricingModal(true);
                   return;
                 }
-              } else {
-                setShowDownloadPricingModal(true);
-                return;
+                if (contentId != null && postIdx !== undefined && !isNaN(postIdx)) {
+                  await contentLibraryApi.downloadContentMedia(contentId, postIdx, post.title || 'content');
+                } else if (post.image) {
+                  const url = post.image;
+                  const fetchRes = await fetch(url, { mode: 'cors' });
+                  if (!fetchRes.ok) throw new Error('Fetch failed');
+                  const blob = await fetchRes.blob();
+                  const isVideoUrl = url.includes('.mp4') || url.includes('video');
+                  const ext = isVideoUrl ? '.mp4' : '.' + (url.match(/\.(jpg|jpeg|png|gif|webp)/i)?.[1]?.toLowerCase() || 'png');
+                  const filename = (post.title || 'content').replace(/[^a-z0-9]/gi, '_').slice(0, 40) + ext;
+                  const a = document.createElement('a');
+                  a.href = URL.createObjectURL(blob);
+                  a.download = filename;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(a.href);
+                }
+              } catch (err) {
+                if (!hasAccess) {
+                  setShowDownloadPricingModal(true);
+                } else {
+                  console.error('Download failed:', err);
+                  toast({ title: 'Download failed', description: 'Could not download content', variant: 'destructive' });
+                }
               }
-              setSelectedPost(post);
-              setOpenInEditDesignMode(false);
-              setShowPostDetail(true);
+            };
+            const handleCardClick = async () => {
+              try {
+                const res = await accountApi.getUsage();
+                const u = res.success ? res.data : null;
+                const hasAccess = u?.hasActiveSubscription === true;
+                if (hasAccess) {
+                  setSelectedPost(post);
+                  setOpenInEditDesignMode(false);
+                  setShowPostDetail(true);
+                  return;
+                }
+                if (adFlowMode) {
+                  const shouldBlock = u?.hasVisitedDiscover && (u?.freeTrialEditSaveCount ?? 0) >= 1;
+                  if (shouldBlock) {
+                    setShowDownloadPricingModal(true);
+                    return;
+                  }
+                } else {
+                  setShowDownloadPricingModal(true);
+                  return;
+                }
+                setSelectedPost(post);
+                setOpenInEditDesignMode(false);
+                setShowPostDetail(true);
+              } catch {
+                setShowDownloadPricingModal(true);
+              }
             };
 
             const commonCardClasses = "relative rounded-lg overflow-hidden border border-neutral-200/80 bg-white shadow-sm flex flex-col min-h-0 group w-[min(100%,280px)] sm:w-[300px] shrink-0";

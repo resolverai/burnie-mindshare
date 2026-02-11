@@ -675,6 +675,55 @@ router.post(
 );
 
 /**
+ * POST /api/dvyb/context/upload-guest-inspiration-image
+ * Upload inspiration image during onboarding when no matching ads (guest/unauthenticated).
+ * Protected by X-DVYB-API-Key so guests can add custom inspiration before signing in.
+ * Returns presigned URL for use in dvyb_selected_inspirations and content generation.
+ */
+router.post(
+  '/upload-guest-inspiration-image',
+  dvybApiKeyMiddleware,
+  upload.single('file'),
+  async (req, res) => {
+    try {
+      const file = req.file;
+      if (!file) {
+        return res.status(400).json({
+          success: false,
+          error: 'No file uploaded',
+          timestamp: new Date().toISOString(),
+        });
+      }
+      const ext = file.originalname.split('.').pop() || 'jpg';
+      const safeExt = ['jpg', 'jpeg', 'png', 'webp'].includes(ext.toLowerCase()) ? ext.toLowerCase() : 'jpg';
+      const folder = 'dvyb/guest-inspirations';
+
+      const { s3Key } = await s3Service.uploadFile(
+        file.buffer,
+        `inspiration_${Date.now()}.${safeExt}`,
+        file.mimetype,
+        folder
+      );
+
+      const presignedUrl = await s3Service.generatePresignedUrl(s3Key, 3600);
+
+      return res.json({
+        success: true,
+        s3_url: presignedUrl || s3Key,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      logger.error('❌ Upload guest inspiration image error:', error);
+      return res.status(500).json({
+        success: false,
+        error: error.message || 'Upload failed',
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
+);
+
+/**
  * POST /api/dvyb/context/extract-documents
  * Extract text from uploaded documents
  */
