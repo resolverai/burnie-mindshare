@@ -69,6 +69,17 @@ interface DiscoverCard {
 
 const DRAWER_CLOSE_DURATION_MS = 300;
 
+function getColumnCountForWidth(width: number): number {
+  // Match existing breakpoints used by the previous CSS columns:
+  // 1 | sm:2 | md:3 | lg:4 | xl:5 | 2xl:6
+  if (width >= 1536) return 6; // 2xl
+  if (width >= 1280) return 5; // xl
+  if (width >= 1024) return 4; // lg
+  if (width >= 768) return 3; // md
+  if (width >= 640) return 2; // sm
+  return 1;
+}
+
 export function DiscoverScreen({
   onCreateAd,
   hasActiveSubscription = true,
@@ -94,14 +105,80 @@ export function DiscoverScreen({
   const [discoverCategories, setDiscoverCategories] = useState<string[]>([]);
   const [categoryPopoverOpen, setCategoryPopoverOpen] = useState(false);
   const [countryPopoverOpen, setCountryPopoverOpen] = useState(false);
+  const [columnCount, setColumnCount] = useState<number>(() =>
+    typeof window !== "undefined" ? getColumnCountForWidth(window.innerWidth) : 1
+  );
+  const [stableColumns, setStableColumns] = useState<DiscoverCard[][]>(() => [[]]);
   const videoRefs = useRef<{ [key: number]: HTMLVideoElement | null }>({});
   const loaderRef = useRef<HTMLDivElement | null>(null);
+  const prevCardsRef = useRef<DiscoverCard[]>([]);
+  const prevColumnCountRef = useRef<number>(columnCount);
 
   useEffect(() => {
     brandsApi.getDiscoverCategories().then((res) => {
       if (res.success && Array.isArray(res.data)) setDiscoverCategories(res.data);
     }).catch(() => {});
   }, []);
+
+  // Track responsive column count for stable masonry.
+  useEffect(() => {
+    const update = () => setColumnCount(getColumnCountForWidth(window.innerWidth));
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
+  // Stable masonry distribution:
+  // - When cards are appended via infinite scroll, ONLY append new cards into columns (no rebalancing).
+  // - When cards are replaced (filters/search/sort), rebuild columns from scratch.
+  // - When columnCount changes, rebuild columns from scratch (layout change is expected).
+  useEffect(() => {
+    const prevCards = prevCardsRef.current;
+    const prevCount = prevColumnCountRef.current;
+
+    const rebuild = () => {
+      const cols: DiscoverCard[][] = Array.from({ length: columnCount }, () => []);
+      cards.forEach((c, i) => {
+        cols[i % columnCount].push(c);
+      });
+      setStableColumns(cols);
+      prevCardsRef.current = cards;
+      prevColumnCountRef.current = columnCount;
+    };
+
+    if (columnCount !== prevCount) {
+      rebuild();
+      return;
+    }
+
+    // Detect append: previous ids are a prefix of current ids.
+    const isAppend =
+      prevCards.length > 0 &&
+      cards.length > prevCards.length &&
+      prevCards.every((c, i) => cards[i]?.id === c.id);
+
+    if (!isAppend) {
+      rebuild();
+      return;
+    }
+
+    // Append only new cards to the currently shortest column (by item count).
+    setStableColumns((prevCols) => {
+      const cols = prevCols.length === columnCount ? prevCols.map((x) => [...x]) : Array.from({ length: columnCount }, () => []);
+      const newOnes = cards.slice(prevCards.length);
+      for (const c of newOnes) {
+        let minIdx = 0;
+        for (let i = 1; i < cols.length; i++) {
+          if (cols[i].length < cols[minIdx].length) minIdx = i;
+        }
+        cols[minIdx].push(c);
+      }
+      return cols;
+    });
+
+    prevCardsRef.current = cards;
+    prevColumnCountRef.current = columnCount;
+  }, [cards, columnCount]);
 
   const activeFilterCount = Object.values(filterValues).filter((v) => v && v !== "All").length;
 
@@ -602,140 +679,147 @@ export function DiscoverScreen({
             <p className="text-xs mt-1">Ads will appear here once brands are added and approved</p>
           </div>
         ) : (
-        <div className="columns-1 sm:columns-2 md:columns-3 lg:columns-4 xl:columns-5 2xl:columns-6 gap-4 md:gap-5">
-          {cards.map((card, index) => (
-            <div
-              key={card.id}
-              className="mb-4 md:mb-5 break-inside-avoid group relative rounded-xl overflow-hidden bg-card shadow-card hover:shadow-card-hover transition-all cursor-pointer animate-scale-in w-full"
-              style={{ animationDelay: `${Math.min(index * 0.03, 0.5)}s` }}
-              onClick={() => {
-                trackDiscoverAdCardClicked(card.id, card.brandName);
-                handleOpenDetail(card);
-              }}
-              onMouseEnter={() => {
-                setHoveredId(card.id);
-                if (card.videoSrc && videoRefs.current[card.id]) {
-                  videoRefs.current[card.id]?.play().catch(() => {});
-                }
-              }}
-              onMouseLeave={() => {
-                setHoveredId(null);
-                const v = videoRefs.current[card.id];
-                if (v) {
-                  v.pause();
-                  v.currentTime = 0;
-                }
-              }}
-            >
-              <div className="relative">
-                {card.videoSrc ? (
-                  <>
-                    {card.image ? (
-                      <>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={card.image}
-                          alt=""
-                          className={`w-full h-auto block transition-opacity duration-300 ${
-                            hoveredId === card.id ? "opacity-0" : "opacity-100"
-                          }`}
-                        />
-                        <video
-                          ref={(el) => {
-                            videoRefs.current[card.id] = el;
-                          }}
-                          src={card.videoSrc}
-                          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
-                            hoveredId === card.id ? "opacity-100" : "opacity-0"
-                          }`}
-                          muted
-                          playsInline
-                          loop
-                        />
-                      </>
-                    ) : (
-                      <video
-                        ref={(el) => {
-                          videoRefs.current[card.id] = el;
-                        }}
-                        src={card.videoSrc}
-                        className="w-full h-auto block"
-                        muted
-                        playsInline
-                        loop
-                      />
-                    )}
-                  </>
-                ) : card.image ? (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img
-                    src={card.image}
-                    alt=""
-                    className="w-full h-auto block"
-                  />
-                ) : (
-                  <div className="w-full aspect-square bg-neutral-200 flex items-center justify-center text-neutral-500 text-sm">
-                    No preview
-                  </div>
-                )}
-                {/* Time badge - teal pill top-left (new UI) */}
-                <div className="absolute top-2.5 left-2.5">
-                  <span className="px-2.5 py-1 rounded-md bg-teal-600 text-white text-xs font-medium">
-                    {card.timeAgo}
-                  </span>
-                </div>
-                {/* Brand tag - dark or white pill top-right (new UI) */}
-                <div className="absolute top-2.5 right-2.5">
-                  <span className={`px-2.5 py-1 rounded-md text-xs font-medium ${
-                    card.id % 2 === 0
-                      ? "bg-white/95 text-gray-800 border border-gray-200"
-                      : "bg-gray-800/90 text-white"
-                  }`}>
-                    {card.brandLetter} {card.brandName}
-                  </span>
-                </div>
-                {/* Video/Image badge - at bottom, visible when not hovered */}
-                <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full bg-gray-800/80 text-white z-10 opacity-100 group-hover:opacity-0 transition-opacity duration-200">
-                  {card.isVideo ? (
-                    <>
-                      <Video className="w-3 h-3" />
-                      <span className="text-xs font-medium">Video</span>
-                    </>
-                  ) : (
-                    <>
-                      <ImageIcon className="w-3 h-3" />
-                      <span className="text-xs font-medium">Image</span>
-                    </>
-                  )}
-                </div>
-                {/* Create ad using template CTA - visible only on hover, at bottom (match wanderlust) */}
-                <div className="absolute bottom-0 left-0 right-0 p-2.5 flex justify-center bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      trackCreateAdUsingTemplateClicked({
-                        source: 'discover_card',
-                        adId: card.id,
-                        brandName: card.brandName,
-                        isVideo: card.isVideo,
-                      });
-                      onCreateAd?.({
-                        imageUrl: card.image ?? null,
-                        videoUrl: card.videoSrc ?? null,
-                        isVideo: card.isVideo,
-                      });
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-full text-white text-sm font-semibold bg-[hsl(var(--landing-cta-orange))] hover:opacity-90 transition-opacity whitespace-nowrap"
-                  >
-                    <Lock className="w-3.5 h-3.5 flex-shrink-0" />
-                    Create ad using template
-                  </button>
-                </div>
+          <div className="flex gap-4 md:gap-5 items-start">
+            {stableColumns.map((col, colIdx) => (
+              <div key={colIdx} className="flex-1 flex flex-col gap-4 md:gap-5 min-w-0">
+                {col.map((card) => {
+                  const globalIndex = cards.findIndex((c) => c.id === card.id);
+                  return (
+                    <div
+                      key={card.id}
+                      className="break-inside-avoid group relative rounded-xl overflow-hidden bg-card shadow-card hover:shadow-card-hover transition-all cursor-pointer animate-scale-in w-full"
+                      style={{ animationDelay: `${Math.min((globalIndex >= 0 ? globalIndex : 0) * 0.03, 0.5)}s` }}
+                      onClick={() => {
+                        trackDiscoverAdCardClicked(card.id, card.brandName);
+                        handleOpenDetail(card);
+                      }}
+                      onMouseEnter={() => {
+                        setHoveredId(card.id);
+                        if (card.videoSrc && videoRefs.current[card.id]) {
+                          videoRefs.current[card.id]?.play().catch(() => {});
+                        }
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredId(null);
+                        const v = videoRefs.current[card.id];
+                        if (v) {
+                          v.pause();
+                          v.currentTime = 0;
+                        }
+                      }}
+                    >
+                      <div className="relative">
+                        {card.videoSrc ? (
+                          <>
+                            {card.image ? (
+                              <>
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={card.image}
+                                  alt=""
+                                  className={`w-full h-auto block transition-opacity duration-300 ${
+                                    hoveredId === card.id ? "opacity-0" : "opacity-100"
+                                  }`}
+                                />
+                                <video
+                                  ref={(el) => {
+                                    videoRefs.current[card.id] = el;
+                                  }}
+                                  src={card.videoSrc}
+                                  className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
+                                    hoveredId === card.id ? "opacity-100" : "opacity-0"
+                                  }`}
+                                  muted
+                                  playsInline
+                                  loop
+                                />
+                              </>
+                            ) : (
+                              <video
+                                ref={(el) => {
+                                  videoRefs.current[card.id] = el;
+                                }}
+                                src={card.videoSrc}
+                                className="w-full h-auto block"
+                                muted
+                                playsInline
+                                loop
+                              />
+                            )}
+                          </>
+                        ) : card.image ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            src={card.image}
+                            alt=""
+                            className="w-full h-auto block"
+                          />
+                        ) : (
+                          <div className="w-full aspect-square bg-neutral-200 flex items-center justify-center text-neutral-500 text-sm">
+                            No preview
+                          </div>
+                        )}
+                        {/* Time badge - teal pill top-left (new UI) */}
+                        <div className="absolute top-2.5 left-2.5">
+                          <span className="px-2.5 py-1 rounded-md bg-teal-600 text-white text-xs font-medium">
+                            {card.timeAgo}
+                          </span>
+                        </div>
+                        {/* Brand tag - dark or white pill top-right (new UI) */}
+                        <div className="absolute top-2.5 right-2.5">
+                          <span className={`px-2.5 py-1 rounded-md text-xs font-medium ${
+                            card.id % 2 === 0
+                              ? "bg-white/95 text-gray-800 border border-gray-200"
+                              : "bg-gray-800/90 text-white"
+                          }`}>
+                            {card.brandLetter} {card.brandName}
+                          </span>
+                        </div>
+                        {/* Video/Image badge - at bottom, visible when not hovered */}
+                        <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full bg-gray-800/80 text-white z-10 opacity-100 group-hover:opacity-0 transition-opacity duration-200">
+                          {card.isVideo ? (
+                            <>
+                              <Video className="w-3 h-3" />
+                              <span className="text-xs font-medium">Video</span>
+                            </>
+                          ) : (
+                            <>
+                              <ImageIcon className="w-3 h-3" />
+                              <span className="text-xs font-medium">Image</span>
+                            </>
+                          )}
+                        </div>
+                        {/* Create ad using template CTA - visible only on hover, at bottom (match wanderlust) */}
+                        <div className="absolute bottom-0 left-0 right-0 p-2.5 flex justify-center bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              trackCreateAdUsingTemplateClicked({
+                                source: 'discover_card',
+                                adId: card.id,
+                                brandName: card.brandName,
+                                isVideo: card.isVideo,
+                              });
+                              onCreateAd?.({
+                                imageUrl: card.image ?? null,
+                                videoUrl: card.videoSrc ?? null,
+                                isVideo: card.isVideo,
+                              });
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-full text-white text-sm font-semibold bg-[hsl(var(--landing-cta-orange))] hover:opacity-90 transition-opacity whitespace-nowrap"
+                          >
+                            <Lock className="w-3.5 h-3.5 flex-shrink-0" />
+                            Create ad using template
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
         )}
         <div ref={loaderRef} className="flex justify-center py-8">
           {loadingMore && (
