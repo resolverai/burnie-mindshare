@@ -57,6 +57,26 @@ EU_COUNTRY_CODES = [
     "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
 ]
 
+# All ad_reached_countries supported by Meta Ads Archive API (excluding ALL). Used when ALL returns 0.
+# Order: major ad markets first, then rest (Meta docs enum order).
+META_ADS_ARCHIVE_COUNTRY_CODES = [
+    "US", "GB", "CA", "AU", "DE", "FR", "ES", "IT", "NL", "BR", "IN", "MX", "JP", "KR", "SG", "MY", "PH", "ID", "TH", "VN",
+    "AR", "AT", "BE", "BG", "CH", "CL", "CN", "CO", "HR", "CZ", "DK", "DO", "EG", "FI", "GR", "HK", "IE", "IL", "JO", "KW",
+    "LB", "LU", "NG", "NO", "NZ", "PA", "PE", "PK", "PL", "PT", "QA", "RO", "RS", "RU", "SA", "SE", "SI", "SK", "AE", "VE",
+    "BD", "LK", "KE", "HU", "MA", "CY", "JM", "EC", "BO", "GT", "CR", "SV", "HN", "NI", "PY", "UY", "PR", "BA", "PS", "TN",
+    "BH", "GH", "MU", "UA", "MT", "BS", "MV", "OM", "MK", "LV", "EE", "IQ", "DZ", "AL", "NP", "MO", "ME", "SN", "GE", "BN",
+    "UG", "GP", "BB", "AZ", "TZ", "LY", "MQ", "CM", "BW", "ET", "KZ", "NA", "MG", "NC", "MD", "FJ", "BY", "JE", "GU", "YE",
+    "ZM", "IM", "HT", "KH", "AW", "PF", "AF", "BM", "GY", "AM", "MW", "AG", "RW", "GG", "GM", "FO", "LC", "KY", "BJ", "AD",
+    "GD", "VI", "BZ", "VC", "MN", "MZ", "ML", "AO", "GF", "UZ", "DJ", "BF", "MC", "TG", "GL", "GA", "GI", "CD", "KG", "PG",
+    "BT", "KN", "SZ", "LS", "LA", "LI", "MP", "SR", "SC", "VG", "TC", "DM", "MR", "AX", "SM", "SL", "NE", "CG", "AI", "YT",
+    "CV", "GN", "TM", "BI", "TJ", "VU", "SB", "ER", "WS", "AS", "FK", "GQ", "TO", "KM", "PW", "FM", "CF", "SO", "MH", "VA",
+    "TD", "KI", "ST", "TV", "NR", "RE", "LR", "ZW", "CI", "MM", "AN", "AQ", "BQ", "BV", "IO", "CX", "CC", "CK", "CW", "TF",
+    "GW", "HM", "XK", "MS", "NU", "NF", "PN", "BL", "SH", "MF", "PM", "SX", "GS", "SS", "SJ", "TL", "TK", "UM", "WF", "EH", "SY",
+]
+
+# Graph API version for ads_archive and page lookup (v18 can return empty; v21+ often more reliable)
+META_GRAPH_API_VERSION = "v21.0"
+
 # Same logic as TS meta-ads-fetch.ts: running or recent ads with decent reach
 DECENT_REACH_MIN = 1000
 
@@ -839,7 +859,7 @@ def _meta_api_request(url: str, timeout: int = 60) -> dict:
 def resolve_facebook_handle_to_page_id(meta_token: str, handle: str) -> str | None:
     """
     Resolve a Facebook page handle/username (e.g. 'mejuri') to a numeric page_id using Graph API.
-    Uses direct lookup: GET /v18.0/{username}?fields=id,name (same token as ads_archive).
+    Uses direct lookup: GET /{version}/{username}?fields=id,name (same token as ads_archive).
     Returns page_id string or None if resolution fails.
     """
     username = (handle or "").strip().lstrip("@")
@@ -850,7 +870,7 @@ def resolve_facebook_handle_to_page_id(meta_token: str, handle: str) -> str | No
             "fields": "id,name",
             "access_token": meta_token,
         }
-        url = f"https://graph.facebook.com/v18.0/{urllib.parse.quote(username, safe='')}?" + urllib.parse.urlencode(params)
+        url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/{urllib.parse.quote(username, safe='')}?" + urllib.parse.urlencode(params)
         data = _meta_api_request(url)
         pid = data.get("id")
         if pid and str(pid).strip().isdigit():
@@ -915,7 +935,7 @@ def fetch_ads_via_meta_api(
                 params["ad_delivery_date_min"] = ad_delivery_date_min
             if not search_page_ids and media_type and media_type != "both":
                 params["media_type"] = media_type.upper()
-            url = "https://graph.facebook.com/v18.0/ads_archive?" + urllib.parse.urlencode(params)
+            url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/ads_archive?" + urllib.parse.urlencode(params)
             data = _meta_api_request(url)
         return data.get("data") or [], (data.get("paging") or {}).get("next")
 
@@ -952,7 +972,7 @@ def fetch_ads_via_meta_api(
                 params["search_terms"] = search_terms or ""
             if ad_delivery_date_min:
                 params["ad_delivery_date_min"] = ad_delivery_date_min
-            url = "https://graph.facebook.com/v18.0/ads_archive?" + urllib.parse.urlencode(params)
+            url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/ads_archive?" + urllib.parse.urlencode(params)
             data = _meta_api_request(url)
             for ad in (data.get("data") or []):
                 if len(all_ads) >= limit:
@@ -1000,7 +1020,7 @@ def fetch_ads_via_meta_api(
             params["search_terms"] = search_terms or ""
         if ad_delivery_date_min:
             params["ad_delivery_date_min"] = ad_delivery_date_min
-        url = "https://graph.facebook.com/v18.0/ads_archive?" + urllib.parse.urlencode(params)
+        url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/ads_archive?" + urllib.parse.urlencode(params)
         data = _meta_api_request(url)
         page = data.get("data") or []
         for ad in page:
@@ -1012,6 +1032,49 @@ def fetch_ads_via_meta_api(
                 all_ads.append(ad)
         if all_ads:
             print(f"   Got {len(all_ads)} ad(s) without media filter (download will prefer {media_type})")
+
+    # Fallback: when ad_reached_countries=ALL and keyword search returned 0, Meta API sometimes returns empty.
+    # Retry with specific countries (US, ES, GB) without media filter and merge.
+    if (
+        len(all_ads) == 0
+        and not search_page_ids
+        and effective_country == "ALL"
+        and (search_terms or "").strip()
+    ):
+        fallback_countries = META_ADS_ARCHIVE_COUNTRY_CODES
+        print(f"   ad_reached_countries=ALL returned 0 for keyword search; retrying with all supported countries (no media filter)...")
+        for fc in fallback_countries:
+            if len(all_ads) >= limit:
+                break
+            params = {
+                "access_token": meta_token,
+                "ad_reached_countries": json.dumps([fc]),
+                "ad_active_status": (ad_active_status or "ACTIVE").upper(),
+                "fields": ",".join(META_AD_ARCHIVE_FIELDS),
+                "limit": limit_per_request,
+                "search_type": (search_type or "KEYWORD_UNORDERED").upper(),
+                "search_terms": search_terms or "",
+            }
+            if ad_delivery_date_min:
+                params["ad_delivery_date_min"] = ad_delivery_date_min
+            url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/ads_archive?" + urllib.parse.urlencode(params)
+            try:
+                data = _meta_api_request(url)
+            except Exception as e:
+                print(f"   Fallback country {fc} failed: {e}", file=sys.stderr)
+                continue
+            page = data.get("data") or []
+            for ad in page:
+                if len(all_ads) >= limit:
+                    break
+                aid = (ad.get("id") or "").strip()
+                if aid and aid not in seen_ids:
+                    seen_ids.add(aid)
+                    all_ads.append(ad)
+            if all_ads:
+                print(f"   Got {len(all_ads)} ad(s) with ad_reached_countries={fc}")
+                break
+            time.sleep(0.3)
 
     _normalize_ad_snapshot_urls(all_ads)
     return all_ads[:limit]
@@ -1160,6 +1223,32 @@ def run_fetch(
         else:
             raise
     print(f"Fetched {len(fetched_ads)} ad(s) from Meta API.")
+    # When keyword search with @handle returned 0, retry without @ (some tokens/indexes behave differently)
+    if (
+        not search_page_ids
+        and len(fetched_ads) == 0
+        and (search_terms or "").strip().startswith("@")
+    ):
+        search_terms_alt = (search_terms or "").lstrip("@").strip()
+        if search_terms_alt:
+            print(f"   Retrying keyword search without '@' (search_terms={search_terms_alt!r})...")
+            try:
+                alt_ads = fetch_ads_via_meta_api(
+                    meta_token,
+                    search_terms_alt,
+                    country,
+                    limit,
+                    media,
+                    ad_active_status=active_status,
+                    ad_delivery_date_min=ad_delivery_date_min,
+                    search_type=meta_search_type,
+                    search_page_ids=None,
+                )
+                if alt_ads:
+                    fetched_ads = alt_ads
+                    print(f"   Got {len(fetched_ads)} ad(s) with search_terms without '@'.")
+            except Exception as e:
+                print(f"   Retry without '@' failed: {e}", file=sys.stderr)
     if search_page_ids and len(fetched_ads) == 0:
         print(f"   No ads returned for page_id(s)={search_page_ids}. Trying Apify Ad Library page scraper (same as UI)...")
         if apify_token:

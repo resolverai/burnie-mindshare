@@ -543,14 +543,16 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
     qb = qb.orderBy('ad.createdAt', 'DESC');
   }
 
-  // Rank by (category, subcategory) relevance: one AI call per (account, filter set); result cached so pagination reuses it
+  // Rank by (category, subcategory) relevance: one AI call per (account, filter set); result cached so pagination reuses it.
+  // Set DVYB_DISCOVER_AI_RANKING_ENABLED=true to enable AI ranking; when unset or false, use plain paginated results (no Python call).
   const accountId = (req as DvybAuthRequest).dvybAccountId;
   let rankedPairs: { category: string; subcategory: string }[] = [];
+  const useDiscoverAiRanking = process.env.DVYB_DISCOVER_AI_RANKING_ENABLED === 'true';
   const DISCOVER_PAIRS_SAMPLE_SIZE = 2000; // distinct pairs from this many most recent ads only (keeps query fast)
   const DISCOVER_RANKED_PAIRS_CACHE_TTL_SEC = 600; // 10 min — one AI call per filter set, then paginate from cache
   const DISCOVER_RANKED_PAIRS_CACHE_PREFIX = 'discover:ranked-pairs:';
 
-  if (accountId) {
+  if (accountId && useDiscoverAiRanking) {
     const idsQb = qb.clone();
     idsQb.select('ad.id', 'id');
     (idsQb as any).expressionMap.orderBys = [];
@@ -671,12 +673,14 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
     }
   }
 
-  // TypeORM parses ORDER BY and treats CASE as alias; use in-memory sort for ranked pairs (same as Grok pairs)
+  // TypeORM parses ORDER BY and treats CASE as alias; use in-memory sort for ranked pairs (same as Grok pairs).
+  // When using ranked pairs we must over-fetch then sort in memory; cap high enough so pagination works (e.g. 100+ pages of 30).
   const hasRankedPairs = rankedPairs.length > 0;
+  const RANKED_OVERFETCH_CAP = 5000; // max ads to fetch when sorting by rank (so infinite scroll works for many pages)
   const takeLimit = hasGrokPairs
     ? Math.min((skip + limit) * 2, 200)
     : hasRankedPairs
-      ? Math.min(skip + limit, 500)
+      ? Math.min(skip + limit, RANKED_OVERFETCH_CAP)
       : limit;
   qb = qb.skip(hasGrokPairs || hasRankedPairs ? 0 : skip).take(takeLimit);
 
