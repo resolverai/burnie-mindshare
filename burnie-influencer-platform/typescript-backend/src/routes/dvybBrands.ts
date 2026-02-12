@@ -593,7 +593,10 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
           country: country || '',
           language: language || '',
         };
-        const sorted = Object.keys(filterKeyObj).sort().reduce((acc, k) => ({ ...acc, [k]: filterKeyObj[k] }), {} as Record<string, string>);
+        const sorted = Object.keys(filterKeyObj).sort().reduce<Record<string, string>>((acc, k) => {
+          acc[k] = filterKeyObj[k] ?? '';
+          return acc;
+        }, {});
         const filterKey = createHash('sha256').update(JSON.stringify(sorted)).digest('hex').slice(0, 24);
         const cacheKey = `${DISCOVER_RANKED_PAIRS_CACHE_PREFIX}${accountId}:${filterKey}`;
 
