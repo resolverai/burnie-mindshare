@@ -1,6 +1,8 @@
 import { Router, Response, Request } from 'express';
 import { In } from 'typeorm';
+import { createHash } from 'crypto';
 import { AppDataSource } from '../config/database';
+import { redisClient } from '../config/redis';
 import { DvybBrand } from '../models/DvybBrand';
 import { DvybBrandAd } from '../models/DvybBrandAd';
 import { DvybBrandFollow } from '../models/DvybBrandFollow';
@@ -11,6 +13,7 @@ import { startDvybBrandsFetchJob, ADS_STALE_DAYS } from '../services/DvybBrandsF
 import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddleware';
 import { dvybApiKeyMiddleware } from '../middleware/dvybApiKeyMiddleware';
 import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
+import { UrlCacheService } from '../services/UrlCacheService';
 
 const router = Router();
 const s3Service = new S3PresignedUrlService();
@@ -540,10 +543,13 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
     qb = qb.orderBy('ad.createdAt', 'DESC');
   }
 
-  // Rank by (category, subcategory) relevance: get pairs from a limited recent window to avoid slow full-table distinct when ad volume is huge
+  // Rank by (category, subcategory) relevance: one AI call per (account, filter set); result cached so pagination reuses it
   const accountId = (req as DvybAuthRequest).dvybAccountId;
   let rankedPairs: { category: string; subcategory: string }[] = [];
   const DISCOVER_PAIRS_SAMPLE_SIZE = 2000; // distinct pairs from this many most recent ads only (keeps query fast)
+  const DISCOVER_RANKED_PAIRS_CACHE_TTL_SEC = 600; // 10 min — one AI call per filter set, then paginate from cache
+  const DISCOVER_RANKED_PAIRS_CACHE_PREFIX = 'discover:ranked-pairs:';
+
   if (accountId) {
     const idsQb = qb.clone();
     idsQb.select('ad.id', 'id');
@@ -576,44 +582,86 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
       });
       const industry = (ctx?.industry ?? '').trim();
       if (industry) {
-        const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
-        const body: { industry: string; pairs: typeof pairs; brand_context?: Record<string, unknown> } = {
-          industry,
-          pairs,
+        const filterKeyObj: Record<string, string> = {
+          search: search || '',
+          media: media || '',
+          status: status || '',
+          category: category || '',
+          websiteCategory: websiteCategory || '',
+          runtime: runtime || '',
+          adCount: adCount || '',
+          country: country || '',
+          language: language || '',
         };
-        if (
-          ctx?.businessOverview ||
-          (ctx?.popularProducts && ctx.popularProducts.length > 0) ||
-          ctx?.customerDemographics ||
-          ctx?.brandStory
-        ) {
-          body.brand_context = {
-            business_overview: ctx.businessOverview ?? undefined,
-            popular_products: ctx.popularProducts ?? undefined,
-            customer_demographics: ctx.customerDemographics ?? undefined,
-            brand_story: ctx.brandStory ?? undefined,
-          };
+        const sorted = Object.keys(filterKeyObj).sort().reduce((acc, k) => ({ ...acc, [k]: filterKeyObj[k] }), {} as Record<string, string>);
+        const filterKey = createHash('sha256').update(JSON.stringify(sorted)).digest('hex').slice(0, 24);
+        const cacheKey = `${DISCOVER_RANKED_PAIRS_CACHE_PREFIX}${accountId}:${filterKey}`;
+
+        let fromCache = false;
+        const isRedisAvailable = await UrlCacheService.isRedisAvailable();
+        if (isRedisAvailable) {
+          try {
+            const cached = await redisClient.get(cacheKey);
+            if (cached) {
+              const parsed = JSON.parse(cached) as { category: string; subcategory: string }[];
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                rankedPairs = parsed;
+                fromCache = true;
+                logger.info(`Discover rank-pairs: using cached ranking (${rankedPairs.length} pairs)`);
+              }
+            }
+          } catch (e) {
+            logger.debug('Discover rank-pairs cache get failed', e);
+          }
         }
-        try {
-          const rankRes = await fetch(`${pythonBackendUrl}/api/dvyb/discover/rank-pairs`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-          });
-          const rankData = (await rankRes.json()) as {
-            success?: boolean;
-            ranked_pairs?: Array<{ category: string; subcategory: string }>;
+
+        if (!fromCache) {
+          const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
+          const body: { industry: string; pairs: typeof pairs; brand_context?: Record<string, unknown> } = {
+            industry,
+            pairs,
           };
           if (
-            rankData.success &&
-            Array.isArray(rankData.ranked_pairs) &&
-            rankData.ranked_pairs.length > 0
+            ctx?.businessOverview ||
+            (ctx?.popularProducts && ctx.popularProducts.length > 0) ||
+            ctx?.customerDemographics ||
+            ctx?.brandStory
           ) {
-            rankedPairs = rankData.ranked_pairs;
-            logger.info(`Discover rank-pairs: ${rankedPairs.length} pairs for industry ${industry}`);
+            body.brand_context = {
+              business_overview: ctx.businessOverview ?? undefined,
+              popular_products: ctx.popularProducts ?? undefined,
+              customer_demographics: ctx.customerDemographics ?? undefined,
+              brand_story: ctx.brandStory ?? undefined,
+            };
           }
-        } catch (err) {
-          logger.warn('Discover rank-pairs Python call failed, using original order:', err);
+          try {
+            const rankRes = await fetch(`${pythonBackendUrl}/api/dvyb/discover/rank-pairs`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+            const rankData = (await rankRes.json()) as {
+              success?: boolean;
+              ranked_pairs?: Array<{ category: string; subcategory: string }>;
+            };
+            if (
+              rankData.success &&
+              Array.isArray(rankData.ranked_pairs) &&
+              rankData.ranked_pairs.length > 0
+            ) {
+              rankedPairs = rankData.ranked_pairs;
+              logger.info(`Discover rank-pairs: ${rankedPairs.length} pairs for industry ${industry}`);
+              if (isRedisAvailable) {
+                try {
+                  await redisClient.setEx(cacheKey, DISCOVER_RANKED_PAIRS_CACHE_TTL_SEC, JSON.stringify(rankedPairs));
+                } catch (e) {
+                  logger.debug('Discover rank-pairs cache set failed', e);
+                }
+              }
+            }
+          } catch (err) {
+            logger.warn('Discover rank-pairs Python call failed, using original order:', err);
+          }
         }
       }
     }

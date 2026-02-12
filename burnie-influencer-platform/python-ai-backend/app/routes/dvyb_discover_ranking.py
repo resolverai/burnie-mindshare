@@ -1,5 +1,5 @@
 """
-DVYB Discover category ranking: rank ad categories by semantic match to account industry using GPT-4o.
+DVYB Discover category ranking: rank ad categories by semantic match to account industry using Grok (grok-4-fast-reasoning).
 Used by TypeScript backend when serving Discover ads to put industry-relevant categories first.
 """
 from fastapi import APIRouter
@@ -217,7 +217,7 @@ Output format (no other text): ["Category A", "Category B", ...]"""
 async def rank_pairs(request: RankPairsRequest):
     """
     Rank (category, subcategory) pairs by semantic relevance to the account's industry and brand context.
-    Uses GPT-4o (no image). Same idea as match-product-to-ads but with industry/brand text only.
+    Uses Grok (grok-4-fast-reasoning), text-only (no image). Same idea as inspiration match-product-to-ads but without product image.
     Returns the same list of pairs reordered: best match at index 0, worst at the end.
     Used by Discover: re-order filtered result set so relevant ads appear first.
     """
@@ -227,9 +227,9 @@ async def rank_pairs(request: RankPairsRequest):
         if not request.pairs:
             return RankPairsResponse(success=True, ranked_pairs=[])
 
-        client = _get_openai_client()
-        if not client:
-            logger.warning("rank-pairs: OPENAI_API_KEY not set, returning original order")
+        xai_key = (settings.xai_api_key or "").strip()
+        if not xai_key:
+            logger.warning("rank-pairs: XAI_API_KEY not set, returning original order")
             return RankPairsResponse(success=True, ranked_pairs=request.pairs)
 
         industry = request.industry.strip()
@@ -264,7 +264,8 @@ async def rank_pairs(request: RankPairsRequest):
             print("[rank-pairs] brand_context: (none)")
 
         pairs_str = json.dumps([{"category": c, "subcategory": s} for c, s in pairs])
-        prompt = f"""You are given:
+        system_prompt = "You output only valid JSON arrays of objects with category and subcategory. No markdown, no explanation."
+        user_prompt = f"""You are given:
 1) The account's industry (same as category): "{industry}"
 2) A list of (category, subcategory) pairs from our ad library (from the current filtered result set): {pairs_str}
 {brand_section}
@@ -276,16 +277,20 @@ Include every pair exactly once. Use the exact category and subcategory strings 
 
 Output format (no other text): [{{"category": "X", "subcategory": "Y"}}, ...]"""
 
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "You output only valid JSON arrays of objects with category and subcategory. No markdown, no explanation."},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0,
-            max_tokens=8192,  # enough for large pair lists; avoids truncation
-        )
-        text = (response.choices[0].message.content or "").strip()
+        try:
+            from xai_sdk import Client
+            from xai_sdk.chat import user, system
+        except ImportError:
+            logger.warning("rank-pairs: xai_sdk not installed, returning original order")
+            return RankPairsResponse(success=True, ranked_pairs=request.pairs)
+
+        client = Client(api_key=xai_key, timeout=60)
+        chat = client.chat.create(model="grok-4-fast-reasoning")
+        chat.append(system(system_prompt))
+        chat.append(user(user_prompt))
+        print("[rank-pairs] Calling Grok...")
+        response = chat.sample()
+        text = (response.content or "").strip()
         raw_ranked = _parse_ranked_pairs_json(text)
         if not raw_ranked:
             return RankPairsResponse(success=True, ranked_pairs=request.pairs)
