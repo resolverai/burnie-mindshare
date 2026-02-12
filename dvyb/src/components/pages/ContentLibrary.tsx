@@ -11,7 +11,7 @@ import { PostDetailDialog } from "@/components/calendar/PostDetailDialog";
 import { GenerateContentDialog } from "@/components/onboarding/GenerateContentDialog";
 import { CreateAdFlowModal } from "@/components/pages/CreateAdFlowModal";
 import { PricingModal } from "@/components/PricingModal";
-import { contentLibraryApi, accountApi } from "@/lib/api";
+import { contentLibraryApi, accountApi, hasEditOrDownloadAccess } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOnboardingGuide } from "@/hooks/useOnboardingGuide";
 import { clearOAuthFlowState, getOAuthFlowState } from "@/lib/oauthFlowState";
@@ -769,7 +769,8 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
                     onClick={async () => {
                       try {
                         const res = await accountApi.getUsage();
-                        const canAccess = res.success && res.data?.hasActiveSubscription === true;
+                        const u = res.success ? res.data : null;
+                        const canAccess = hasEditOrDownloadAccess(u);
                         if (!canAccess && onShowPricingModal) {
                           onShowPricingModal();
                           return;
@@ -822,7 +823,7 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
                 try {
                   const res = await accountApi.getUsage();
                   const u = res.success ? res.data : null;
-                  const hasAccess = u?.hasActiveSubscription === true;
+                  const hasAccess = hasEditOrDownloadAccess(u);
                   if (hasAccess) {
                     trackContentItemClicked(item.contentId, isVideo ? 'video' : 'image', isPosted ? 'posted' : 'scheduled');
                     setSelectedPost(item);
@@ -910,7 +911,8 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
                             });
                             try {
                               const res = await accountApi.getUsage();
-                              const canAccess = res.success && res.data?.hasActiveSubscription === true;
+                              const u = res.success ? res.data : null;
+                              const canAccess = hasEditOrDownloadAccess(u);
                               if (!canAccess && onShowPricingModal) {
                                 onShowPricingModal();
                                 return;

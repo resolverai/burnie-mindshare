@@ -431,6 +431,13 @@ router.get('/usage', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Respo
       isSubscribedToFreemium = true;
     }
 
+    // Paid users: if they have an active paid plan (DvybAccountPlan, not free trial),
+    // treat as hasActiveSubscription so Edit/Download are not blocked (e.g. after purchase
+    // when Stripe webhook may not have created DvybAccountSubscription yet, or different flows).
+    if (currentPlan && !currentPlan.plan?.isFreeTrialPlan) {
+      hasActiveSubscription = true;
+    }
+
     // Determine if user must subscribe to opt-out plan to continue
     // For the opt-out trial model:
     // - Users get initial content during onboarding (free)

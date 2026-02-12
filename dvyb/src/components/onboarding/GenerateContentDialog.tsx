@@ -12,7 +12,7 @@ import { X, Plus, Upload, Link, Loader2, Twitter, Instagram, Linkedin, Heart, XC
 import { PostDetailDialog } from "@/components/calendar/PostDetailDialog";
 import { ScheduleDialog } from "@/components/calendar/ScheduleDialog";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
-import { adhocGenerationApi, postingApi, oauth1Api, authApi, socialConnectionsApi, contentLibraryApi, contentStrategyApi, StrategyPreferences, inspirationsApi, InspirationItem, accountApi } from "@/lib/api";
+import { adhocGenerationApi, postingApi, oauth1Api, authApi, socialConnectionsApi, contentLibraryApi, contentStrategyApi, StrategyPreferences, inspirationsApi, InspirationItem, accountApi, hasEditOrDownloadAccess } from "@/lib/api";
 import { format } from "date-fns";
 import { useRouter } from "next/navigation";
 import { Play, ChevronDown } from "lucide-react";
@@ -2713,7 +2713,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               try {
                 const res = await accountApi.getUsage();
                 const u = res.success ? res.data : null;
-                const hasAccess = u?.hasActiveSubscription === true;
+                const hasAccess = hasEditOrDownloadAccess(u);
                 if (hasAccess) {
                   setSelectedPost(post);
                   setOpenInEditDesignMode(!isVideo);
@@ -2748,7 +2748,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               let hasAccess = false;
               try {
                 const res = await accountApi.getUsage();
-                hasAccess = res.success && res.data?.hasActiveSubscription === true;
+                const u = res.success ? res.data : null;
+                hasAccess = hasEditOrDownloadAccess(u);
                 if (!hasAccess) {
                   setShowDownloadPricingModal(true);
                   return;
@@ -2784,7 +2785,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               try {
                 const res = await accountApi.getUsage();
                 const u = res.success ? res.data : null;
-                const hasAccess = u?.hasActiveSubscription === true;
+                const hasAccess = hasEditOrDownloadAccess(u);
                 if (hasAccess) {
                   setSelectedPost(post);
                   setOpenInEditDesignMode(false);

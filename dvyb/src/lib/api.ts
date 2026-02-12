@@ -209,6 +209,7 @@ export const authApi = {
 /** Usage/limits response from GET /dvyb/account/usage - use for backend-driven upgrade gating */
 export interface AccountUsageData {
   hasActiveSubscription?: boolean;
+  isFreeTrialPlan?: boolean;
   remainingImages?: number;
   remainingVideos?: number;
   hasVisitedDiscover?: boolean;
@@ -217,6 +218,14 @@ export interface AccountUsageData {
   isAccountActive?: boolean;
   initialAcquisitionFlow?: string;
   [key: string]: unknown;
+}
+
+/** True if user can edit/download (paid or active subscription). Avoids blocking paid users when subscription record is missing/slow to sync. */
+export function hasEditOrDownloadAccess(u: AccountUsageData | null | undefined): boolean {
+  if (!u) return false;
+  if (u.hasActiveSubscription === true) return true;
+  if (u.isFreeTrialPlan === false) return true;
+  return false;
 }
 
 // Account API
