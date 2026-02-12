@@ -38,6 +38,14 @@ export class DvybBrand {
   @Index()
   brandDomain!: string;
 
+  /** Facebook page handle for Meta Ads Library search (e.g. "nike"). */
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  facebookHandle!: string | null;
+
+  /** Facebook Page ID from Ads Library URL (view_all_page_id=...). When set, we fetch only that page's ads. */
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  facebookPageId!: string | null;
+
   /** user = requested from dvyb Brands page; admin = submitted from admin dashboard */
   @Column({ type: 'varchar', length: 20, default: 'user' })
   source!: 'user' | 'admin';

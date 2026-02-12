@@ -107,7 +107,7 @@ router.get('/', isAdmin, async (req: Request, res: Response) => {
  */
 router.post('/', isAdmin, async (req: Request, res: Response) => {
   try {
-    const { brandName, brandDomain, countries, media } = req.body;
+    const { brandId: bodyBrandId, brandName, brandDomain, facebookHandle, facebookPageId, countries, media } = req.body;
 
     if (!brandDomain || typeof brandDomain !== 'string') {
       return res.status(400).json({ success: false, error: 'brandDomain is required' });
@@ -115,6 +115,12 @@ router.post('/', isAdmin, async (req: Request, res: Response) => {
 
     const name = (brandName && typeof brandName === 'string' ? brandName.trim() : '') || '';
     const domain = brandDomain.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const handle = Object.prototype.hasOwnProperty.call(req.body, 'facebookHandle')
+      ? ((facebookHandle && typeof facebookHandle === 'string' ? facebookHandle.trim().replace(/^@/, '') : '') || null)
+      : undefined;
+    const pageId = Object.prototype.hasOwnProperty.call(req.body, 'facebookPageId')
+      ? ((facebookPageId != null && String(facebookPageId).trim() !== '') ? String(facebookPageId).trim().replace(/\D/g, '') : null)
+      : undefined;
     if (!domain) {
       return res.status(400).json({ success: false, error: 'Invalid brandDomain' });
     }
@@ -129,10 +135,21 @@ router.post('/', isAdmin, async (req: Request, res: Response) => {
 
     const brandRepo = AppDataSource.getRepository(DvybBrand);
 
-    let brand = await brandRepo.findOne({
-      where: { brandDomain: domain },
-      order: { createdAt: 'DESC' },
-    });
+    // Refetch: when brandId is provided, load that brand by id so we use its stored facebookHandle/facebookPageId.
+    let brand: InstanceType<typeof DvybBrand> | null = null;
+    if (bodyBrandId != null && !isNaN(Number(bodyBrandId))) {
+      brand = await brandRepo.findOne({ where: { id: Number(bodyBrandId) } });
+      if (brand && brand.brandDomain !== domain) {
+        brand.brandDomain = domain;
+        if (name) brand.brandName = name;
+      }
+    }
+    if (!brand) {
+      brand = await brandRepo.findOne({
+        where: { brandDomain: domain },
+        order: { createdAt: 'DESC' },
+      });
+    }
 
     if (brand && brand.fetchStatus === 'fetching') {
       return res.json({
@@ -144,7 +161,7 @@ router.post('/', isAdmin, async (req: Request, res: Response) => {
     // Refetch: always start fetch. excludeMetaAdIds ensures we only save NEW ads not already in DB.
 
     if (!brand) {
-      brand = brandRepo.create({
+      const createPayload: Parameters<typeof brandRepo.create>[0] = {
         brandName: name,
         brandDomain: domain,
         source: 'admin',
@@ -152,19 +169,28 @@ router.post('/', isAdmin, async (req: Request, res: Response) => {
         requestedByAccountId: null,
         countries: countriesArr,
         fetchStatus: 'pending',
-      });
+      };
+      if (handle !== undefined) createPayload.facebookHandle = handle;
+      if (pageId !== undefined) createPayload.facebookPageId = pageId ?? null;
+      brand = brandRepo.create(createPayload);
       await brandRepo.save(brand);
     } else {
       brand.fetchStatus = 'pending';
       brand.fetchError = null;
       if (countriesArr) brand.countries = countriesArr;
+      // Only update handle/pageId from body when NOT refetching (refetch uses stored values from DB).
+      if (bodyBrandId == null || isNaN(Number(bodyBrandId))) {
+        if (handle !== undefined) brand.facebookHandle = handle;
+        if (pageId !== undefined) brand.facebookPageId = pageId || null;
+      }
       await brandRepo.save(brand);
     }
 
     brand.fetchStatus = 'fetching';
     await brandRepo.save(brand);
 
-    await startDvybBrandsFetchJob(brand.id, domain, brand.countries, mediaType);
+    logger.info('Starting Dvyb brands fetch', { brandId: brand.id, domain, facebookHandle: brand.facebookHandle ?? undefined, facebookPageId: brand.facebookPageId ?? undefined });
+    await startDvybBrandsFetchJob(brand.id, domain, brand.countries, mediaType, brand.facebookHandle ?? undefined, brand.facebookPageId ?? undefined);
 
     return res.json({
       success: true,
@@ -251,7 +277,7 @@ router.post('/:id/approve', isAdmin, async (req: Request, res: Response) => {
     await brandRepo.save(brand);
 
     const mediaType = ['image', 'video', 'both'].includes(brand.mediaType) ? brand.mediaType : 'image';
-    await startDvybBrandsFetchJob(brand.id, brand.brandDomain, brand.countries, mediaType);
+    await startDvybBrandsFetchJob(brand.id, brand.brandDomain, brand.countries, mediaType, brand.facebookHandle ?? undefined, brand.facebookPageId ?? undefined);
 
     return res.json({
       success: true,
@@ -262,6 +288,55 @@ router.post('/:id/approve', isAdmin, async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to approve brand',
+    });
+  }
+});
+
+/**
+ * PATCH /api/admin/dvyb-brands/:id
+ * Update brand: brandName, brandDomain, facebookHandle, facebookPageId.
+ */
+router.patch('/:id', isAdmin, async (req: Request, res: Response) => {
+  try {
+    const brandId = parseInt(req.params.id ?? '', 10);
+    if (isNaN(brandId)) {
+      return res.status(400).json({ success: false, error: 'Invalid brand ID' });
+    }
+
+    const brandRepo = AppDataSource.getRepository(DvybBrand);
+    const brand = await brandRepo.findOne({ where: { id: brandId } });
+    if (!brand) {
+      return res.status(404).json({ success: false, error: 'Brand not found' });
+    }
+
+    const { brandName, brandDomain, facebookHandle, facebookPageId } = req.body;
+
+    if (brandName !== undefined && typeof brandName === 'string') {
+      brand.brandName = brandName.trim();
+    }
+    if (brandDomain !== undefined && typeof brandDomain === 'string') {
+      const domain = brandDomain.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+      if (domain) brand.brandDomain = domain;
+    }
+    if (facebookHandle !== undefined) {
+      brand.facebookHandle = (facebookHandle != null && String(facebookHandle).trim() !== '')
+        ? String(facebookHandle).trim().replace(/^@/, '')
+        : null;
+    }
+    if (facebookPageId !== undefined) {
+      brand.facebookPageId = (facebookPageId != null && String(facebookPageId).trim() !== '')
+        ? String(facebookPageId).trim().replace(/\D/g, '')
+        : null;
+    }
+
+    await brandRepo.save(brand);
+    logger.info(`Admin updated DvybBrand ${brandId}`);
+    return res.json({ success: true, data: brand, message: 'Brand updated' });
+  } catch (error) {
+    logger.error('Admin DvybBrands patch error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to update brand',
     });
   }
 });

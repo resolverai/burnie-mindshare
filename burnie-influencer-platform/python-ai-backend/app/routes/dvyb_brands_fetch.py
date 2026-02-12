@@ -52,9 +52,11 @@ class CountryInput(BaseModel):
 
 
 class BrandsFetchRequest(BaseModel):
-    """Request body: brandDomain only (brand name/ID come from DB). Countries: empty = All (no filter)."""
+    """Request body: brandDomain (stored on ads); facebookHandle + optional facebookPageId for Meta Ads Library."""
     brandId: int
     brandDomain: str
+    facebookHandle: str | None = None  # Facebook page handle for Meta search
+    facebookPageId: str | None = None  # From Ads Library URL view_all_page_id=...; when set, fetch only that page's ads
     callbackUrl: str
     countries: list[CountryInput] | None = None  # Empty/None = All (fetch for all). Single = one. Multiple = each.
     limit: int = 300  # Fetch this many ads from Meta
@@ -180,6 +182,8 @@ def _run_brands_fetch_task(
     local_competitors: int,
     global_competitors: int,
     no_keyword_filter: bool = False,
+    facebook_handle: str | None = None,
+    facebook_page_id: str | None = None,
 ):
     """
     Background task: fetch ads, enrich with Gemini (before download), then download creatives
@@ -214,8 +218,13 @@ def _run_brands_fetch_task(
 
     tmpdir = tempfile.mkdtemp(prefix="dvyb_fetch_")
     out_dir = Path(tmpdir)
+    want_image = media in ("image", "both")
+    want_video = media in ("video", "both")
+    s3_service = S3StorageService()
+    save_limit_remaining = save_limit if save_limit and save_limit > 0 else 99999
+    total_saved = 0
+
     try:
-        # Step 1: Fetch + enrich with Gemini (no download yet - Gemini runs before creatives)
         for country_code in country_codes:
             code = str(country_code).strip().upper() or "US"
             if requested_all_countries:
@@ -233,7 +242,9 @@ def _run_brands_fetch_task(
                     local_limit=local_competitors,
                     global_limit=global_competitors,
                     out_dir=out_dir,
-                    download_media=False,  # Enrich first, download per-ad below
+                    download_media=False,
+                    facebook_handle=facebook_handle,
+                    facebook_page_id=facebook_page_id,
                 )
             except (Exception, SystemExit) as e:
                 err_msg = str(e)[:500] if e else "Unknown error"
@@ -251,67 +262,56 @@ def _run_brands_fetch_task(
                     "searchBrandRevenue": out_data.get("searchBrandRevenue"),
                 }
 
-            ads = out_data.get("ads") or []
-            for ad in ads:
+            ads_this_country = out_data.get("ads") or []
+            new_ads = []
+            for ad in ads_this_country:
                 aid = str(ad.get("id") or ad.get("metaAdId") or "").strip()
                 if aid and aid not in seen_ids:
                     seen_ids.add(aid)
-                    all_ads.append(ad)
+                    new_ads.append(ad)
 
-        ads = all_ads
-        if not ads:
-            _callback_success(callback_url, [], enrichment, is_complete=True)
-            return
+            batch = new_ads[:save_limit_remaining]
+            save_limit_remaining -= len(batch)
+            if not batch:
+                continue
 
-        # When save_limit is set (e.g. 20 for initial fetch), only download creatives and save that many
-        ads_to_save = ads[:save_limit] if save_limit and save_limit > 0 else ads
-        if save_limit:
-            logger.info(f"Fetched {len(ads)} ads from Meta; saving {len(ads_to_save)} (saveLimit={save_limit})")
+            if save_limit and save_limit < 99999:
+                logger.info(f"Country {code}: saving {len(batch)} ads (saveLimit remaining)")
 
-        # Step 2: Download creatives for ads we will save
-        want_image = media in ("image", "both")
-        want_video = media in ("video", "both")
-        s3_service = S3StorageService()
+            for ad in batch:
+                meta_ad_id = str(ad.get("id") or ad.get("metaAdId") or "").strip()
+                ad["creativeImageS3Key"] = None
+                ad["creativeVideoS3Key"] = None
+                img_urls = ad.get("creativeImageUrls") or []
+                if not img_urls and ad.get("creativeImageUrl"):
+                    img_urls = [ad.get("creativeImageUrl")]
+                vid_urls = ad.get("creativeVideoUrls") or []
+                if not vid_urls and ad.get("creativeVideoUrl"):
+                    vid_urls = [ad.get("creativeVideoUrl")]
 
-        for ad in ads_to_save:
-            meta_ad_id = str(ad.get("id") or ad.get("metaAdId") or "").strip()
-            ad["creativeImageS3Key"] = None
-            ad["creativeVideoS3Key"] = None
+                if want_image and img_urls:
+                    s3_key = _download_largest_and_upload_to_s3(
+                        s3_service, img_urls, brand_id, meta_ad_id, "image", image_only=True
+                    )
+                    if s3_key:
+                        ad["creativeImageS3Key"] = s3_key
+                        print(f"   Uploaded image (max of {len(img_urls)}): {meta_ad_id} -> {s3_key}")
+                        logger.info(f"Uploaded image (max of {len(img_urls)}): {meta_ad_id} -> {s3_key}")
+                if want_video and vid_urls:
+                    s3_key = _download_largest_and_upload_to_s3(s3_service, vid_urls, brand_id, meta_ad_id, "video")
+                    if s3_key:
+                        ad["creativeVideoS3Key"] = s3_key
+                        print(f"   Uploaded video (max of {len(vid_urls)}): {meta_ad_id} -> {s3_key}")
+                        logger.info(f"Uploaded video (max of {len(vid_urls)}): {meta_ad_id} -> {s3_key}")
 
-            # Download from creativeImageUrls / creativeVideoUrls (from Apify via enrich)
-            # Download all creatives, persist only the one with maximum size
-            img_urls = ad.get("creativeImageUrls") or []
-            if not img_urls and ad.get("creativeImageUrl"):
-                img_urls = [ad.get("creativeImageUrl")]
-            vid_urls = ad.get("creativeVideoUrls") or []
-            if not vid_urls and ad.get("creativeVideoUrl"):
-                vid_urls = [ad.get("creativeVideoUrl")]
+            for ad in batch:
+                if ad.get("creativeImageS3Key") or ad.get("creativeVideoS3Key"):
+                    _callback_success(callback_url, [ad], enrichment, is_complete=False)
+            total_saved += len(batch)
 
-            if want_image and img_urls:
-                s3_key = _download_largest_and_upload_to_s3(
-                    s3_service, img_urls, brand_id, meta_ad_id, "image", image_only=True
-                )
-                if s3_key:
-                    ad["creativeImageS3Key"] = s3_key
-                    print(f"   Uploaded image (max of {len(img_urls)}): {meta_ad_id} -> {s3_key}")
-                    logger.info(f"Uploaded image (max of {len(img_urls)}): {meta_ad_id} -> {s3_key}")
+            if save_limit_remaining <= 0:
+                break
 
-            if want_video and vid_urls:
-                s3_key = _download_largest_and_upload_to_s3(s3_service, vid_urls, brand_id, meta_ad_id, "video")
-                if s3_key:
-                    ad["creativeVideoS3Key"] = s3_key
-                    print(f"   Uploaded video (max of {len(vid_urls)}): {meta_ad_id} -> {s3_key}")
-                    logger.info(f"Uploaded video (max of {len(vid_urls)}): {meta_ad_id} -> {s3_key}")
-
-        # Inventory analysis is NOT run during fetch - it runs only when admin approves an ad
-        # (or manually via Run Inventory Analysis button/script)
-
-        # Step 3: Callback each ad we saved
-        for ad in ads_to_save:
-            if ad.get("creativeImageS3Key") or ad.get("creativeVideoS3Key"):
-                _callback_success(callback_url, [ad], enrichment, is_complete=False)
-
-        # Final callback: mark fetch complete
         _callback_success(callback_url, [], enrichment, is_complete=True)
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
@@ -417,6 +417,13 @@ async def start_brands_fetch(request: BrandsFetchRequest, background_tasks: Back
 
     exclude_ids = request.excludeMetaAdIds if request.excludeMetaAdIds is not None else []
 
+    facebook_handle = None
+    if request.facebookHandle and str(request.facebookHandle).strip():
+        facebook_handle = str(request.facebookHandle).strip().lstrip("@")
+    facebook_page_id = None
+    if request.facebookPageId and str(request.facebookPageId).strip():
+        facebook_page_id = str(request.facebookPageId).strip().replace(" ", "")
+
     background_tasks.add_task(
         _run_brands_fetch_task,
         request.brandId,
@@ -430,6 +437,8 @@ async def start_brands_fetch(request: BrandsFetchRequest, background_tasks: Back
         request.localCompetitors,
         request.globalCompetitors,
         request.noKeywordFilter,
+        facebook_handle,
+        facebook_page_id,
     )
 
     return {

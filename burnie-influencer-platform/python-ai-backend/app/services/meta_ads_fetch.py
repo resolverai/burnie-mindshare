@@ -11,6 +11,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+import urllib.error
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -311,12 +312,9 @@ def filter_ads_by_country(ads: list[dict], requested_country: str) -> list[dict]
     return [ad for ad in ads if _ad_targets_country(ad, code)]
 
 
-def _ad_contains_keyword(ad: dict, kw_lower: list[str]) -> bool:
-    """True if any keyword appears in ad_creative_link_captions or ad_creative_link_titles."""
-    def _matches(text: str) -> bool:
-        return text and any(kw in (text or "").lower() for kw in kw_lower)
-
-    def _extract_texts(field_val: list) -> list[str]:
+def _extract_texts_from_ad(ad: dict) -> list[str]:
+    """Get all text strings from ad_creative_link_captions and ad_creative_link_titles."""
+    def _from_field(field_val: list) -> list[str]:
         texts = []
         for item in (field_val or []):
             if isinstance(item, str):
@@ -327,14 +325,102 @@ def _ad_contains_keyword(ad: dict, kw_lower: list[str]) -> bool:
                 texts.append(str(item))
         return texts
 
-    fields_to_check = [
-        ad.get("ad_creative_link_captions") or [],
-        ad.get("ad_creative_link_titles") or [],
-    ]
-    for field_val in fields_to_check:
-        for text in _extract_texts(field_val if isinstance(field_val, list) else [field_val]):
-            if _matches(str(text)):
+    out = []
+    for field_key in ("ad_creative_link_captions", "ad_creative_link_titles"):
+        field_val = ad.get(field_key) or []
+        for text in _from_field(field_val if isinstance(field_val, list) else [field_val]):
+            if text and isinstance(text, str):
+                out.append(text)
+    return out
+
+
+def _same_domain(host: str, brand_domain: str) -> bool:
+    """True if host is the same as brand_domain or a subdomain of it (e.g. shop.mejuri.com vs mejuri.com).
+    domain.com -> subdomain.domain.com allowed; domain.com -> xyzdomain.com not allowed."""
+    if not host or not brand_domain:
+        return False
+    host = host.lower().strip().rstrip("/")
+    brand = brand_domain.lower().strip()
+    if not brand:
+        return False
+    if host == brand:
+        return True
+    # subdomain: host must end with .brand_domain and nothing more (so not meju ri.com.evil)
+    if host.endswith("." + brand):
+        return True
+    return False
+
+
+# Match http(s) URLs to extract hosts
+_URL_PATTERN = re.compile(r"https?://[^\s\]\)\"\'\>]+", re.IGNORECASE)
+
+
+def _text_contains_domain_strict(text: str, brand_domain: str) -> bool:
+    """True if text contains the brand domain or a subdomain of it (same domain). No partial match (xyzdomain.com)."""
+    if not text or not brand_domain:
+        return False
+    text_lower = text.lower()
+    brand = brand_domain.lower().strip()
+    if not brand:
+        return False
+    # 1) URLs: extract host and check same_domain
+    for match in _URL_PATTERN.finditer(text):
+        try:
+            parsed = urlparse(match.group(0))
+            host = (parsed.netloc or "").split(":")[0].strip()
+            if host and _same_domain(host, brand):
                 return True
+        except Exception:
+            continue
+    # 2) Bare domain in text: match domain or subdomain with word boundaries (no xyzdomain.com)
+    # Pattern: (start or non-alphanumeric) then optional subdomains then escaped_domain then (end or non-alphanumeric)
+    escaped = re.escape(brand)
+    pattern = r"(^|[^a-zA-Z0-9.])((?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)*)" + escaped + r"($|[^a-zA-Z0-9])"
+    if re.search(pattern, text_lower):
+        return True
+    return False
+
+
+def _text_contains_handle_strict(text: str, handle: str) -> bool:
+    """True if text contains the handle exactly, with or without '@'. No contains (mejuri_official not allowed)."""
+    if not text or not handle:
+        return False
+    handle = handle.strip().lstrip("@")
+    if not handle:
+        return False
+    # Word-boundary match: @?handle with no extra alphanumeric or underscore
+    pattern = r"(?<![a-zA-Z0-9_])@?" + re.escape(handle) + r"(?![a-zA-Z0-9_])"
+    return bool(re.search(pattern, text, re.IGNORECASE))
+
+
+def _ad_passes_domain_handle_filter(ad: dict, brand_domain: str | None, brand_handle: str | None) -> bool:
+    """True if ad creative fields (link_captions / link_titles) contain brand_domain (same/subdomain) OR handle (exact ± @)."""
+    texts = _extract_texts_from_ad(ad)
+    if not texts:
+        return False
+    for text in texts:
+        if brand_domain and _text_contains_domain_strict(text, brand_domain):
+            return True
+        if brand_handle and _text_contains_handle_strict(text, brand_handle):
+            return True
+    return False
+
+
+def filter_ads_by_domain_or_handle(ads: list[dict], brand_domain: str | None, brand_handle: str | None) -> list[dict]:
+    """Keep only ads where link_captions or link_titles contain domain (same/subdomain) or handle (exact ± @)."""
+    if not brand_domain and not brand_handle:
+        return ads
+    return [ad for ad in ads if _ad_passes_domain_handle_filter(ad, brand_domain, brand_handle)]
+
+
+def _ad_contains_keyword(ad: dict, kw_lower: list[str]) -> bool:
+    """True if any keyword appears in ad_creative_link_captions or ad_creative_link_titles (legacy substring match)."""
+    def _matches(text: str) -> bool:
+        return text and any(kw in (text or "").lower() for kw in kw_lower)
+
+    for text in _extract_texts_from_ad(ad):
+        if _matches(str(text)):
+            return True
     return False
 
 
@@ -619,10 +705,51 @@ async function pageFunction(context) {
 
 
 def _meta_api_request(url: str, timeout: int = 60) -> dict:
-    """GET Meta Graph API URL and return parsed JSON."""
+    """GET Meta Graph API URL and return parsed JSON. On HTTP error, log Meta's response body and re-raise."""
     req = urllib.request.Request(url, headers={"User-Agent": "MetaAdFetch/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode())
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        body = b""
+        try:
+            body = e.read()
+        except Exception:
+            pass
+        try:
+            err_json = json.loads(body.decode()) if body else {}
+            msg = err_json.get("error", {}).get("message", body.decode(errors="replace") if body else str(e))
+            code = err_json.get("error", {}).get("code")
+            print(f"   Meta API error (HTTP {e.code}): {msg}" + (f" [code={code}]" if code is not None else ""), file=sys.stderr)
+        except Exception:
+            print(f"   Meta API error (HTTP {e.code}): {body.decode(errors='replace') if body else e}", file=sys.stderr)
+        raise
+
+
+def resolve_facebook_handle_to_page_id(meta_token: str, handle: str) -> str | None:
+    """
+    Resolve a Facebook page handle/username (e.g. 'mejuri') to a numeric page_id using Graph API.
+    Uses direct lookup: GET /v18.0/{username}?fields=id,name (same token as ads_archive).
+    Returns page_id string or None if resolution fails.
+    """
+    username = (handle or "").strip().lstrip("@")
+    if not username:
+        return None
+    try:
+        params = {
+            "fields": "id,name",
+            "access_token": meta_token,
+        }
+        url = f"https://graph.facebook.com/v18.0/{urllib.parse.quote(username, safe='')}?" + urllib.parse.urlencode(params)
+        data = _meta_api_request(url)
+        pid = data.get("id")
+        if pid and str(pid).strip().isdigit():
+            print(f"   Resolved handle '@{username}' -> page_id={pid}")
+            return str(pid).strip()
+        print(f"   Page ID not resolved from handle '@{username}' (no id in response); will use keyword search.")
+    except Exception as e:
+        print(f"   Page ID not resolved from handle '@{username}' (API error: {e}); will use keyword search.")
+    return None
 
 
 def fetch_ads_via_meta_api(
@@ -634,10 +761,14 @@ def fetch_ads_via_meta_api(
     max_pages: int = 10,
     ad_active_status: str = "ACTIVE",
     ad_delivery_date_min: str | None = None,
+    search_type: str = "KEYWORD_UNORDERED",
+    search_page_ids: list[int] | None = None,
 ) -> list[dict]:
     """
     Fetch ads from Meta Graph API ads_archive (same flow as TS meta-ads-fetch.ts).
+    When search_page_ids is set, returns ads FROM those pages (ignores search_terms for filtering).
     Supports pagination and EU (fetch per EU country then merge/dedupe by id).
+    search_type: KEYWORD_UNORDERED (default) or KEYWORD_EXACT_PHRASE for exact phrase.
     Returns list of ad objects with full metadata.
 
     ad_active_status: ACTIVE (default), INACTIVE, or ALL - filters by delivery status.
@@ -651,18 +782,24 @@ def fetch_ads_via_meta_api(
         if next_url:
             data = _meta_api_request(next_url)
         else:
+            # Mirror Ads Library UI: active_status=active, ad_type=all, media_type=all, search_type=page, view_all_page_id
+            # ad_reached_countries: API expects JSON array e.g. ["US"] (doc: ad_reached_countries=['US'])
             params = {
                 "access_token": meta_token,
-                "search_terms": search_terms,
-                "ad_reached_countries": ad_reached_countries,
+                "ad_reached_countries": json.dumps([ad_reached_countries]),
                 "ad_active_status": (ad_active_status or "ACTIVE").upper(),
-                "search_type": "KEYWORD_UNORDERED",
                 "fields": ",".join(META_AD_ARCHIVE_FIELDS),
                 "limit": limit_per_request,
             }
+            if search_page_ids:
+                # Page search (UI: search_type=page, view_all_page_id): only page IDs; no search_terms/search_type/media_type
+                params["search_page_ids"] = ",".join(str(pid) for pid in search_page_ids[:10])
+            else:
+                params["search_type"] = (search_type or "KEYWORD_UNORDERED").upper()
+                params["search_terms"] = search_terms or ""
             if ad_delivery_date_min:
                 params["ad_delivery_date_min"] = ad_delivery_date_min
-            if media_type and media_type != "both":
+            if not search_page_ids and media_type and media_type != "both":
                 params["media_type"] = media_type.upper()
             url = "https://graph.facebook.com/v18.0/ads_archive?" + urllib.parse.urlencode(params)
             data = _meta_api_request(url)
@@ -689,13 +826,16 @@ def fetch_ads_via_meta_api(
             print(f"   No ads with media_type={media_type}; retrying EU without media filter...")
             params = {
                 "access_token": meta_token,
-                "search_terms": search_terms,
-                "ad_reached_countries": EU_COUNTRY_CODES[0],
+                "ad_reached_countries": json.dumps([EU_COUNTRY_CODES[0]]),
                 "ad_active_status": (ad_active_status or "ACTIVE").upper(),
-                "search_type": "KEYWORD_UNORDERED",
                 "fields": ",".join(META_AD_ARCHIVE_FIELDS),
                 "limit": limit_per_request,
             }
+            if search_page_ids:
+                params["search_page_ids"] = ",".join(str(pid) for pid in search_page_ids[:10])
+            else:
+                params["search_type"] = (search_type or "KEYWORD_UNORDERED").upper()
+                params["search_terms"] = search_terms or ""
             if ad_delivery_date_min:
                 params["ad_delivery_date_min"] = ad_delivery_date_min
             url = "https://graph.facebook.com/v18.0/ads_archive?" + urllib.parse.urlencode(params)
@@ -733,13 +873,16 @@ def fetch_ads_via_meta_api(
         print(f"   No ads with media_type={media_type}; retrying without media filter...")
         params = {
             "access_token": meta_token,
-            "search_terms": search_terms,
-            "ad_reached_countries": country.upper(),
+            "ad_reached_countries": json.dumps([country.upper()]),
             "ad_active_status": (ad_active_status or "ACTIVE").upper(),
-            "search_type": "KEYWORD_UNORDERED",
             "fields": ",".join(META_AD_ARCHIVE_FIELDS),
             "limit": limit_per_request,
         }
+        if search_page_ids:
+            params["search_page_ids"] = ",".join(str(pid) for pid in search_page_ids[:10])
+        else:
+            params["search_type"] = (search_type or "KEYWORD_UNORDERED").upper()
+            params["search_terms"] = search_terms or ""
         if ad_delivery_date_min:
             params["ad_delivery_date_min"] = ad_delivery_date_min
         url = "https://graph.facebook.com/v18.0/ads_archive?" + urllib.parse.urlencode(params)
@@ -835,9 +978,19 @@ def run_fetch(
     ad_active_status: str = "ACTIVE",
     ad_delivery_date_min: str | None = None,
     keyword_filter: bool = True,
+    meta_search_type: str = "KEYWORD_UNORDERED",
+    search_page_ids: list[int] | None = None,
+    filter_keywords: list[str] | None = None,
+    filter_domain: str | None = None,
+    filter_handle: str | None = None,
 ) -> tuple[Path, Path, Path | None]:
     """
     Run full Meta ads fetch: Meta API -> filter -> Apify (if needed) -> download (if enabled).
+    meta_search_type: KEYWORD_UNORDERED (default) or KEYWORD_EXACT_PHRASE (e.g. for @handle).
+    search_page_ids: when set, fetch ads FROM these page IDs (ads from that page); keywords ignored for API.
+    filter_keywords: legacy list filter (substring match); ignored when filter_domain is set.
+    filter_domain + filter_handle: when filter_domain is set, keep ad if link_captions/link_titles contain
+      domain (same or subdomain, no xyzdomain.com) OR handle (exact match with or without @).
     Returns (out_dir, meta_path, apify_path or None).
     """
     out_dir = output.resolve()
@@ -845,24 +998,54 @@ def run_fetch(
     want_image = media in ("image", "both")
     want_video = media in ("video", "both")
 
-    search_terms = _search_terms_for_meta_api(keywords)
+    if search_page_ids:
+        search_terms = ""  # API uses search_page_ids; search_terms optional
+    elif meta_search_type == "KEYWORD_EXACT_PHRASE" and keywords:
+        search_terms = " ".join(k for k in keywords if k and str(k).strip()).strip() or " ".join(keywords)
+    else:
+        search_terms = _search_terms_for_meta_api(keywords)
     api_filters = []
     if ad_active_status and ad_active_status.upper() != "ALL":
         api_filters.append(f"ad_active_status={ad_active_status}")
     if ad_delivery_date_min:
         api_filters.append(f"delivery_date_min={ad_delivery_date_min}")
     filter_str = f" ({', '.join(api_filters)})" if api_filters else ""
-    print(f"Fetching ads from Meta Graph API (ads_archive){filter_str}...")
-    fetched_ads = fetch_ads_via_meta_api(
-        meta_token,
-        search_terms,
-        country,
-        limit,
-        media,
-        ad_active_status=ad_active_status or "ACTIVE",
-        ad_delivery_date_min=ad_delivery_date_min,
-    )
+    if search_page_ids:
+        print(f"Fetching ads from Meta Graph API (ads_archive) by page_id(s)={search_page_ids}{filter_str}...")
+    else:
+        print(f"Fetching ads from Meta Graph API (ads_archive){filter_str}...")
+    active_status = ad_active_status or "ACTIVE"
+    try:
+        fetched_ads = fetch_ads_via_meta_api(
+            meta_token,
+            search_terms,
+            country,
+            limit,
+            media,
+            ad_active_status=active_status,
+            ad_delivery_date_min=ad_delivery_date_min,
+            search_type=meta_search_type,
+            search_page_ids=search_page_ids,
+        )
+    except urllib.error.HTTPError as e:
+        if e.code == 500 and search_page_ids and active_status.upper() == "ACTIVE":
+            print("   Meta returned 500 for page_id + ACTIVE; retrying with ad_active_status=ALL...", file=sys.stderr)
+            fetched_ads = fetch_ads_via_meta_api(
+                meta_token,
+                search_terms,
+                country,
+                limit,
+                media,
+                ad_active_status="ALL",
+                ad_delivery_date_min=ad_delivery_date_min,
+                search_type=meta_search_type,
+                search_page_ids=search_page_ids,
+            )
+        else:
+            raise
     print(f"Fetched {len(fetched_ads)} ad(s) from Meta API.")
+    if search_page_ids and len(fetched_ads) == 0:
+        print(f"   No ads returned for page_id(s)={search_page_ids}. Check page ID is correct or try a different country.")
 
     exclude_ids = exclude_meta_ad_ids or set()
     if exclude_ids:
@@ -893,9 +1076,14 @@ def run_fetch(
     if not meta_ads:
         raise SystemExit("No ads after filters. Nothing saved.")
 
-    if keyword_filter and keywords:
+    if keyword_filter and (filter_domain is not None or filter_keywords or keywords):
         before_caption = len(meta_ads)
-        meta_ads = filter_ads_by_keyword_in_captions(meta_ads, keywords)
+        if filter_domain is not None:
+            meta_ads = filter_ads_by_domain_or_handle(meta_ads, filter_domain, filter_handle)
+        else:
+            caption_filter_kw = (filter_keywords if filter_keywords is not None else keywords) if (filter_keywords or keywords) else []
+            if caption_filter_kw:
+                meta_ads = filter_ads_by_keyword_in_captions(meta_ads, caption_filter_kw)
         if before_caption > 0 and len(meta_ads) < before_caption:
             print(f"   Keyword filter (in link_captions/link_titles): {before_caption} → {len(meta_ads)}")
         if not meta_ads:

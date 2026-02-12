@@ -22,6 +22,7 @@ import {
   ThumbsUp,
   ThumbsDown,
   Sparkles,
+  Pencil,
 } from 'lucide-react';
 
 interface CountrySelection {
@@ -81,6 +82,8 @@ interface DvybBrand {
   id: number;
   brandName: string;
   brandDomain: string;
+  facebookHandle?: string | null;
+  facebookPageId?: string | null;
   source: 'user' | 'admin';
   approvalStatus: 'approved' | 'pending_approval';
   countries: CountrySelection[] | null;
@@ -176,6 +179,8 @@ export default function DvybBrandsPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [addBrandName, setAddBrandName] = useState('');
   const [addBrandDomain, setAddBrandDomain] = useState('');
+  const [addFacebookHandle, setAddFacebookHandle] = useState('');
+  const [addFacebookPageId, setAddFacebookPageId] = useState('');
   const [addMedia, setAddMedia] = useState<'image' | 'video' | 'both'>('image');
   const [addCountries, setAddCountries] = useState<CountrySelection[]>([]);
   const [countryDropdownOpen, setCountryDropdownOpen] = useState(false);
@@ -186,6 +191,13 @@ export default function DvybBrandsPage() {
   const [refetching, setRefetching] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<number | null>(null);
   const [deleteConfirmBrand, setDeleteConfirmBrand] = useState<DvybBrand | null>(null);
+  const [editBrand, setEditBrand] = useState<DvybBrand | null>(null);
+  const [editBrandName, setEditBrandName] = useState('');
+  const [editBrandDomain, setEditBrandDomain] = useState('');
+  const [editFacebookHandle, setEditFacebookHandle] = useState('');
+  const [editFacebookPageId, setEditFacebookPageId] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
   const [refetchModalBrand, setRefetchModalBrand] = useState<DvybBrand | null>(null);
   const [refetchMedia, setRefetchMedia] = useState<'image' | 'video' | 'both'>('image');
   const [refetchCountries, setRefetchCountries] = useState<CountrySelection[]>([]);
@@ -335,6 +347,8 @@ export default function DvybBrandsPage() {
         body: JSON.stringify({
           brandName: addBrandName.trim(),
           brandDomain: addBrandDomain.trim(),
+          facebookHandle: addFacebookHandle.trim() || null,
+          facebookPageId: addFacebookPageId.trim() || null,
           countries: addCountries.length > 0 ? addCountries : null,
           media: addMedia,
         }),
@@ -345,6 +359,8 @@ export default function DvybBrandsPage() {
         setShowAddModal(false);
         setAddBrandName('');
         setAddBrandDomain('');
+        setAddFacebookHandle('');
+        setAddFacebookPageId('');
         setAddMedia('image');
         fetchBrands();
         alert(data.data?.message || 'Brand added. Fetch started.');
@@ -378,6 +394,51 @@ export default function DvybBrandsPage() {
       alert('Failed to approve');
     } finally {
       setRefetching(null);
+    }
+  };
+
+  const openEditModal = (brand: DvybBrand) => {
+    setEditBrand(brand);
+    setEditBrandName(brand.brandName || '');
+    setEditBrandDomain(brand.brandDomain || '');
+    setEditFacebookHandle(brand.facebookHandle ?? '');
+    setEditFacebookPageId(brand.facebookPageId ?? '');
+    setEditError('');
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editBrand) return;
+    if (!editBrandDomain.trim()) {
+      setEditError('Domain is required');
+      return;
+    }
+    try {
+      setEditSaving(true);
+      setEditError('');
+      const response = await fetch(`${API_BASE}/api/admin/dvyb-brands/${editBrand.id}`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          brandName: editBrandName.trim(),
+          brandDomain: editBrandDomain.trim(),
+          facebookHandle: editFacebookHandle.trim() || null,
+          facebookPageId: editFacebookPageId.trim() || null,
+        }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setEditBrand(null);
+        fetchBrands();
+        alert('Brand updated.');
+      } else {
+        setEditError(data.error || 'Failed to update brand');
+      }
+    } catch (error) {
+      console.error('Error updating brand:', error);
+      setEditError('Failed to update brand');
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -433,6 +494,7 @@ export default function DvybBrandsPage() {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
+          brandId: brand.id,
           brandName: brand.brandName,
           brandDomain: brand.brandDomain,
           countries: refetchCountries.length > 0 ? refetchCountries : null,
@@ -805,6 +867,15 @@ export default function DvybBrandsPage() {
                             View Ads
                           </Button>
                           <Button
+                            onClick={() => openEditModal(brand)}
+                            size="sm"
+                            variant="outline"
+                            className="flex items-center gap-1 text-gray-700 border-gray-300 hover:bg-gray-50 text-xs px-2 py-1 h-7"
+                          >
+                            <Pencil className="h-3 w-3" />
+                            Edit
+                          </Button>
+                          <Button
                             onClick={() => openRefetchModal(brand)}
                             disabled={refetching === brand.id || brand.fetchStatus === 'fetching'}
                             size="sm"
@@ -822,10 +893,10 @@ export default function DvybBrandsPage() {
                             onClick={() => setDeleteConfirmBrand(brand)}
                             size="sm"
                             variant="outline"
-                            className="flex items-center gap-1 text-red-600 border-red-300 hover:bg-red-50 text-xs px-2 py-1 h-7"
+                            title="Delete"
+                            className="flex items-center justify-center text-red-600 border-red-300 hover:bg-red-50 text-xs px-2 py-1 h-7 w-7 min-w-7"
                           >
                             <Trash2 className="h-3 w-3" />
-                            Delete
                           </Button>
                         </div>
                       </td>
@@ -903,7 +974,7 @@ export default function DvybBrandsPage() {
             <div className="p-6 border-b border-gray-200">
               <h2 className="text-xl font-bold text-gray-900">Add Brand</h2>
               <p className="text-sm text-gray-600 mt-1">
-                Enter domain to fetch ads from Meta Ad Library
+                Enter domain and Facebook handle to fetch ads from Meta Ad Library
               </p>
             </div>
             <form
@@ -925,7 +996,29 @@ export default function DvybBrandsPage() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent text-gray-900"
                   required
                 />
-                <p className="text-xs text-gray-500 mt-1">Enter domain without https://</p>
+                <p className="text-xs text-gray-500 mt-1">Enter domain without https:// (stored on brand and ads)</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Facebook handle</label>
+                <input
+                  type="text"
+                  value={addFacebookHandle}
+                  onChange={(e) => setAddFacebookHandle(e.target.value)}
+                  placeholder="e.g. nike or @nike"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent text-gray-900"
+                />
+                <p className="text-xs text-gray-500 mt-1">Used for Meta Ads Library search. Optional.</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Facebook Page ID (optional)</label>
+                <input
+                  type="text"
+                  value={addFacebookPageId}
+                  onChange={(e) => setAddFacebookPageId(e.target.value)}
+                  placeholder="e.g. 416263825086751"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent text-gray-900"
+                />
+                <p className="text-xs text-gray-500 mt-1">Search @handle on Meta Ads Library, then copy the number from the URL (view_all_page_id=...) to fetch only that page&apos;s ads.</p>
               </div>
               <div className="min-w-0" ref={countryDropdownRef}>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Countries</label>
@@ -1062,6 +1155,8 @@ export default function DvybBrandsPage() {
                     setAddError('');
                     setAddBrandName('');
                     setAddBrandDomain('');
+                    setAddFacebookHandle('');
+                    setAddFacebookPageId('');
                     setAddMedia('image');
                     setAddCountries([]);
                     setCountrySearchQuery('');
@@ -1077,6 +1172,86 @@ export default function DvybBrandsPage() {
                   className="flex-1 bg-sky-600 hover:bg-sky-700 text-white disabled:opacity-50"
                 >
                   {adding ? 'Adding...' : 'Add & Fetch Ads'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Brand modal */}
+      {editBrand && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-lg max-w-2xl w-full min-w-0 my-8 p-6">
+            <h2 className="text-xl font-bold text-gray-900">Edit brand</h2>
+            <p className="text-sm text-gray-600 mt-1 mb-4">
+              Update domain, Facebook handle, or Facebook Page ID. Re-fetch uses Page ID first, then handle, then domain.
+            </p>
+            <form onSubmit={handleSaveEdit} className="space-y-4">
+              {editError && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                  <p className="text-sm text-red-800">{editError}</p>
+                </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Brand name</label>
+                <input
+                  type="text"
+                  value={editBrandName}
+                  onChange={(e) => setEditBrandName(e.target.value)}
+                  placeholder="e.g. Mejuri"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent text-gray-900"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Domain *</label>
+                <input
+                  type="text"
+                  value={editBrandDomain}
+                  onChange={(e) => setEditBrandDomain(e.target.value)}
+                  placeholder="e.g. mejuri.com"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent text-gray-900"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Facebook handle</label>
+                <input
+                  type="text"
+                  value={editFacebookHandle}
+                  onChange={(e) => setEditFacebookHandle(e.target.value)}
+                  placeholder="e.g. mejuri or @mejuri"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent text-gray-900"
+                />
+                <p className="text-xs text-gray-500 mt-1">Used for Meta Ads Library search when Page ID is not set.</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Facebook Page ID</label>
+                <input
+                  type="text"
+                  value={editFacebookPageId}
+                  onChange={(e) => setEditFacebookPageId(e.target.value)}
+                  placeholder="e.g. 416263825086751 (view_all_page_id from Ads Library URL)"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-transparent text-gray-900"
+                />
+                <p className="text-xs text-gray-500 mt-1">Re-fetch uses this first for brand-only ads. Copy from Ads Library URL after searching @handle.</p>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <Button
+                  type="button"
+                  onClick={() => { setEditBrand(null); setEditError(''); }}
+                  variant="outline"
+                  className="flex-1 border-gray-300 hover:bg-gray-50 text-gray-900"
+                  disabled={editSaving}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={editSaving}
+                  className="flex-1 bg-sky-600 hover:bg-sky-700 text-white disabled:opacity-50"
+                >
+                  {editSaving ? 'Saving...' : 'Save'}
                 </Button>
               </div>
             </form>

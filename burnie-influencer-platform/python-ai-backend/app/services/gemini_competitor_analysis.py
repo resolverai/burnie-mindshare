@@ -550,11 +550,13 @@ def fetch_and_enrich_ads(
     global_limit: int = 2,
     out_dir: Path | None = None,
     download_media: bool = False,
+    facebook_handle: str | None = None,
+    facebook_page_id: str | None = None,
 ) -> dict:
     """
     Fetch ads from Meta + Apify, enrich with Gemini. Returns dict with 'ads' key.
-    When out_dir is provided, use it (caller manages lifecycle). When download_media=True,
-    meta_ads_fetch downloads creatives to out_dir (same as manual script).
+    When facebook_page_id is set (from Ads Library URL view_all_page_id=...), fetch only that page's ads.
+    When facebook_handle is set (no page_id), Meta search uses @handle. Filter keeps domain or handle in creatives.
     """
     meta_fetch = _load_meta_ads_fetch()
     use_temp = out_dir is None
@@ -563,28 +565,62 @@ def fetch_and_enrich_ads(
         out_dir = Path(tmpdir)
     try:
         exclude_set = set(exclude_meta_ad_ids or [])
+        search_page_ids = None
+        meta_keywords = [brand_domain]
+        meta_search_type = "KEYWORD_UNORDERED"
+        filter_domain = brand_domain.strip() if brand_domain and str(brand_domain).strip() else None
+        filter_handle = None  # set when we have a handle; filter uses exact match (± @)
+        if facebook_page_id and str(facebook_page_id).strip().replace(" ", "").isdigit():
+            # User provided page ID from Ads Library URL (view_all_page_id=...) – fetch only that page's ads.
+            search_page_ids = [int(str(facebook_page_id).strip().replace(" ", ""))]
+            print(f"   Using Facebook Page ID from request: {search_page_ids[0]} (fetching only that page's ads).")
+            meta_keywords = []
+            if facebook_handle and str(facebook_handle).strip():
+                filter_handle = str(facebook_handle).strip().lstrip("@")
+        elif facebook_handle and str(facebook_handle).strip():
+            filter_handle = str(facebook_handle).strip().lstrip("@")
+            # Try resolve handle -> page_id; else keyword search with @handle.
+            page_id_str = meta_fetch.resolve_facebook_handle_to_page_id(meta_token, filter_handle)
+            if page_id_str and page_id_str.isdigit():
+                search_page_ids = [int(page_id_str)]
+                meta_keywords = []
+                print(f"   Using resolved page_id={page_id_str} for handle '@{filter_handle}'.")
+            else:
+                meta_keywords = [f"@{filter_handle}"]
+                meta_search_type = "KEYWORD_UNORDERED"
+                print(f"   Using keyword search with @{filter_handle} (page_id not resolved or not provided).")
+        else:
+            print(f"   Using keyword search with domain: {brand_domain} (no Facebook handle or Page ID).")
+        use_keyword_filter = not no_keyword_filter
         _, meta_path, apify_path = meta_fetch.run_fetch(
             output=out_dir,
-            keywords=[brand_domain],
+            keywords=meta_keywords,
             country=country,
             limit=limit,
             exclude_meta_ad_ids=exclude_set,
-            max_ads_to_save=10,
+            max_ads_to_save=20,
             media=media,
             meta_token=meta_token,
             apify_token=apify_token,
             creatives_from="apify-snapshot",
             recent=True,
             download_media=download_media,
-            keyword_filter=not no_keyword_filter,
+            keyword_filter=use_keyword_filter,
+            meta_search_type=meta_search_type,
+            search_page_ids=search_page_ids,
+            filter_domain=filter_domain if use_keyword_filter else None,
+            filter_handle=filter_handle if use_keyword_filter else None,
         )
+        enrich_filter_kw = [brand_domain] if filter_domain else []
+        if filter_handle:
+            enrich_filter_kw.append(filter_handle)
         out_data = enrich_ads_with_gemini(
             meta_path,
             None,  # no file output
             apify_results_path=apify_path,
             search_brand=brand_domain,
-            keywords=[brand_domain],
-            keyword_filter=not no_keyword_filter,
+            keywords=enrich_filter_kw,
+            keyword_filter=use_keyword_filter,
             local_limit=local_limit,
             global_limit=global_limit,
             media=media,

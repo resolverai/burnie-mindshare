@@ -30,7 +30,9 @@ export async function startDvybBrandsFetchJob(
   brandId: number,
   brandDomain: string,
   countries: CountrySelection[] | null = null,
-  media: 'image' | 'video' | 'both' = 'image'
+  media: 'image' | 'video' | 'both' = 'image',
+  facebookHandle?: string | null,
+  facebookPageId?: string | null
 ): Promise<void> {
   const backendUrl = env.dvybBrands.backendUrl || 'http://localhost:3001';
   const pythonBackendUrl = env.ai.pythonBackendUrl;
@@ -66,6 +68,8 @@ export async function startDvybBrandsFetchJob(
     body: JSON.stringify({
       brandId,
       brandDomain,
+      facebookHandle: facebookHandle ?? null,
+      facebookPageId: facebookPageId ?? null,
       callbackUrl,
       countries: countries && countries.length > 0 ? countries : null,
       limit,
