@@ -524,6 +524,7 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
 
   // When we have Grok-matched pairs: order by pair rank (best match first), then createdAt
   // TypeORM's orderBy parses CASE expressions as aliases, so we fetch and sort in memory
+  // Default is random order so results are a mix; sort param can override to oldest / most_ads / longest_runtime
   const hasGrokPairs = categorySubcategoryPairsToFilter.length > 0;
   if (hasGrokPairs) {
     qb = qb.orderBy('ad.createdAt', 'DESC');
@@ -540,7 +541,8 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
       'DESC'
     ).addOrderBy('ad.createdAt', 'DESC');
   } else {
-    qb = qb.orderBy('ad.createdAt', 'DESC');
+    // Default / latest: use ad.id for stable SQL; we shuffle in memory below so Discover shows a mix
+    qb = qb.orderBy('ad.id', 'DESC');
   }
 
   // Rank by (category, subcategory) relevance: one AI call per (account, filter set); result cached so pagination reuses it.
@@ -711,6 +713,21 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
     ads = adsRaw.slice(skip, skip + limit);
+  }
+
+  // Default "mix" order: shuffle in memory (ORDER BY random() breaks with TypeORM's DISTINCT in getManyAndCount)
+  if (
+    !hasGrokPairs &&
+    !hasRankedPairs &&
+    sort !== 'oldest' &&
+    sort !== 'most_ads' &&
+    sort !== 'longest_runtime' &&
+    ads.length > 0
+  ) {
+    for (let i = ads.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [ads[i], ads[j]] = [ads[j], ads[i]];
+    }
   }
 
   // Batch presigned URLs for this page (avoids 2N sequential cache/API calls when ad volume is large)
