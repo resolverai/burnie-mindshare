@@ -110,6 +110,19 @@ export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: 
     }
   }, [initialOpenWebsiteModal]);
 
+  // When arriving from pricing "Start now" (?focus=hero), focus the hero website URL input
+  useEffect(() => {
+    if (searchParams.get("focus") !== "hero") return;
+    const t = setTimeout(() => {
+      document.getElementById("hero-website-input")?.focus();
+      const newSearch = new URLSearchParams(window.location.search);
+      newSearch.delete("focus");
+      const qs = newSearch.toString();
+      window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : ""));
+    }, 400);
+    return () => clearTimeout(t);
+  }, [searchParams]);
+
   // After OAuth: user returns with content generation job - open GenerateContentDialog (like ContentLibrary)
   useEffect(() => {
     const storedJobId = localStorage.getItem("dvyb_onboarding_generation_job_id");

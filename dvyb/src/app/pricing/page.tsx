@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useEffect, useMemo, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Check, Search, Building2, Users, Image as ImageIcon, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { NavigationLanding } from "@/components/landing/NavigationLanding";
 import { FooterLanding } from "@/components/landing/FooterLanding";
-import { dvybApi } from "@/lib/api";
-import { trackCheckoutStarted, trackStartNowClicked } from "@/lib/mixpanel";
+import { useAuth } from "@/contexts/AuthContext";
+import { trackStartNowClicked } from "@/lib/mixpanel";
 
 interface PricingPlan {
   id: number;
@@ -33,7 +33,9 @@ const features = [
 ];
 
 function PricingPageContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const flowParam = searchParams.get("flow");
   const userFlow = (flowParam === "website_analysis" || flowParam === "product_photoshot")
     ? flowParam
@@ -81,39 +83,14 @@ function PricingPageContent() {
       billingCycle,
       source: "pricing_page",
     });
-    setIsLoading(true);
-    try {
-      const priceToCharge =
-        billingCycle === "monthly"
-          ? (plan.dealActive && plan.dealMonthlyPrice != null ? plan.dealMonthlyPrice : plan.monthlyPrice)
-          : (plan.dealActive && plan.dealAnnualPrice != null ? plan.dealAnnualPrice : plan.annualPrice);
-      trackCheckoutStarted({
-        planName: plan.planName,
-        billingCycle,
-        price: priceToCharge,
-        hasPromoCode: false,
-      });
 
-      const origin = typeof window !== "undefined" ? window.location.origin : "";
-      const search = typeof window !== "undefined" ? window.location.search : "";
-      const successPath = `/content-library?tab=my-ads${search}`;
-      const cancelPath = `/pricing${search}`;
-      const data = await dvybApi.subscription.createCheckout(plan.id, billingCycle, undefined, {
-        successUrl: `${origin}${successPath.startsWith("/") ? successPath : "/" + successPath}`,
-        cancelUrl: `${origin}${cancelPath.startsWith("/") ? cancelPath : "/" + cancelPath}`,
-      });
-      if (data.success && data.checkoutUrl) {
-        window.location.href = data.checkoutUrl;
-      } else {
-        console.error("Checkout failed:", data.error);
-        alert("Failed to start checkout. Please try again.");
-      }
-    } catch (e) {
-      console.error("Checkout error:", e);
-      alert("Failed to start checkout. Please try again.");
-    } finally {
-      setIsLoading(false);
+    if (isAuthenticated) {
+      router.replace("/discover");
+      return;
     }
+
+    router.replace("/?focus=hero");
+    return;
   };
 
   const hasDeal = plan?.dealActive && plan.dealMonthlyPrice != null && plan.dealAnnualPrice != null;
@@ -257,7 +234,7 @@ function PricingPageContent() {
               {/* CTA Button */}
               <Button
                 onClick={handleStartNow}
-                disabled={isLoading}
+                disabled={isLoading || authLoading}
                 className="w-full py-6 text-lg font-semibold rounded-full bg-orange-500 hover:bg-orange-600 text-white"
               >
                 {isLoading ? (
