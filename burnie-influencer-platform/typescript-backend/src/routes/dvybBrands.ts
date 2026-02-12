@@ -726,7 +726,12 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
   ) {
     for (let i = ads.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
-      [ads[i], ads[j]] = [ads[j], ads[i]];
+      const a = ads[i];
+      const b = ads[j];
+      if (a != null && b != null) {
+        ads[i] = b;
+        ads[j] = a;
+      }
     }
   }
 
