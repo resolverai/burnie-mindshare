@@ -14,6 +14,74 @@ from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
+
+def _parse_ranked_pairs_json(text: str) -> list:
+    """
+    Parse JSON array of {category, subcategory} from LLM response.
+    On truncation (Unterminated string, etc.) attempt repair and parse;
+    if still invalid, return empty list so caller can fall back to original order.
+    """
+    if not text or not text.strip():
+        return []
+    text = text.strip()
+    # Strip markdown code fence if present
+    if text.startswith("```"):
+        lines = text.split("\n")
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    # Repair truncated JSON: close unterminated string, then close brackets/braces
+    repaired = text
+    brace_count = 0
+    bracket_count = 0
+    in_string = False
+    escape_next = False
+    i = 0
+    while i < len(repaired):
+        c = repaired[i]
+        if escape_next:
+            escape_next = False
+            i += 1
+            continue
+        if c == "\\" and in_string:
+            escape_next = True
+            i += 1
+            continue
+        if c == '"' and not escape_next:
+            in_string = not in_string
+            i += 1
+            continue
+        if in_string:
+            i += 1
+            continue
+        if c == "{":
+            brace_count += 1
+        elif c == "}":
+            brace_count -= 1
+        elif c == "[":
+            bracket_count += 1
+        elif c == "]":
+            bracket_count -= 1
+        i += 1
+    if in_string:
+        repaired = repaired + '"'
+    if bracket_count > 0:
+        repaired = repaired + ("]" * bracket_count)
+    if brace_count > 0:
+        repaired = repaired + ("}" * brace_count)
+    try:
+        out = json.loads(repaired)
+        return out if isinstance(out, list) else []
+    except json.JSONDecodeError:
+        logger.warning("rank-pairs: could not repair truncated JSON, using original order")
+        return []
+
 router = APIRouter(prefix="/api/dvyb/discover", tags=["dvyb-discover-ranking"])
 
 
@@ -215,17 +283,11 @@ Output format (no other text): [{{"category": "X", "subcategory": "Y"}}, ...]"""
                 {"role": "user", "content": prompt},
             ],
             temperature=0,
+            max_tokens=8192,  # enough for large pair lists; avoids truncation
         )
         text = (response.choices[0].message.content or "").strip()
-        if text.startswith("```"):
-            lines = text.split("\n")
-            if lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].strip() == "```":
-                lines = lines[:-1]
-            text = "\n".join(lines)
-        raw_ranked = json.loads(text)
-        if not isinstance(raw_ranked, list):
+        raw_ranked = _parse_ranked_pairs_json(text)
+        if not raw_ranked:
             return RankPairsResponse(success=True, ranked_pairs=request.pairs)
 
         pair_set = {(c.lower(), s.lower()) for c, s in pairs}

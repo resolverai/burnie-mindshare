@@ -540,23 +540,32 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
     qb = qb.orderBy('ad.createdAt', 'DESC');
   }
 
-  // Rank by (category, subcategory) relevance to account industry/brand: get pairs from current filtered set, call Python rank-pairs, order by rank
+  // Rank by (category, subcategory) relevance: get pairs from a limited recent window to avoid slow full-table distinct when ad volume is huge
   const accountId = (req as DvybAuthRequest).dvybAccountId;
   let rankedPairs: { category: string; subcategory: string }[] = [];
+  const DISCOVER_PAIRS_SAMPLE_SIZE = 2000; // distinct pairs from this many most recent ads only (keeps query fast)
   if (accountId) {
-    const pairQb = qb.clone();
-    pairQb
-      .select('ad.category', 'category')
-      .addSelect('ad.subcategory', 'subcategory')
-      .distinct(true)
-      .andWhere('ad.category IS NOT NULL')
-      .andWhere("TRIM(COALESCE(ad.category,'')) != ''")
-      .andWhere('ad.subcategory IS NOT NULL')
-      .andWhere("TRIM(COALESCE(ad.subcategory,'')) != ''");
-    // PostgreSQL: SELECT DISTINCT requires ORDER BY columns to appear in select list; clear order for this query
-    (pairQb as any).expressionMap.orderBys = [];
-    const pairRows = await pairQb.getRawMany<{ category: string; subcategory: string }>();
-    const pairs = pairRows
+    const idsQb = qb.clone();
+    idsQb.select('ad.id', 'id');
+    (idsQb as any).expressionMap.orderBys = [];
+    idsQb.orderBy('ad.createdAt', 'DESC');
+    idsQb.take(DISCOVER_PAIRS_SAMPLE_SIZE);
+    const idRows = await idsQb.getRawMany<{ id: number }>();
+    const recentIds = idRows.map((r) => r.id).filter((id) => id != null);
+    let pairs: { category: string; subcategory: string }[] = [];
+    if (recentIds.length > 0) {
+      const pairRows = await adRepo
+        .createQueryBuilder('ad')
+        .select('ad.category', 'category')
+        .addSelect('ad.subcategory', 'subcategory')
+        .distinct(true)
+        .where('ad.id IN (:...recentIds)', { recentIds })
+        .andWhere('ad.category IS NOT NULL')
+        .andWhere("TRIM(COALESCE(ad.category,'')) != ''")
+        .andWhere('ad.subcategory IS NOT NULL')
+        .andWhere("TRIM(COALESCE(ad.subcategory,'')) != ''")
+        .getRawMany<{ category: string; subcategory: string }>();
+      pairs = pairRows
       .map((r) => ({ category: (r.category || '').trim(), subcategory: (r.subcategory || '').trim() }))
       .filter((p) => p.category && p.subcategory);
     if (pairs.length > 0) {
@@ -608,6 +617,7 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
         }
       }
     }
+    }
   }
 
   // TypeORM parses ORDER BY and treats CASE as alias; use in-memory sort for ranked pairs (same as Grok pairs)
@@ -648,38 +658,50 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
     ads = adsRaw.slice(skip, skip + limit);
   }
 
-  const uiAds = await Promise.all(
-    ads.map(async (ad) => {
-      const imgUrl = await getCreativeUrl(ad.creativeImageS3Key, ad.creativeImageUrl);
-      const vidUrl = await getCreativeUrl(ad.creativeVideoS3Key, ad.creativeVideoUrl);
-      return {
-        id: ad.id,
-        metaAdId: ad.metaAdId,
-        creativeImageUrl: imgUrl,
-        creativeVideoUrl: vidUrl,
-        mediaType: ad.mediaType,
-        brandName: ad.brandName,
-        brandLetter: (ad.brandName || '?').charAt(0),
-        category: ad.category,
-        status: ad.status,
-        runtime: ad.runtime,
-        firstSeen: ad.firstSeen,
-        targetLanguage: ad.targetLanguage,
-        targetCountries: ad.targetCountries,
-        targetGender: ad.targetGender,
-        targetAges: ad.targetAges,
-        adCopy: ad.adCopy,
-        landingPage: ad.landingPage,
-        adSnapshotUrl: safeAdSnapshotUrl(ad.metaAdId, ad.adSnapshotUrl),
-        platform: ad.platform,
-        image: imgUrl || vidUrl,
-        videoSrc: vidUrl,
-        isVideo: ad.mediaType === 'video',
-        timeAgo: ad.runtime || '',
-        aspectRatio: '1:1' as const,
-      };
-    })
-  );
+  // Batch presigned URLs for this page (avoids 2N sequential cache/API calls when ad volume is large)
+  const creativeKeys = new Set<string>();
+  for (const ad of ads) {
+    if (ad.creativeImageS3Key?.trim()) creativeKeys.add(ad.creativeImageS3Key.trim());
+    if (ad.creativeVideoS3Key?.trim()) creativeKeys.add(ad.creativeVideoS3Key.trim());
+  }
+  const keysArray = Array.from(creativeKeys);
+  const presignedUrls = keysArray.length > 0 ? await s3Service.generatePresignedUrls(keysArray, 3600, true) : [];
+  const urlByKey = new Map<string | null, string | null>(keysArray.map((k, i) => [k, presignedUrls[i] ?? null]));
+
+  const uiAds = ads.map((ad) => {
+    const imgUrl = ad.creativeImageS3Key?.trim()
+      ? (urlByKey.get(ad.creativeImageS3Key!.trim()) ?? ad.creativeImageUrl)
+      : ad.creativeImageUrl;
+    const vidUrl = ad.creativeVideoS3Key?.trim()
+      ? (urlByKey.get(ad.creativeVideoS3Key!.trim()) ?? ad.creativeVideoUrl)
+      : ad.creativeVideoUrl;
+    return {
+      id: ad.id,
+      metaAdId: ad.metaAdId,
+      creativeImageUrl: imgUrl,
+      creativeVideoUrl: vidUrl,
+      mediaType: ad.mediaType,
+      brandName: ad.brandName,
+      brandLetter: (ad.brandName || '?').charAt(0),
+      category: ad.category,
+      status: ad.status,
+      runtime: ad.runtime,
+      firstSeen: ad.firstSeen,
+      targetLanguage: ad.targetLanguage,
+      targetCountries: ad.targetCountries,
+      targetGender: ad.targetGender,
+      targetAges: ad.targetAges,
+      adCopy: ad.adCopy,
+      landingPage: ad.landingPage,
+      adSnapshotUrl: safeAdSnapshotUrl(ad.metaAdId, ad.adSnapshotUrl),
+      platform: ad.platform,
+      image: imgUrl || vidUrl,
+      videoSrc: vidUrl,
+      isVideo: ad.mediaType === 'video',
+      timeAgo: ad.runtime || '',
+      aspectRatio: '1:1' as const,
+    };
+  });
 
   res.json({
     success: true,
