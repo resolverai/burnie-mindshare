@@ -177,7 +177,10 @@ router.post('/', isAdmin, async (req: Request, res: Response) => {
     } else {
       brand.fetchStatus = 'pending';
       brand.fetchError = null;
-      if (countriesArr) brand.countries = countriesArr;
+      // Refetch: use request countries when provided (including null/empty = "all"); persist so next refetch uses same.
+      if (Object.prototype.hasOwnProperty.call(req.body, 'countries')) {
+        brand.countries = countriesArr;
+      }
       // Only update handle/pageId from body when NOT refetching (refetch uses stored values from DB).
       if (bodyBrandId == null || isNaN(Number(bodyBrandId))) {
         if (handle !== undefined) brand.facebookHandle = handle;
@@ -189,8 +192,10 @@ router.post('/', isAdmin, async (req: Request, res: Response) => {
     brand.fetchStatus = 'fetching';
     await brandRepo.save(brand);
 
-    logger.info('Starting Dvyb brands fetch', { brandId: brand.id, domain, facebookHandle: brand.facebookHandle ?? undefined, facebookPageId: brand.facebookPageId ?? undefined });
-    await startDvybBrandsFetchJob(brand.id, domain, brand.countries, mediaType, brand.facebookHandle ?? undefined, brand.facebookPageId ?? undefined);
+    // Use request countries when body included them (refetch modal); else stored brand.countries. null/empty = "all".
+    const countriesForJob = Object.prototype.hasOwnProperty.call(req.body, 'countries') ? countriesArr : (brand.countries ?? null);
+    logger.info('Starting Dvyb brands fetch', { brandId: brand.id, domain, facebookHandle: brand.facebookHandle ?? undefined, facebookPageId: brand.facebookPageId ?? undefined, countries: countriesForJob === null ? 'all' : countriesForJob?.length ?? 0 });
+    await startDvybBrandsFetchJob(brand.id, domain, countriesForJob, mediaType, brand.facebookHandle ?? undefined, brand.facebookPageId ?? undefined);
 
     return res.json({
       success: true,

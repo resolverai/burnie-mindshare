@@ -5,6 +5,13 @@ import { DvybBrandAd } from '../models/DvybBrandAd';
 import { logger } from '../config/logger';
 const router = Router();
 
+/** Safe Ad Library URL only (no access token). Use when storing or exposing adSnapshotUrl. */
+function canonicalAdSnapshotUrl(metaAdId: string, url: string | null | undefined): string | null {
+  if (metaAdId?.trim()) return `https://www.facebook.com/ads/library/?id=${metaAdId.trim()}`;
+  if (url && typeof url === 'string' && !url.includes('access_token')) return url.trim() || null;
+  return null;
+}
+
 /**
  * POST /api/internal/dvyb-brands/:brandId/ads-callback
  * Called by Python gemini_competitor_analysis script when fetch completes.
@@ -89,7 +96,7 @@ router.post('/:brandId/ads-callback', async (req: Request, res: Response) => {
       const entity = adRepo.create({
         brandId,
         metaAdId,
-        adSnapshotUrl: (ad.adSnapshotUrl as string) || null,
+        adSnapshotUrl: canonicalAdSnapshotUrl(metaAdId, ad.adSnapshotUrl as string),
         platform,
         creativeImageS3Key: (ad.creativeImageS3Key as string) || null,
         creativeVideoS3Key: (ad.creativeVideoS3Key as string) || null,

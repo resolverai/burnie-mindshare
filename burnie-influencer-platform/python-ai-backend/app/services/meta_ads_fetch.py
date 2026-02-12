@@ -85,6 +85,21 @@ def _parse_reach_to_number(s: str | None) -> int:
     return int(n)
 
 
+def _canonical_ad_snapshot_url(ad_id: str | None) -> str | None:
+    """Return the safe Ad Library URL (no access token). Always use this when storing or exposing ad_snapshot_url."""
+    if not ad_id or not str(ad_id).strip():
+        return None
+    return f"https://www.facebook.com/ads/library/?id={str(ad_id).strip()}"
+
+
+def _normalize_ad_snapshot_urls(ads: list[dict]) -> None:
+    """Overwrite ad_snapshot_url with canonical library URL (no token) for each ad that has an id. Mutates in place."""
+    for ad in ads:
+        aid = (ad.get("id") or "").strip()
+        if aid:
+            ad["ad_snapshot_url"] = _canonical_ad_snapshot_url(aid)
+
+
 def _has_no_stop_time(ad: dict) -> bool:
     """True if ad_delivery_stop_time is null or empty (ad still running)."""
     stop = ad.get("ad_delivery_stop_time")
@@ -704,6 +719,101 @@ async function pageFunction(context) {
 """
 
 
+def _fetch_ads_via_apify_ad_library_page(
+    apify_token: str,
+    page_id: int | str,
+    limit: int,
+) -> list[dict]:
+    """
+    When Meta API returns 0 for search_page_ids, scrape the same Ad Library page URL via Apify
+    (apify/facebook-ads-scraper) and return ads in Meta-like shape for the rest of the pipeline.
+    """
+    if not apify_token or not str(page_id).strip():
+        return []
+    page_id_str = str(page_id).strip().replace(" ", "")
+    url = (
+        "https://www.facebook.com/ads/library/?"
+        "active_status=active&ad_type=all&country=ALL&is_targeted_country=false&"
+        "media_type=all&search_type=page&view_all_page_id=" + page_id_str
+    )
+    try:
+        client = ApifyClient(apify_token)
+        run_input = {
+            "startUrls": [{"url": url}],
+            "resultsLimit": min(limit, 500),
+        }
+        run = client.actor("apify/facebook-ads-scraper").call(run_input=run_input)
+        items = list(client.dataset(run["defaultDatasetId"]).iterate_items())
+    except Exception as e:
+        print(f"   Apify Ad Library page scrape failed: {e}", file=sys.stderr)
+        return []
+    if not items:
+        return []
+    # Map Apify output to Meta-like ad dict (id, page_id, ad_delivery_*, creativeImageUrls, creativeVideoUrls, etc.)
+    out = []
+    for item in items:
+        ad_id = item.get("adArchiveId") or item.get("adArchiveID") or item.get("id")
+        if not ad_id:
+            continue
+        page_id_val = item.get("pageId") or item.get("pageID") or page_id_str
+        snapshot = item.get("snapshot") or {}
+        page_name = snapshot.get("pageName") or item.get("pageName") or ""
+        start_ts = item.get("startDate")
+        end_ts = item.get("endDate")
+        is_active = item.get("isActive") is True
+        # Meta format is YYYY-MM-DD string; Apify may give Unix seconds or milliseconds
+        def _ts_to_iso(ts) -> str | None:
+            if ts is None:
+                return None
+            try:
+                t = int(ts) if isinstance(ts, (int, float)) else None
+                if t is None:
+                    return None
+                if t > 1e12:
+                    t = t // 1000
+                return datetime.utcfromtimestamp(t).strftime("%Y-%m-%d")
+            except (ValueError, TypeError, OSError):
+                return None
+        start_str = _ts_to_iso(start_ts)
+        end_str = _ts_to_iso(end_ts) if not is_active else None
+        cards = snapshot.get("cards") or []
+        image_urls = []
+        video_urls = []
+        bodies = []
+        for c in cards:
+            if isinstance(c, dict):
+                img = c.get("originalImageUrl") or c.get("resizedImageUrl")
+                if img and img not in image_urls:
+                    image_urls.append(img)
+                vid = c.get("videoHdUrl") or c.get("videoSdUrl") or c.get("watermarkedVideoHdUrl") or c.get("watermarkedVideoSdUrl")
+                if vid and vid not in video_urls:
+                    video_urls.append(vid)
+                body = (c.get("body") or "").strip()
+                if body and body not in bodies:
+                    bodies.append(body)
+        pub = item.get("publisherPlatform") or snapshot.get("publisherPlatform") or []
+        if isinstance(pub, str):
+            pub = [pub] if pub else []
+        # Meta Ad Library URL to view this ad (so "View in Meta" works in admin modal)
+        ad_snapshot_url = f"https://www.facebook.com/ads/library/?id={ad_id}" if ad_id else None
+        out.append({
+            "id": str(ad_id).strip(),
+            "page_id": str(page_id_val).strip(),
+            "page_name": page_name,
+            "ad_delivery_start_time": start_str,
+            "ad_delivery_stop_time": end_str,
+            "ad_snapshot_url": ad_snapshot_url,
+            "ad_creative_bodies": bodies,
+            "ad_creative_link_titles": [],
+            "ad_creative_link_descriptions": [],
+            "ad_creative_link_captions": [],
+            "publisher_platforms": pub,
+            "creativeImageUrls": image_urls,
+            "creativeVideoUrls": video_urls,
+        })
+    return out[:limit]
+
+
 def _meta_api_request(url: str, timeout: int = 60) -> dict:
     """GET Meta Graph API URL and return parsed JSON. On HTTP error, log Meta's response body and re-raise."""
     req = urllib.request.Request(url, headers={"User-Agent": "MetaAdFetch/1.0"})
@@ -777,6 +887,10 @@ def fetch_ads_via_meta_api(
     limit_per_request = min(limit, 100)
     all_ads: list[dict] = []
     seen_ids: set[str] = set()
+    # When searching by page ID, use ALL countries to match Ads Library UI (country=ALL); otherwise API often returns 0
+    effective_country = "ALL" if search_page_ids else country.upper()
+    if search_page_ids:
+        print(f"   Using ad_reached_countries=ALL for page_id search (matches Ads Library country=ALL).")
 
     def fetch_page(ad_reached_countries: str, next_url: str | None = None) -> tuple[list[dict], str | None]:
         if next_url:
@@ -805,7 +919,7 @@ def fetch_ads_via_meta_api(
             data = _meta_api_request(url)
         return data.get("data") or [], (data.get("paging") or {}).get("next")
 
-    if country.upper() == "EU":
+    if country.upper() == "EU" and not search_page_ids:
         # Fetch one page per EU country, then merge and dedupe by ad id (like TS); cap at limit
         for i, cc in enumerate(EU_COUNTRY_CODES):
             if len(all_ads) >= limit:
@@ -849,13 +963,14 @@ def fetch_ads_via_meta_api(
                     all_ads.append(ad)
             if all_ads:
                 print(f"   Got {len(all_ads)} ad(s) without media filter")
+        _normalize_ad_snapshot_urls(all_ads)
         return all_ads[:limit]
 
-    # Single country: fetch pages until we have enough; respect -l
+    # Single country (or ALL when search_page_ids): fetch pages until we have enough; respect -l
     next_url: str | None = None
     page_count = 0
     while page_count < max_pages and len(all_ads) < limit:
-        page, next_url = fetch_page(country.upper(), next_url)
+        page, next_url = fetch_page(effective_country, next_url)
         for ad in page:
             if len(all_ads) >= limit:
                 break
@@ -873,7 +988,7 @@ def fetch_ads_via_meta_api(
         print(f"   No ads with media_type={media_type}; retrying without media filter...")
         params = {
             "access_token": meta_token,
-            "ad_reached_countries": json.dumps([country.upper()]),
+            "ad_reached_countries": json.dumps([effective_country]),
             "ad_active_status": (ad_active_status or "ACTIVE").upper(),
             "fields": ",".join(META_AD_ARCHIVE_FIELDS),
             "limit": limit_per_request,
@@ -898,6 +1013,7 @@ def fetch_ads_via_meta_api(
         if all_ads:
             print(f"   Got {len(all_ads)} ad(s) without media filter (download will prefer {media_type})")
 
+    _normalize_ad_snapshot_urls(all_ads)
     return all_ads[:limit]
 
 
@@ -1045,7 +1161,15 @@ def run_fetch(
             raise
     print(f"Fetched {len(fetched_ads)} ad(s) from Meta API.")
     if search_page_ids and len(fetched_ads) == 0:
-        print(f"   No ads returned for page_id(s)={search_page_ids}. Check page ID is correct or try a different country.")
+        print(f"   No ads returned for page_id(s)={search_page_ids}. Trying Apify Ad Library page scraper (same as UI)...")
+        if apify_token:
+            fetched_ads = _fetch_ads_via_apify_ad_library_page(
+                apify_token, search_page_ids[0], limit
+            )
+            if fetched_ads:
+                print(f"   Apify Ad Library page scraper returned {len(fetched_ads)} ad(s).")
+        if not fetched_ads:
+            print(f"   No ads for page_id(s)={search_page_ids}. Check page ID or try a different country.")
 
     exclude_ids = exclude_meta_ad_ids or set()
     if exclude_ids:

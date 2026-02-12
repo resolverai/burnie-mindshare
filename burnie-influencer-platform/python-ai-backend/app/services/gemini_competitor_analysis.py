@@ -453,9 +453,14 @@ def enrich_ads_with_gemini(
         ad_id = (ad.get("id") or "").strip()
         brand_name = (ad.get("page_name") or "").strip() or "Unknown"
         snapshot_url = (ad.get("ad_snapshot_url") or "").strip()
-        creative_img_urls, creative_vid_urls = _get_creative_urls_from_apify(
-            apify_items, ad_id, ad_snapshot_url=snapshot_url
-        )
+        # Use creatives already on ad (e.g. from Apify Ad Library page scrape fallback) or look up from apify_items
+        if ad.get("creativeImageUrls") is not None or ad.get("creativeVideoUrls") is not None:
+            creative_img_urls = list(ad.get("creativeImageUrls") or [])
+            creative_vid_urls = list(ad.get("creativeVideoUrls") or [])
+        else:
+            creative_img_urls, creative_vid_urls = _get_creative_urls_from_apify(
+                apify_items, ad_id, ad_snapshot_url=snapshot_url
+            )
         if not want_image:
             creative_img_urls = []
         if not want_video:
@@ -469,9 +474,17 @@ def enrich_ads_with_gemini(
         publisher_platforms = ad.get("publisher_platforms") or []
         platform = _derive_platform(publisher_platforms)
 
+        # Always store the safe Ad Library URL (no access token). Never persist render_ad URLs with token.
+        if ad_id:
+            ad_snapshot_url_for_db = f"https://www.facebook.com/ads/library/?id={ad_id}"
+        elif snapshot_url and "access_token" not in snapshot_url:
+            ad_snapshot_url_for_db = snapshot_url
+        else:
+            ad_snapshot_url_for_db = None
+
         ads_ui.append({
             "id": ad_id,
-            "adSnapshotUrl": snapshot_url,
+            "adSnapshotUrl": ad_snapshot_url_for_db,
             "platform": platform,
             "creativeImageUrls": creative_img_urls,
             "creativeVideoUrls": creative_vid_urls,
@@ -591,7 +604,10 @@ def fetch_and_enrich_ads(
                 print(f"   Using keyword search with @{filter_handle} (page_id not resolved or not provided).")
         else:
             print(f"   Using keyword search with domain: {brand_domain} (no Facebook handle or Page ID).")
-        use_keyword_filter = not no_keyword_filter
+        # Skip keyword filter only when user explicitly provided a Page ID (Ads Library URL). When domain or
+        # FB handle is used (even if handle resolved to page_id), keep keyword filter for sanitised data.
+        explicit_page_id = bool(facebook_page_id and str(facebook_page_id).strip().replace(" ", "").isdigit())
+        use_keyword_filter = not no_keyword_filter and not explicit_page_id
         _, meta_path, apify_path = meta_fetch.run_fetch(
             output=out_dir,
             keywords=meta_keywords,

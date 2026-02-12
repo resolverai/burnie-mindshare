@@ -126,7 +126,16 @@ function getPlatformLabel(platform: string | undefined): string {
   if (p === 'google') return 'View on Google';
   if (p === 'youtube') return 'View on YouTube';
   if (p === 'tiktok') return 'View on TikTok';
-  return 'View on Meta';
+  return 'View in Meta';
+}
+
+/** Meta Ad Library URL for this ad. Always use the safe library URL (no access token). */
+function getAdMetaUrl(ad: DvybBrandAd): string | null {
+  const id = ad.metaAdId?.trim() || String(ad.id).trim();
+  if (id && id !== '0') return `https://www.facebook.com/ads/library/?id=${id}`;
+  const url = ad.adSnapshotUrl?.trim();
+  if (url && !url.includes('access_token')) return url;
+  return null;
 }
 
 interface Pagination {
@@ -1568,9 +1577,9 @@ export default function DvybBrandsPage() {
                       <div className="p-3">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-xs text-gray-500 capitalize">{ad.mediaType}</span>
-                          {ad.adSnapshotUrl && (
+                          {getAdMetaUrl(ad) && (
                             <a
-                              href={ad.adSnapshotUrl}
+                              href={getAdMetaUrl(ad)!}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-xs text-sky-600 hover:underline flex items-center gap-1"

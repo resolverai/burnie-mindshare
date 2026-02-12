@@ -15,6 +15,13 @@ import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
 const router = Router();
 const s3Service = new S3PresignedUrlService();
 
+/** Safe Ad Library URL only (no access token). Use when returning adSnapshotUrl to client. */
+function safeAdSnapshotUrl(metaAdId: string | null, url: string | null): string | null {
+  if (metaAdId?.trim()) return `https://www.facebook.com/ads/library/?id=${metaAdId.trim()}`;
+  if (url?.trim() && !url.includes('access_token')) return url.trim();
+  return null;
+}
+
 /** Resolve creative URL: prefer presigned from S3 key, fallback to stored URL */
 async function getCreativeUrl(
   s3Key: string | null,
@@ -533,9 +540,84 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
     qb = qb.orderBy('ad.createdAt', 'DESC');
   }
 
-  // For Grok pairs: fetch more to allow in-memory sort by rank, then slice to limit
-  const takeLimit = hasGrokPairs ? Math.min((skip + limit) * 2, 200) : limit;
-  qb = qb.skip(hasGrokPairs ? 0 : skip).take(takeLimit);
+  // Rank by (category, subcategory) relevance to account industry/brand: get pairs from current filtered set, call Python rank-pairs, order by rank
+  const accountId = (req as DvybAuthRequest).dvybAccountId;
+  let rankedPairs: { category: string; subcategory: string }[] = [];
+  if (accountId) {
+    const pairQb = qb.clone();
+    pairQb
+      .select('ad.category', 'category')
+      .addSelect('ad.subcategory', 'subcategory')
+      .distinct(true)
+      .andWhere('ad.category IS NOT NULL')
+      .andWhere("TRIM(COALESCE(ad.category,'')) != ''")
+      .andWhere('ad.subcategory IS NOT NULL')
+      .andWhere("TRIM(COALESCE(ad.subcategory,'')) != ''");
+    // PostgreSQL: SELECT DISTINCT requires ORDER BY columns to appear in select list; clear order for this query
+    (pairQb as any).expressionMap.orderBys = [];
+    const pairRows = await pairQb.getRawMany<{ category: string; subcategory: string }>();
+    const pairs = pairRows
+      .map((r) => ({ category: (r.category || '').trim(), subcategory: (r.subcategory || '').trim() }))
+      .filter((p) => p.category && p.subcategory);
+    if (pairs.length > 0) {
+      const ctxRepo = AppDataSource.getRepository(DvybContext);
+      const ctx = await ctxRepo.findOne({
+        where: { accountId },
+        select: ['industry', 'businessOverview', 'popularProducts', 'customerDemographics', 'brandStory'],
+      });
+      const industry = (ctx?.industry ?? '').trim();
+      if (industry) {
+        const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
+        const body: { industry: string; pairs: typeof pairs; brand_context?: Record<string, unknown> } = {
+          industry,
+          pairs,
+        };
+        if (
+          ctx?.businessOverview ||
+          (ctx?.popularProducts && ctx.popularProducts.length > 0) ||
+          ctx?.customerDemographics ||
+          ctx?.brandStory
+        ) {
+          body.brand_context = {
+            business_overview: ctx.businessOverview ?? undefined,
+            popular_products: ctx.popularProducts ?? undefined,
+            customer_demographics: ctx.customerDemographics ?? undefined,
+            brand_story: ctx.brandStory ?? undefined,
+          };
+        }
+        try {
+          const rankRes = await fetch(`${pythonBackendUrl}/api/dvyb/discover/rank-pairs`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          const rankData = (await rankRes.json()) as {
+            success?: boolean;
+            ranked_pairs?: Array<{ category: string; subcategory: string }>;
+          };
+          if (
+            rankData.success &&
+            Array.isArray(rankData.ranked_pairs) &&
+            rankData.ranked_pairs.length > 0
+          ) {
+            rankedPairs = rankData.ranked_pairs;
+            logger.info(`Discover rank-pairs: ${rankedPairs.length} pairs for industry ${industry}`);
+          }
+        } catch (err) {
+          logger.warn('Discover rank-pairs Python call failed, using original order:', err);
+        }
+      }
+    }
+  }
+
+  // TypeORM parses ORDER BY and treats CASE as alias; use in-memory sort for ranked pairs (same as Grok pairs)
+  const hasRankedPairs = rankedPairs.length > 0;
+  const takeLimit = hasGrokPairs
+    ? Math.min((skip + limit) * 2, 200)
+    : hasRankedPairs
+      ? Math.min(skip + limit, 500)
+      : limit;
+  qb = qb.skip(hasGrokPairs || hasRankedPairs ? 0 : skip).take(takeLimit);
 
   const [adsRaw, total] = await qb.getManyAndCount();
 
@@ -552,49 +634,18 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
     ads = adsRaw.slice(skip, skip + limit);
-  }
-
-  // Rank ads by semantic match of ad category to account industry (GPT-4o via Python backend)
-  const accountId = (req as DvybAuthRequest).dvybAccountId;
-  if (accountId && ads.length > 0) {
-    const ctxRepo = AppDataSource.getRepository(DvybContext);
-    const ctx = await ctxRepo.findOne({ where: { accountId }, select: ['industry'] });
-    const industry = (ctx?.industry ?? '').trim();
-    if (industry) {
-      const distinctCategories = await adRepo
-        .createQueryBuilder('a')
-        .select('DISTINCT a.category', 'category')
-        .where("a.approvalStatus = 'approved'")
-        .andWhere('a.category IS NOT NULL')
-        .andWhere("TRIM(a.category) != ''")
-        .getRawMany<{ category: string }>()
-        .then((rows) => rows.map((r) => (r.category || '').trim()).filter(Boolean));
-      if (distinctCategories.length > 0) {
-        const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
-        try {
-          const rankRes = await fetch(`${pythonBackendUrl}/api/dvyb/discover/rank-categories`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ industry, categories: distinctCategories }),
-          });
-          const rankData = (await rankRes.json()) as { success?: boolean; ranked_categories?: string[] };
-          if (rankData.success && Array.isArray(rankData.ranked_categories) && rankData.ranked_categories.length > 0) {
-            const rankMap = new Map<string, number>();
-            rankData.ranked_categories.forEach((cat, i) => rankMap.set(cat, i));
-            ads = [...ads].sort((a, b) => {
-              const catA = (a.category ?? '').trim();
-              const catB = (b.category ?? '').trim();
-              const rankA = rankMap.get(catA) ?? 999;
-              const rankB = rankMap.get(catB) ?? 999;
-              if (rankA !== rankB) return rankA - rankB;
-              return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-            });
-          }
-        } catch (err) {
-          logger.warn('Discover rank-categories Python call failed, using original order:', err);
-        }
-      }
-    }
+  } else if (hasRankedPairs && adsRaw.length > 0) {
+    const pairRankMap = new Map<string, number>();
+    rankedPairs.forEach((p, i) => {
+      pairRankMap.set(`${p.category.toLowerCase()}|${p.subcategory.toLowerCase()}`, i);
+    });
+    adsRaw.sort((a, b) => {
+      const rankA = pairRankMap.get(`${(a.category || '').toLowerCase()}|${(a.subcategory || '').toLowerCase()}`) ?? 999;
+      const rankB = pairRankMap.get(`${(b.category || '').toLowerCase()}|${(b.subcategory || '').toLowerCase()}`) ?? 999;
+      if (rankA !== rankB) return rankA - rankB;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+    ads = adsRaw.slice(skip, skip + limit);
   }
 
   const uiAds = await Promise.all(
@@ -619,7 +670,7 @@ async function handleDiscoverAds(req: Request, res: Response): Promise<void> {
         targetAges: ad.targetAges,
         adCopy: ad.adCopy,
         landingPage: ad.landingPage,
-        adSnapshotUrl: ad.adSnapshotUrl,
+        adSnapshotUrl: safeAdSnapshotUrl(ad.metaAdId, ad.adSnapshotUrl),
         platform: ad.platform,
         image: imgUrl || vidUrl,
         videoSrc: vidUrl,
@@ -748,7 +799,7 @@ router.get('/discover/ads/saved', dvybAuthMiddleware, async (req: DvybAuthReques
             targetAges: ad!.targetAges,
             adCopy: ad!.adCopy,
             landingPage: ad!.landingPage,
-            adSnapshotUrl: ad!.adSnapshotUrl,
+            adSnapshotUrl: safeAdSnapshotUrl(ad!.metaAdId, ad!.adSnapshotUrl),
             platform: ad!.platform,
             image: imgUrl || vidUrl,
             videoSrc: vidUrl,

@@ -166,8 +166,8 @@ def _download_largest_and_upload_to_s3(
     return None
 
 
-# When countries empty/All: fetch from these (Meta API requires country)
-DEFAULT_ALL_COUNTRY_CODES = ["US", "GB", "DE", "FR", "IN"]
+# When countries empty/None from frontend = "all countries": one fetch with ALL (single call)
+ALL_COUNTRY_SENTINEL = "ALL"
 
 
 def _run_brands_fetch_task(
@@ -196,14 +196,14 @@ def _run_brands_fetch_task(
         _callback_failed(callback_url, brand_id, "META_AD_LIBRARY_ACCESS_TOKEN and APIFY_TOKEN required")
         return
 
-    # Resolve country codes: empty/None = All (default list), single = one, multiple = each
+    # Use only what frontend passed: empty/None = one run with ALL; otherwise exact list (one or more).
     requested_all_countries = not countries or len(countries) == 0
     if requested_all_countries:
-        country_codes = DEFAULT_ALL_COUNTRY_CODES
+        country_codes = [ALL_COUNTRY_SENTINEL]  # single fetch, not 5 separate countries
     else:
         country_codes = [c.get("code", c) if isinstance(c, dict) else str(c) for c in countries if c]
         if not country_codes:
-            country_codes = DEFAULT_ALL_COUNTRY_CODES
+            country_codes = [ALL_COUNTRY_SENTINEL]
 
     all_ads: list[dict] = []
     seen_ids: set[str] = set()
@@ -227,8 +227,8 @@ def _run_brands_fetch_task(
     try:
         for country_code in country_codes:
             code = str(country_code).strip().upper() or "US"
-            if requested_all_countries:
-                logger.info(f"Fetching ads for country: {code}")
+            if code == ALL_COUNTRY_SENTINEL:
+                logger.info("Fetching ads (all countries, single run)")
             try:
                 out_data = fetch_and_enrich_ads(
                     brand_domain=brand_domain,
