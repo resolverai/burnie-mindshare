@@ -58,54 +58,12 @@ router.post('/analyze-website-guest', async (req, res) => {
 
     const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
 
-    // Run website analysis and domain product image fetch IN PARALLEL (no waiting)
-    const domain = normalizeDomain(url);
-    const typescriptBackendUrl = process.env.TYPESCRIPT_BACKEND_URL || process.env.BACKEND_URL || 'http://localhost:3001';
-    const callbackUrl = `${typescriptBackendUrl}/api/dvyb/context/domain-product-image-callback`;
-
-    const analysisPromise = fetch(`${pythonBackendUrl}/api/dvyb/analyze-website-fast`, {
+    // Run website analysis first so we can pass brand_context to product fetch (Grok uses it for Instagram filter)
+    const response = await fetch(`${pythonBackendUrl}/api/dvyb/analyze-website-fast`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url }),
     });
-
-    // Fire domain product image fetch in parallel (don't block on count - start both immediately)
-    if (domain && AppDataSource.isInitialized) {
-      AppDataSource.getRepository(DvybDomainProductImage)
-        .count({ where: { domain } })
-        .then((count) => {
-          if (count > 0) {
-            logger.info(`📦 Domain ${domain} already has ${count} cached product images, skipping fetch`);
-            return;
-          }
-          fetch(`${pythonBackendUrl}/api/dvyb/fetch-domain-images`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url, callback_url: callbackUrl }),
-          })
-            .then(async (r) => {
-              const data = (await r.json()) as { success?: boolean; accepted?: boolean; domain?: string; images?: Array<{ s3_key: string; presigned_url: string; sourceLabel?: string }> };
-              if (data.accepted) {
-                logger.info(`📸 Domain product image fetch started for ${data.domain} (incremental via callback)`);
-                return;
-              }
-              if (data.success && data.domain && data.images && data.images.length > 0 && AppDataSource.isInitialized) {
-                const repo = AppDataSource.getRepository(DvybDomainProductImage);
-                Promise.all(
-                  data.images.map((img: { s3_key: string; presigned_url?: string; sourceLabel?: string }) =>
-                    repo.save({ domain: data.domain!, s3Key: img.s3_key, sourceLabel: img.sourceLabel ?? null })
-                  )
-                )
-                  .then(() => logger.info(`✅ Cached ${data.images!.length} domain product images for ${data.domain}`))
-                  .catch((err: any) => logger.error(`⚠️ Failed to cache domain product images: ${err?.message}`));
-              }
-            })
-            .catch((err) => logger.warn(`⚠️ Domain image fetch failed (non-blocking): ${err?.message}`));
-        })
-        .catch(() => {});
-    }
-
-    const response = await analysisPromise;
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -120,6 +78,43 @@ router.post('/analyze-website-guest', async (req, res) => {
     }
 
     logger.info(`✅ Guest website analysis completed for: ${url}`);
+
+    const domain = normalizeDomain(url);
+    const typescriptBackendUrl = process.env.TYPESCRIPT_BACKEND_URL || process.env.BACKEND_URL || 'http://localhost:3001';
+    const callbackUrl = `${typescriptBackendUrl}/api/dvyb/context/domain-product-image-callback`;
+
+    // Fire domain product image fetch after analysis so we can pass brand_context for Grok (Instagram filter)
+    if (domain && AppDataSource.isInitialized) {
+      const repo = AppDataSource.getRepository(DvybDomainProductImage);
+      const count = await repo.count({ where: { domain } });
+      if (count > 0) {
+        logger.info(`📦 Domain ${domain} already has ${count} cached product images, skipping fetch`);
+      } else {
+        const data = result.data || {};
+        const brandContext =
+          data.industry || data.business_overview_and_positioning || data.most_popular_products_and_services
+            ? {
+                industry: data.industry ?? undefined,
+                business_overview: data.business_overview_and_positioning ?? undefined,
+                popular_products: Array.isArray(data.most_popular_products_and_services)
+                  ? data.most_popular_products_and_services
+                  : data.most_popular_products_and_services
+                    ? [data.most_popular_products_and_services]
+                    : undefined,
+              }
+            : undefined;
+        fetch(`${pythonBackendUrl}/api/dvyb/fetch-domain-images`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url,
+            callback_url: callbackUrl,
+            brand_context: brandContext ?? undefined,
+          }),
+        }).catch((err) => logger.warn(`⚠️ Domain image fetch failed (non-blocking): ${err?.message}`));
+        logger.info(`📸 Domain product image fetch started for ${domain} (with brand_context for Grok)`);
+      }
+    }
 
     return res.json({
       success: true,
@@ -569,15 +564,15 @@ router.get('/domain-product-images', async (req, res) => {
       order: { id: 'ASC' },
       take: 20,
     });
-    // Prefer website images; only include Instagram if website has fewer than 10
+    // Prefer website images; return up to 20 (website first, then Instagram)
     const sorted = rows.sort((a, b) => {
       const aFirst = a.sourceLabel === 'website' ? 0 : 1;
       const bFirst = b.sourceLabel === 'website' ? 0 : 1;
       return aFirst - bFirst;
     });
-    const top10 = sorted.slice(0, 10);
+    const topImages = sorted.slice(0, 20);
     const imagesWithUrls: Array<{ id: number; s3Key: string; image: string }> = await Promise.all(
-      top10.map(async (row) => {
+      topImages.map(async (row) => {
         const presignedUrl = await s3Service.generatePresignedUrl(row.s3Key, 3600);
         return {
           id: row.id,

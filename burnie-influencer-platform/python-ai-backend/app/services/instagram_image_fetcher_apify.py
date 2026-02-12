@@ -20,7 +20,10 @@ logger = logging.getLogger(__name__)
 
 
 def _download_and_upload(
-    url: str, domain_hash: str, idx: int, referer: str = "https://www.instagram.com/"
+    url: str,
+    domain_hash: str,
+    idx: int,
+    referer: str = "https://www.instagram.com/",
 ) -> dict | None:
     """Download image from URL and upload to S3. Returns {s3_key, presigned_url, sourceLabel} or None."""
     headers = {
@@ -60,6 +63,61 @@ def _download_and_upload(
     except Exception as e:
         logger.debug(f"Failed to download/upload Instagram image: {e}")
     return None
+
+
+def get_instagram_image_urls(handle: str) -> list[str]:
+    """
+    Run Apify Instagram profile scraper and return list of image URLs (no download).
+    Used so caller can download in batches, run Grok, and stop when enough product images are found.
+    """
+    apify_token = settings.apify_token or ""
+    if not apify_token:
+        return []
+
+    handle = (handle or "").strip().lstrip("@")
+    if not handle:
+        return []
+
+    try:
+        from apify_client import ApifyClient
+    except ImportError:
+        return []
+
+    try:
+        client = ApifyClient(apify_token)
+        run = client.actor("apify/instagram-profile-scraper").call(run_input={"usernames": [handle]})
+        items = list(client.dataset(run["defaultDatasetId"]).iterate_items())
+    except Exception as e:
+        logger.warning(f"Apify Instagram scrape failed for @{handle}: {e}")
+        return []
+
+    urls: list[str] = []
+    for item in items:
+        if isinstance(item, dict):
+            urls.extend(_extract_image_urls_from_profile(item))
+        elif isinstance(item, list):
+            for sub in item:
+                if isinstance(sub, dict):
+                    urls.extend(_extract_image_urls_from_profile(sub))
+    return urls
+
+
+def download_instagram_batch(
+    urls: list[str],
+    domain_hash: str,
+    start_idx: int,
+    referer: str = "https://www.instagram.com/",
+) -> list[dict]:
+    """
+    Download up to len(urls) images and upload to S3. Returns list of {s3_key, presigned_url, sourceLabel}.
+    Uses start_idx, start_idx+1, ... for S3 keys (ig_{start_idx}.jpg etc).
+    """
+    results: list[dict] = []
+    for i, url in enumerate(urls):
+        img = _download_and_upload(url, domain_hash, start_idx + i, referer)
+        if img:
+            results.append(img)
+    return results
 
 
 def _extract_image_urls_from_profile(profile: dict) -> list[str]:

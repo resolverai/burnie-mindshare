@@ -462,9 +462,7 @@ export function OnboardingFlowModal({ open, onOpenChange, initialWebsiteUrl }: O
     if (file) processCustomInspirationFile(file);
   };
 
-  // Fetch domain product images when entering product step - poll every 4s until we have 10 images or max polls
-  const MAX_FETCH_IMAGES = 10;
-  const DISPLAY_IMAGES_COUNT = 4; // Show 4 random from fetched
+  // Fetch domain product images when entering product step - poll every 4s; show all images saved in DB
   const POLL_INTERVAL_MS = 4000;
   const MAX_POLLS = 120; // ~8 min total (images can take time with Apify download)
 
@@ -500,12 +498,13 @@ export function OnboardingFlowModal({ open, onOpenChange, initialWebsiteUrl }: O
         const res = await contextApi.getDomainProductImages(url);
         if (cancelled) return;
         if (res.success && res.data?.images?.length > 0) {
-          const images = res.data.images.slice(0, MAX_FETCH_IMAGES);
+          // Use all images returned by the API (backend returns up to 20)
+          const images = res.data.images;
           setDomainProducts(images);
           setDomainProductsLoading(false);
           trackOnboardingProductsFetched({ productCount: images.length, source: "domain" });
-          // Stop polling only when we have max images or hit max polls
-          if (images.length >= MAX_FETCH_IMAGES || pollCount >= MAX_POLLS) {
+          // Stop polling once we have the max the backend returns (20)
+          if (images.length >= 20) {
             setDomainProductsDone(true);
             return;
           }
@@ -527,19 +526,8 @@ export function OnboardingFlowModal({ open, onOpenChange, initialWebsiteUrl }: O
     };
   }, [open, step]);
 
-  // Show 4 random images from fetched domain products (only re-pick when the set of ids changes)
-  const productIdsKey = useMemo(
-    () => domainProducts.map((p) => p.id).sort((a, b) => a - b).join(","),
-    [domainProducts]
-  );
-  const displayProducts = useMemo(() => {
-    if (domainProducts.length === 0) return [];
-    // Show all when we have few; when many from fetch, show random subset
-    if (domainProducts.length <= 6) return domainProducts;
-    const shuffled = [...domainProducts].sort(() => Math.random() - 0.5);
-    return shuffled.slice(0, 6);
-    // Only re-pick when productIdsKey changes (avoids re-shuffling on every poll with same data)
-  }, [productIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Show all domain product images saved in the database
+  const displayProducts = domainProducts;
 
 
   const handleGoogleLogin = async () => {
