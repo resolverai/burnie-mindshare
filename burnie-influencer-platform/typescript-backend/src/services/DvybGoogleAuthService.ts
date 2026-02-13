@@ -53,7 +53,7 @@ export class DvybGoogleAuthService {
   static async handleGoogleCallback(
     code: string,
     state: string,
-    initialAcquisitionFlow?: 'website_analysis' | 'product_photoshot',
+    initialAcquisitionFlow?: 'website_analysis' | 'product_photoshot' | 'chrome_extension',
     signInOnly?: boolean
   ): Promise<{
     account: DvybAccount;

@@ -511,11 +511,11 @@ def enrich_ads_with_gemini(
                 (loc.get("name") or loc.get("key") or str(loc))
                 for loc in (ad.get("target_locations") or [])
                 if isinstance(loc, dict)
-            ][:5],
+            ][:20],
             "targetAges": ad.get("target_ages") or [],
             "targetGender": (ad.get("target_gender") or "").strip(),
             "publisherPlatforms": ad.get("publisher_platforms") or [],
-            "landingPage": (str(captions[0]).strip() if captions and captions[0] else ""),
+            "landingPage": (ad.get("landing_page_url") or "").strip() or (str(captions[0]).strip() if captions and captions[0] else ""),
             "reach": {
                 "eu_total_reach": ad.get("eu_total_reach"),
                 "total_reach_by_location": ad.get("total_reach_by_location"),

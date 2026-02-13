@@ -14,12 +14,19 @@ import {
   Bookmark,
   BookmarkCheck,
   Loader2,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerClose } from "@/components/ui/drawer";
 import { brandsApi } from "@/lib/api";
 import { trackCreateAdUsingTemplateClicked } from "@/lib/mixpanel";
 import type { PreselectedInspiration } from "./CreateAdFlowModal";
+
+/** Strip "Open Dropdown" (Facebook UI artifact) from ad copy when displaying. */
+function stripOpenDropdown(text: string): string {
+  return text.replace(/\bOpen\s+Dropdown\b/gi, "").replace(/\s{2,}/g, " ").trim();
+}
 
 export interface DiscoverCard {
   id: number;
@@ -62,8 +69,10 @@ export function AdDetailModal({ card, isOpen, onClose, onCreateAd, hasActiveSubs
   const [freshUrls, setFreshUrls] = useState<{
     image: string | null;
     videoSrc: string | null;
+    extraImageUrls?: string[];
     isSaved?: boolean;
   } | null>(null);
+  const [galleryIndex, setGalleryIndex] = useState(0);
 
   // Fetch fresh presigned URLs and saved status when modal opens
   useEffect(() => {
@@ -78,7 +87,9 @@ export function AdDetailModal({ card, isOpen, onClose, onCreateAd, hasActiveSubs
         if (cancelled || !res.success || !res.data) return;
         const img = res.data.creativeImageUrl ?? null;
         const vid = res.data.creativeVideoUrl ?? null;
-        setFreshUrls({ image: img, videoSrc: vid, isSaved: res.data.isSaved });
+        const extra = res.data.extraImageUrls ?? [];
+        setFreshUrls({ image: img, videoSrc: vid, extraImageUrls: extra.length ? extra : undefined, isSaved: res.data.isSaved });
+        setGalleryIndex(0);
       })
       .catch(() => {
         if (!cancelled) setFreshUrls(null);
@@ -112,13 +123,21 @@ export function AdDetailModal({ card, isOpen, onClose, onCreateAd, hasActiveSubs
 
   const displayImage = freshUrls?.image ?? card.image;
   const displayVideoSrc = freshUrls?.videoSrc ?? card.videoSrc;
+  const extraUrls = freshUrls?.extraImageUrls ?? [];
+  const galleryImages = displayVideoSrc
+    ? [displayImage].filter(Boolean) as string[]
+    : ([displayImage, ...extraUrls].filter(Boolean) as string[]);
+  const hasGallery = galleryImages.length > 1;
+  const currentGalleryImage = galleryImages[galleryIndex] ?? galleryImages[0] ?? null;
+  const goPrev = () => setGalleryIndex((i) => (i <= 0 ? galleryImages.length - 1 : i - 1));
+  const goNext = () => setGalleryIndex((i) => (i >= galleryImages.length - 1 ? 0 : i + 1));
 
   const handleDownload = async () => {
     if (hasActiveSubscription !== true && onShowPricingModal) {
       onShowPricingModal();
       return;
     }
-    const url = card.isVideo ? displayVideoSrc : displayImage;
+    const url = card.isVideo ? displayVideoSrc : (hasGallery ? currentGalleryImage : displayImage);
     if (!url) return;
     setDownloading(true);
     try {
@@ -148,7 +167,7 @@ export function AdDetailModal({ card, isOpen, onClose, onCreateAd, hasActiveSubs
       isVideo: card.isVideo,
     });
     const inspiration: PreselectedInspiration = {
-      imageUrl: displayImage ?? null,
+      imageUrl: (hasGallery ? currentGalleryImage : displayImage) ?? null,
       videoUrl: displayVideoSrc ?? null,
       isVideo: card.isVideo,
     };
@@ -164,27 +183,56 @@ export function AdDetailModal({ card, isOpen, onClose, onCreateAd, hasActiveSubs
         </DrawerHeader>
 
         <div className="flex flex-col lg:flex-row gap-6 p-6 overflow-auto flex-1 min-h-0">
-          {/* Left side - Creative Preview */}
-          <div className="lg:w-1/2 flex flex-col">
-            <div className="relative max-w-md w-full mx-auto">
+          {/* Left side - Creative Preview (gallery when extra images) */}
+          <div className="lg:w-1/2 flex flex-col min-w-0">
+            <div className="relative max-w-md w-full mx-auto flex flex-col items-center">
               {displayVideoSrc ? (
                 <video
                   src={displayVideoSrc}
-                  className="w-full rounded-xl"
+                  className="w-full rounded-xl object-contain"
                   controls
                   poster={displayImage || undefined}
                 />
-              ) : displayImage ? (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img
-                  src={displayImage}
-                  alt={card.brandName}
-                  className="w-full rounded-xl"
-                />
               ) : (
-                <div className="w-full aspect-square rounded-xl bg-muted flex items-center justify-center">
-                  <span className="text-muted-foreground">No preview</span>
-                </div>
+                <>
+                  <div className="relative w-full rounded-xl overflow-hidden bg-muted/30">
+                    {currentGalleryImage ? (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={currentGalleryImage}
+                        alt={`${card.brandName} creative ${galleryIndex + 1}`}
+                        className="w-full h-auto max-h-[60vh] min-h-[200px] object-contain rounded-xl"
+                      />
+                    ) : (
+                      <div className="w-full aspect-square min-h-[200px] rounded-xl flex items-center justify-center">
+                        <span className="text-muted-foreground">No preview</span>
+                      </div>
+                    )}
+                    {hasGallery && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={goPrev}
+                          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center rounded-full bg-black/50 hover:bg-black/70 text-white transition-colors touch-manipulation"
+                          aria-label="Previous image"
+                        >
+                          <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={goNext}
+                          className="absolute right-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center rounded-full bg-black/50 hover:bg-black/70 text-white transition-colors touch-manipulation"
+                          aria-label="Next image"
+                        >
+                          <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6" />
+                        </button>
+                        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-10 px-2.5 py-1 rounded-full bg-black/50 text-white text-xs font-medium">
+                          {galleryIndex + 1} / {galleryImages.length}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </>
               )}
             </div>
             {/* Action buttons below media - mobile only */}
@@ -396,13 +444,13 @@ export function AdDetailModal({ card, isOpen, onClose, onCreateAd, hasActiveSubs
                     {card.adCopy && (card.adCopy.bodies || card.adCopy.captions || card.adCopy.titles || card.adCopy.descriptions) ? (
                       <>
                         {(Array.isArray(card.adCopy.bodies) ? card.adCopy.bodies : Array.isArray(card.adCopy.captions) ? card.adCopy.captions : []).slice(0, 3).map((t, i) => (
-                          <p key={i} className="text-sm mb-2">{String(t)}</p>
+                          <p key={i} className="text-sm mb-2">{stripOpenDropdown(String(t))}</p>
                         ))}
                         {(Array.isArray(card.adCopy.titles) ? card.adCopy.titles : []).slice(0, 2).map((t, i) => (
-                          <p key={`t-${i}`} className="text-sm font-medium mb-1">{String(t)}</p>
+                          <p key={`t-${i}`} className="text-sm font-medium mb-1">{stripOpenDropdown(String(t))}</p>
                         ))}
                         {(Array.isArray(card.adCopy.descriptions) ? card.adCopy.descriptions : []).slice(0, 2).map((t, i) => (
-                          <p key={`d-${i}`} className="text-sm text-muted-foreground mb-1">{String(t)}</p>
+                          <p key={`d-${i}`} className="text-sm text-muted-foreground mb-1">{stripOpenDropdown(String(t))}</p>
                         ))}
                       </>
                     ) : (
@@ -419,7 +467,7 @@ export function AdDetailModal({ card, isOpen, onClose, onCreateAd, hasActiveSubs
                 variant="outline"
                 className="w-full gap-2"
                 onClick={handleDownload}
-                disabled={downloading || (!displayImage && !displayVideoSrc)}
+                disabled={downloading || (!currentGalleryImage && !displayVideoSrc)}
               >
                 {downloading ? (
                   <span className="animate-pulse">Downloading...</span>

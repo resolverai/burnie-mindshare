@@ -2,14 +2,17 @@ import { Router, Response, Request } from 'express';
 import { In } from 'typeorm';
 import { createHash } from 'crypto';
 import { AppDataSource } from '../config/database';
+import { env } from '../config/env';
 import { redisClient } from '../config/redis';
 import { DvybBrand } from '../models/DvybBrand';
 import { DvybBrandAd } from '../models/DvybBrandAd';
 import { DvybBrandFollow } from '../models/DvybBrandFollow';
 import { DvybSavedAd } from '../models/DvybSavedAd';
+import { DvybExtensionSaveQueue } from '../models/DvybExtensionSaveQueue';
 import { DvybContext } from '../models/DvybContext';
 import { logger } from '../config/logger';
 import { startDvybBrandsFetchJob, ADS_STALE_DAYS } from '../services/DvybBrandsFetchJob';
+import { dvybExtensionSaveQueue } from '../services/DvybExtensionSaveQueueService';
 import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddleware';
 import { dvybApiKeyMiddleware } from '../middleware/dvybApiKeyMiddleware';
 import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
@@ -840,6 +843,7 @@ router.get('/discover/ads', dvybAuthMiddleware, async (req: DvybAuthRequest, res
 /**
  * GET /api/dvyb/brands/discover/ads/saved
  * List ads saved by the current account (for Saved Ads screen).
+ * hasPending: true when any extension-saved ad is still in queue (pending/in_progress).
  */
 router.get('/discover/ads/saved', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
   try {
@@ -850,6 +854,12 @@ router.get('/discover/ads/saved', dvybAuthMiddleware, async (req: DvybAuthReques
 
     const savedRepo = AppDataSource.getRepository(DvybSavedAd);
     const adRepo = AppDataSource.getRepository(DvybBrandAd);
+    const queueRepo = AppDataSource.getRepository(DvybExtensionSaveQueue);
+
+    const pendingCount = await queueRepo.count({
+      where: { accountId, status: In(['pending', 'in_progress']) },
+    });
+    const hasPending = pendingCount > 0;
 
     const [savedRows, total] = await savedRepo.findAndCount({
       where: { accountId },
@@ -864,6 +874,7 @@ router.get('/discover/ads/saved', dvybAuthMiddleware, async (req: DvybAuthReques
         success: true,
         data: [],
         pagination: { page, limit, total, pages: 0 },
+        hasPending,
       });
     }
 
@@ -913,6 +924,7 @@ router.get('/discover/ads/saved', dvybAuthMiddleware, async (req: DvybAuthReques
       success: true,
       data: uiAds,
       pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+      hasPending,
     });
   } catch (error) {
     logger.error('DvybBrands saved ads error:', error);
@@ -944,6 +956,9 @@ router.get('/discover/ads/:adId/creative-urls', dvybAuthMiddleware, async (req: 
     const creativeImageUrl = await getCreativeUrl(ad.creativeImageS3Key, ad.creativeImageUrl);
     const creativeVideoUrl = await getCreativeUrl(ad.creativeVideoS3Key, ad.creativeVideoUrl);
 
+    const extraKeys = Array.isArray(ad.extraImages) ? ad.extraImages.filter((k): k is string => typeof k === 'string' && k.length > 0) : [];
+    const extraImageUrls = await Promise.all(extraKeys.map((k) => getCreativeUrl(k, null))).then((urls) => urls.filter((u): u is string => u != null));
+
     const savedRepo = AppDataSource.getRepository(DvybSavedAd);
     const saved = await savedRepo.findOne({ where: { accountId, adId } });
 
@@ -952,6 +967,7 @@ router.get('/discover/ads/:adId/creative-urls', dvybAuthMiddleware, async (req: 
       data: {
         creativeImageUrl,
         creativeVideoUrl,
+        extraImageUrls: extraImageUrls.length > 0 ? extraImageUrls : undefined,
         mediaType: ad.mediaType,
         isSaved: !!saved,
       },
@@ -1018,6 +1034,196 @@ router.delete('/discover/ads/:adId/save', dvybAuthMiddleware, async (req: DvybAu
   } catch (error) {
     logger.error('DvybBrands unsave ad error:', error);
     return res.status(500).json({ success: false, error: 'Failed to unsave ad' });
+  }
+});
+
+/**
+ * GET /api/dvyb/brands/discover/ads/by-meta-id/:metaAdId
+ * Lookup an ad by its Meta Library ID. Used by DVYB Chrome Extension.
+ * Returns isSaved (true if in saved_ads or queued/pending) and pending (true if still being fetched).
+ */
+router.get('/discover/ads/by-meta-id/:metaAdId', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+  try {
+    const accountId = req.dvybAccountId!;
+    const metaAdId = (req.params.metaAdId || '').trim();
+    if (!metaAdId) {
+      return res.status(400).json({ success: false, error: 'metaAdId is required' });
+    }
+
+    const queueRepo = AppDataSource.getRepository(DvybExtensionSaveQueue);
+    const pendingRow = await queueRepo.findOne({
+      where: { accountId, metaAdId, status: In(['pending', 'in_progress']) },
+    });
+    if (pendingRow) {
+      return res.json({
+        success: true,
+        data: { metaAdId, isSaved: true, pending: true },
+      });
+    }
+
+    const adRepo = AppDataSource.getRepository(DvybBrandAd);
+    const ad = await adRepo.findOne({
+      where: { metaAdId, approvalStatus: 'approved' },
+      select: ['id', 'metaAdId'],
+    });
+
+    if (!ad) {
+      return res.status(404).json({ success: false, error: 'Ad not found in DVYB' });
+    }
+
+    const savedRepo = AppDataSource.getRepository(DvybSavedAd);
+    const saved = await savedRepo.findOne({ where: { accountId, adId: ad.id } });
+
+    return res.json({
+      success: true,
+      data: { id: ad.id, metaAdId: ad.metaAdId, isSaved: !!saved, pending: false },
+    });
+  } catch (error) {
+    logger.error('DvybBrands lookup by meta ID error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to lookup ad' });
+  }
+});
+
+/**
+ * POST /api/dvyb/brands/discover/ads/save-by-meta-id
+ * Save an ad by its Meta Library ID. Used by DVYB Chrome Extension.
+ * If the ad is already in dvyb_brand_ads, adds to dvyb_saved_ads immediately.
+ * If not, enqueues to Redis (max 4 concurrent downloads); returns saved + pending so extension shows "Saved".
+ */
+router.post('/discover/ads/save-by-meta-id', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+  try {
+    const accountId = req.dvybAccountId!;
+    const metaAdId = ((req.body?.metaAdId as string) || '').trim();
+    if (!metaAdId) {
+      return res.status(400).json({ success: false, error: 'metaAdId is required' });
+    }
+    const brandName = typeof req.body?.brandName === 'string' ? req.body.brandName.trim() || null : null;
+    const brandDomain = typeof req.body?.brandDomain === 'string' ? req.body.brandDomain.trim() || null : null;
+    const facebookHandle = typeof req.body?.facebookHandle === 'string' ? req.body.facebookHandle.trim().replace(/^@/, '') || null : null;
+    const instagramHandle = typeof req.body?.instagramHandle === 'string' ? req.body.instagramHandle.trim().replace(/^@/, '') || null : null;
+    const runtime = typeof req.body?.runtime === 'string' ? req.body.runtime.trim() || null : null;
+    const firstSeen = typeof req.body?.firstSeen === 'string' ? req.body.firstSeen.trim() || null : null;
+    const rawAdCopy =
+      req.body?.adCopy != null && typeof req.body.adCopy === 'object' && !Array.isArray(req.body.adCopy)
+        ? (req.body.adCopy as Record<string, unknown>)
+        : null;
+    const hasAdCopyContent = (obj: Record<string, unknown>) => {
+      const arr = (key: string) => Array.isArray(obj[key]) && (obj[key] as unknown[]).length > 0;
+      return arr('bodies') || arr('titles') || arr('captions') || arr('descriptions');
+    };
+    const stripOpenDropdown = (obj: Record<string, unknown>) => {
+      const strip = (s: string) =>
+        s.replace(/\bOpen\s+Dropdown\b/gi, '').replace(/\s{2,}/g, ' ').trim();
+      const mapArr = (key: string): unknown[] => {
+        const val = obj[key];
+        if (!Array.isArray(val)) return (val as unknown[]) ?? [];
+        return val
+          .map((item) => (typeof item === 'string' ? strip(item) : item))
+          .filter((s) => s !== '');
+      };
+      return {
+        ...obj,
+        bodies: mapArr('bodies'),
+        titles: mapArr('titles'),
+        captions: mapArr('captions'),
+        descriptions: mapArr('descriptions'),
+      };
+    };
+    const adCopy =
+      rawAdCopy != null && hasAdCopyContent(rawAdCopy) ? stripOpenDropdown(rawAdCopy) : null;
+
+    const adRepo = AppDataSource.getRepository(DvybBrandAd);
+    const savedRepo = AppDataSource.getRepository(DvybSavedAd);
+    const queueRepo = AppDataSource.getRepository(DvybExtensionSaveQueue);
+
+    let ad = await adRepo.findOne({
+      where: { metaAdId, approvalStatus: 'approved' },
+      select: ['id', 'metaAdId'],
+    });
+
+    if (ad) {
+      const existing = await savedRepo.findOne({ where: { accountId, adId: ad.id } });
+      if (existing) {
+        return res.json({ success: true, adId: ad.id, saved: true, message: 'Already saved' });
+      }
+      const saved = savedRepo.create({ accountId, adId: ad.id });
+      await savedRepo.save(saved);
+      return res.json({ success: true, adId: ad.id, saved: true });
+    }
+
+    let row = await queueRepo.findOne({
+      where: { accountId, metaAdId },
+    });
+    if (row) {
+      if (row.status === 'completed' && row.adId) {
+        const adStillExists = await adRepo.findOne({
+          where: { id: row.adId, approvalStatus: 'approved' },
+          select: ['id'],
+        });
+        if (adStillExists) {
+          const existingSaved = await savedRepo.findOne({ where: { accountId, adId: row.adId } });
+          if (!existingSaved) {
+            const saved = savedRepo.create({ accountId, adId: row.adId });
+            await savedRepo.save(saved);
+          }
+          return res.json({ success: true, adId: row.adId, saved: true });
+        }
+        // Queue says completed but ad was removed from dvyb_brand_ads; reset and re-enqueue
+        const staleAdId = row.adId;
+        row.status = 'pending';
+        row.adId = null;
+        row.errorMessage = null;
+        if (brandName != null) row.brandName = brandName;
+        if (brandDomain != null) row.brandDomain = brandDomain;
+        if (facebookHandle != null) row.facebookHandle = facebookHandle;
+        if (instagramHandle != null) row.instagramHandle = instagramHandle;
+        if (runtime != null) row.runtime = runtime;
+        if (firstSeen != null) row.firstSeen = firstSeen;
+        if (adCopy != null) row.adCopy = adCopy;
+        await queueRepo.save(row);
+        await dvybExtensionSaveQueue.add('save-ad', { queueRowId: row.id });
+        logger.info(`DvybBrands extension: re-enqueued save metaAdId=${metaAdId} (stale adId ${staleAdId})`);
+        return res.json({ success: true, saved: true, pending: true });
+      }
+      if (row.status === 'pending' || row.status === 'in_progress') {
+        return res.json({ success: true, saved: true, pending: true });
+      }
+    }
+
+    if (!row) {
+      row = queueRepo.create({
+        accountId,
+        metaAdId,
+        status: 'pending',
+        brandName: brandName ?? null,
+        brandDomain: brandDomain ?? null,
+        facebookHandle: facebookHandle ?? null,
+        instagramHandle: instagramHandle ?? null,
+        runtime: runtime ?? null,
+        firstSeen: firstSeen ?? null,
+        adCopy: adCopy ?? null,
+      });
+      await queueRepo.save(row);
+    } else {
+      row.status = 'pending';
+      row.adId = null;
+      row.errorMessage = null;
+      if (brandName != null) row.brandName = brandName;
+      if (brandDomain != null) row.brandDomain = brandDomain;
+      if (facebookHandle != null) row.facebookHandle = facebookHandle;
+      if (instagramHandle != null) row.instagramHandle = instagramHandle;
+      if (runtime != null) row.runtime = runtime;
+      if (firstSeen != null) row.firstSeen = firstSeen;
+      if (adCopy != null) row.adCopy = adCopy;
+      await queueRepo.save(row);
+    }
+
+    await dvybExtensionSaveQueue.add('save-ad', { queueRowId: row.id });
+    logger.info(`DvybBrands extension: enqueued save metaAdId=${metaAdId} for account ${accountId} (queue row ${row.id})`);
+    return res.json({ success: true, saved: true, pending: true });
+  } catch (error) {
+    logger.error('DvybBrands save by meta ID error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to save ad' });
   }
 });
 

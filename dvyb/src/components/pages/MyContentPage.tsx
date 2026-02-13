@@ -77,12 +77,11 @@ export function MyContentPage({
   createAdTriggerRef,
 }: MyContentPageProps) {
   const [savedAds, setSavedAds] = useState<SavedAdCard[]>([]);
+  const [savedAdsHasPending, setSavedAdsHasPending] = useState(false);
   const [savedLoading, setSavedLoading] = useState(false);
   const [selectedSavedAd, setSelectedSavedAd] = useState<SavedAdCard | null>(null);
   const [savedDrawerOpen, setSavedDrawerOpen] = useState(false);
-  const [hoveredSavedId, setHoveredSavedId] = useState<number | null>(null);
   const contentLibraryCreateNewRef = useRef<ContentLibraryRef | null>(null);
-  const savedVideoRefs = useRef<{ [key: number]: HTMLVideoElement | null }>({});
 
   // Products state
   const [products, setProducts] = useState<Product[]>([]);
@@ -262,6 +261,7 @@ export function MyContentPage({
             landingPage: (ad as any).landingPage,
           }))
         );
+        setSavedAdsHasPending(res.hasPending ?? false);
       }
     } catch (e) {
       console.error("Failed to fetch saved ads:", e);
@@ -495,6 +495,14 @@ export function MyContentPage({
                 <Loader2 className="w-10 h-10 animate-spin text-muted-foreground mb-4" />
                 <p className="text-muted-foreground">Loading saved ads...</p>
               </div>
+            ) : savedAdsHasPending && savedAds.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <Loader2 className="w-10 h-10 animate-spin text-muted-foreground mb-4" />
+                <h2 className="text-lg font-semibold mb-2">All your saved ads will appear here</h2>
+                <p className="text-muted-foreground max-w-md">
+                  Wait while we fetch your saved ads.
+                </p>
+              </div>
             ) : savedAds.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 text-center">
                 <div className="w-16 h-16 bg-secondary rounded-full flex items-center justify-center mb-4">
@@ -506,6 +514,12 @@ export function MyContentPage({
                 </p>
               </div>
             ) : (
+              <>
+              {savedAdsHasPending && (
+                <div className="mb-4 p-3 rounded-lg bg-muted/60 text-muted-foreground text-sm text-center">
+                  All your saved ads will appear here. Wait while we fetch your saved ads.
+                </div>
+              )}
               <div className="columns-1 sm:columns-2 md:columns-3 lg:columns-4 xl:columns-5 2xl:columns-6 gap-4 md:gap-5">
                 {savedAds.map((ad, index) => (
                   <div
@@ -516,59 +530,9 @@ export function MyContentPage({
                       setSelectedSavedAd(ad);
                       setSavedDrawerOpen(true);
                     }}
-                    onMouseEnter={() => {
-                      setHoveredSavedId(ad.id);
-                      if (ad.videoSrc && savedVideoRefs.current[ad.id]) {
-                        savedVideoRefs.current[ad.id]?.play().catch(() => {});
-                      }
-                    }}
-                    onMouseLeave={() => {
-                      setHoveredSavedId(null);
-                      const v = savedVideoRefs.current[ad.id];
-                      if (v) {
-                        v.pause();
-                        v.currentTime = 0;
-                      }
-                    }}
                   >
                     <div className="relative">
-                      {ad.videoSrc ? (
-                        ad.image ? (
-                          <>
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={ad.image}
-                              alt=""
-                              className={`w-full h-auto block transition-opacity duration-300 ${
-                                hoveredSavedId === ad.id ? "opacity-0" : "opacity-100"
-                              }`}
-                            />
-                            <video
-                              ref={(el) => {
-                                savedVideoRefs.current[ad.id] = el;
-                              }}
-                              src={ad.videoSrc}
-                              className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
-                                hoveredSavedId === ad.id ? "opacity-100" : "opacity-0"
-                              }`}
-                              muted
-                              playsInline
-                              loop
-                            />
-                          </>
-                        ) : (
-                          <video
-                            ref={(el) => {
-                              savedVideoRefs.current[ad.id] = el;
-                            }}
-                            src={ad.videoSrc}
-                            className="w-full h-auto block"
-                            muted
-                            playsInline
-                            loop
-                          />
-                        )
-                      ) : ad.image ? (
+                      {ad.image ? (
                         /* eslint-disable-next-line @next/next/no-img-element */
                         <img
                           src={ad.image}
@@ -595,22 +559,14 @@ export function MyContentPage({
                         </span>
                       </div>
                       <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full bg-gray-800/80 text-white z-10">
-                        {ad.isVideo ? (
-                          <>
-                            <Video className="w-3 h-3" />
-                            <span className="text-xs font-medium">Video</span>
-                          </>
-                        ) : (
-                          <>
-                            <ImageIcon className="w-3 h-3" />
-                            <span className="text-xs font-medium">Image</span>
-                          </>
-                        )}
+                        <ImageIcon className="w-3 h-3" />
+                        <span className="text-xs font-medium">Image</span>
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
+            </>
             )}
           </div>
         )}

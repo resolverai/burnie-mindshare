@@ -6,6 +6,7 @@ uploads creatives to S3, and callbacks to TypeScript backend.
 All in-memory: no file I/O, no subprocess, no stdout.
 """
 
+import html
 import logging
 import mimetypes
 import os
@@ -108,8 +109,13 @@ def _download_url_content(url: str) -> tuple[bytes, str] | None:
     """Download URL and return (content, content_type) or None on failure."""
     if not url or not str(url).strip():
         return None
+    # Decode HTML entities (e.g. &amp; -> &) so the request URL is valid; Facebook may 403 without Referer
+    url = html.unescape(str(url).strip())
     try:
-        headers = {"User-Agent": "MetaAdFetch/1.0"}
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": "https://www.facebook.com/",
+        }
         resp = requests.get(url, headers=headers, timeout=60)
         resp.raise_for_status()
         content = resp.content
@@ -118,6 +124,82 @@ def _download_url_content(url: str) -> tuple[bytes, str] | None:
     except Exception as e:
         logger.warning(f"Failed to download from {url[:60]}...: {e}")
         return None
+
+
+# Facebook CDN uses _s60x60_, _s600x600_ etc. Treat small sizes as thumbnails/icons to skip (same as extension flow).
+_SMALL_THUMBNAIL_SIZE = 200
+
+
+def _is_small_thumbnail_url(url: str) -> bool:
+    """True if URL looks like a small thumbnail (e.g. s60x60, s120x120). s600x600 and larger are kept."""
+    if not url or not isinstance(url, str):
+        return True
+    m = re.search(r"[/_]s(\d+)x(\d+)[/_]", url, re.I)
+    if not m:
+        return False
+    w, h = int(m.group(1)), int(m.group(2))
+    return max(w, h) <= _SMALL_THUMBNAIL_SIZE
+
+
+def _normalize_image_url(url: str) -> str:
+    """Normalize URL for deduplication (e.g. &amp; -> &)."""
+    return html.unescape((url or "").strip())
+
+
+def _filter_non_thumbnail_image_urls(urls: list[str]) -> list[str]:
+    """Dedupe by normalized URL and drop small thumbnail/icon URLs (max dimension ≤200 from _sWxH_ in URL)."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for u in ((u or "").strip() for u in urls if u):
+        if not u:
+            continue
+        norm = _normalize_image_url(u)
+        if norm in seen or _is_small_thumbnail_url(u):
+            continue
+        seen.add(norm)
+        out.append(u)
+    return out
+
+
+def _download_all_images_and_upload_to_s3(
+    s3_service: S3StorageService,
+    urls: list[str],
+    brand_id: int,
+    meta_ad_id: str,
+) -> tuple[str | None, list[str]]:
+    """
+    Filter out thumbnails/small images, then download each and upload to S3 (image, image_1, image_2, ...).
+    Returns (primary_s3_key, extra_s3_keys). Skips small thumbnail/icon URLs (max dimension ≤200).
+    """
+    filtered = _filter_non_thumbnail_image_urls(urls)
+    if not filtered:
+        return (None, [])
+    primary_key: str | None = None
+    extra_keys: list[str] = []
+    safe_id = _sanitize_meta_ad_id(meta_ad_id)
+    for i, url in enumerate(filtered):
+        result = _download_url_content(url)
+        if not result:
+            continue
+        content, raw_ct = result
+        if _is_video_content_type(raw_ct or ""):
+            continue
+        ext = ".jpg"
+        if "png" in (raw_ct or ""):
+            ext = ".png"
+        elif "gif" in (raw_ct or ""):
+            ext = ".gif"
+        elif "webp" in (raw_ct or ""):
+            ext = ".webp"
+        ct = raw_ct or "image/jpeg"
+        sub_key = "image" if i == 0 else f"image_{i}"
+        s3_key = f"dvyb_brands/{brand_id}/ads/{safe_id}/{sub_key}{ext}"
+        if s3_service._upload_to_s3(content, s3_key, ct).get("success"):
+            if i == 0:
+                primary_key = s3_key
+            else:
+                extra_keys.append(s3_key)
+    return (primary_key, extra_keys)
 
 
 def _download_largest_and_upload_to_s3(
@@ -281,6 +363,7 @@ def _run_brands_fetch_task(
             for ad in batch:
                 meta_ad_id = str(ad.get("id") or ad.get("metaAdId") or "").strip()
                 ad["creativeImageS3Key"] = None
+                ad["extraImageS3Keys"] = []
                 ad["creativeVideoS3Key"] = None
                 img_urls = ad.get("creativeImageUrls") or []
                 if not img_urls and ad.get("creativeImageUrl"):
@@ -290,13 +373,17 @@ def _run_brands_fetch_task(
                     vid_urls = [ad.get("creativeVideoUrl")]
 
                 if want_image and img_urls:
-                    s3_key = _download_largest_and_upload_to_s3(
-                        s3_service, img_urls, brand_id, meta_ad_id, "image", image_only=True
+                    primary_key, extra_keys = _download_all_images_and_upload_to_s3(
+                        s3_service, img_urls, brand_id, meta_ad_id
                     )
-                    if s3_key:
-                        ad["creativeImageS3Key"] = s3_key
-                        print(f"   Uploaded image (max of {len(img_urls)}): {meta_ad_id} -> {s3_key}")
-                        logger.info(f"Uploaded image (max of {len(img_urls)}): {meta_ad_id} -> {s3_key}")
+                    if primary_key:
+                        ad["creativeImageS3Key"] = primary_key
+                    if extra_keys:
+                        ad["extraImageS3Keys"] = extra_keys
+                    if primary_key or extra_keys:
+                        logger.info(
+                            f"Uploaded images for {meta_ad_id}: primary={bool(primary_key)}, extras={len(extra_keys)}"
+                        )
                 if want_video and vid_urls:
                     s3_key = _download_largest_and_upload_to_s3(s3_service, vid_urls, brand_id, meta_ad_id, "video")
                     if s3_key:

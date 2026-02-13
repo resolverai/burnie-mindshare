@@ -5,6 +5,7 @@ Meta Ads Library (same logic as TS meta-ads-fetch.ts: running or recent ads with
 Snapshot URL from Apify is used as-is (not parsed for id).
 """
 import argparse
+import html
 import json
 import re
 import sys
@@ -82,6 +83,46 @@ DECENT_REACH_MIN = 1000
 
 # Skip downloading images smaller than this (favicons, thumbnails like s60x60 are irrelevant)
 MIN_IMAGE_SIZE_KB = 10
+
+# Facebook CDN: _s60x60_, _s600x600_ etc. Treat small as thumbnail to exclude from creatives.
+_SMALL_THUMBNAIL_MAX_DIM = 200
+
+
+def _is_small_thumbnail_image_url(url: str) -> bool:
+    """True if URL looks like a small thumbnail (e.g. s60x60, s120x120). s600x600 and larger are kept."""
+    if not url or not isinstance(url, str):
+        return True
+    m = re.search(r"[/_]s(\d+)x(\d+)[/_]", url, re.I)
+    if not m:
+        return False
+    return max(int(m.group(1)), int(m.group(2))) <= _SMALL_THUMBNAIL_MAX_DIM
+
+
+def _filter_non_thumbnail_image_urls(urls: list[str]) -> list[str]:
+    """Dedupe and remove small thumbnail/icon image URLs. Preserves order."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for u in ((u or "").strip() for u in urls if u):
+        if not u or u in seen or _is_small_thumbnail_image_url(u):
+            continue
+        seen.add(u)
+        out.append(u)
+    return out
+
+
+def _dedupe_image_urls(urls: list[str]) -> list[str]:
+    """Dedupe by normalized URL only (no thumbnail filter). Use when uploading all images."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for u in ((u or "").strip() for u in urls if u):
+        if not u:
+            continue
+        norm = html.unescape(u)
+        if norm in seen:
+            continue
+        seen.add(norm)
+        out.append(u)
+    return out
 
 
 def _parse_reach_to_number(s: str | None) -> int:
@@ -738,6 +779,139 @@ async function pageFunction(context) {
 }
 """
 
+# Extended page function for single-ad fetch: extract creatives, pageName, pageId, ad copy, firstSeen/runtime text.
+# Scopes extraction to the ad container that matches the requested adId (Library ID: <adId>) so we don't
+# return another ad's creative when the page shows multiple or redirects. Extracts body from DOM (text after Library ID).
+PUPPETEER_SINGLE_AD_PAGE_FUNCTION = r"""
+async function pageFunction(context) {
+    const { page, request } = context;
+    const urlMatch = request.url && request.url.match(/[?&]id=(\d+)/);
+    const urlAdId = urlMatch ? urlMatch[1] : '';
+    const requestedAdId = (request.userData && request.userData.adId) || urlAdId || request.url;
+    const images = [];
+    const videos = [];
+    let pageName = '';
+    let pageId = '';
+    const bodies = [];
+    let firstSeen = '';
+    let runtimeText = '';
+    try {
+        await page.waitForSelector('body', { timeout: 15000 }).catch(() => null);
+        await new Promise(r => setTimeout(r, 3000));
+        await page.evaluate(() => {
+            const m = document.querySelector('[role="main"]');
+            if (m) { m.scrollTop = m.scrollHeight; }
+            window.scrollTo(0, document.body.scrollHeight);
+        }).catch(() => null);
+        await new Promise(r => setTimeout(r, 1500));
+        const ogTitle = await page.$eval('meta[property="og:title"]', el => el.content).catch(() => null);
+        if (ogTitle) pageName = String(ogTitle).trim();
+        const ogDesc = await page.$eval('meta[property="og:description"]', el => el.content).catch(() => null);
+        if (ogDesc) bodies.push(String(ogDesc).trim());
+        const links = await page.$$('a[href*="view_all_page_id"]');
+        for (const a of links) {
+            const href = await a.evaluate(el => el.getAttribute('href') || '');
+            const match = href.match(/view_all_page_id=(\d+)/);
+            if (match && match[1]) { pageId = match[1]; break; }
+        }
+        const scraped = await page.evaluate((targetId) => {
+            const idStr = String(targetId);
+            const libIdLabel = 'Library ID: ' + idStr;
+            let container = null;
+            const walk = (root) => {
+                if (!root) return;
+                if ((root.innerText || '').indexOf(libIdLabel) !== -1) {
+                    container = root;
+                    for (let i = 0; i < root.children.length; i++) {
+                        const c = (root.children[i].innerText || '').indexOf(libIdLabel) !== -1 ? root.children[i] : null;
+                        if (c) { walk(c); if (container === root) container = c; break; }
+                    }
+                }
+            };
+            const main = document.querySelector('[role="main"]');
+            if (main && (main.innerText || '').indexOf(libIdLabel) !== -1) {
+                container = main;
+                walk(main);
+            }
+            if (!container) container = document.body;
+            const text = (container.innerText || '').trim();
+            const bodyMatch = text.match(/Library ID:\s*\d+\s*([\s\S]*?)(?=See ad details|Started running|First seen on|Platforms|This ad has|Save to DVYB|Saved\s|$)/i);
+            const bodyBlock = bodyMatch ? bodyMatch[1].trim() : '';
+            const outBodies = [];
+            if (bodyBlock.length >= 10 && bodyBlock.length <= 2000) {
+                const skip = /Sponsored|Library ID|See ad details|Shop Now|Learn More|^Saved$/i;
+                if (!skip.test(bodyBlock)) outBodies.push(bodyBlock.slice(0, 500));
+            }
+            const imgs = container.querySelectorAll('img[src*="fbcdn.net"]');
+            const outImages = [];
+            for (const img of imgs) {
+                const src = (img.src || '').trim();
+                if (src && !/\.(mp4|webm|mov)(\?|$)/i.test(src) && !outImages.includes(src)) outImages.push(src);
+            }
+            const vids = container.querySelectorAll('video');
+            const outVideos = [];
+            for (const v of vids) {
+                const s = (v.src || '').trim();
+                if (s) outVideos.push(s);
+            }
+            const startedMatch = text.match(/Started running on\s+(\w+\s+\d{1,2},?\s+\d{4})/i) || text.match(/First seen on\s+(\w+\s+\d{1,2},?\s+\d{4})/i);
+            const runtime = startedMatch ? startedMatch[1].trim() : '';
+            const dateM = text.match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
+            const first = dateM ? dateM[1] : '';
+            return { bodies: outBodies, images: outImages, videos: outVideos, runtimeText: runtime, firstSeen: first };
+        }, requestedAdId).catch(() => ({}));
+        if (scraped && scraped.bodies && scraped.bodies.length) {
+            bodies.length = 0;
+            bodies.push(...scraped.bodies);
+        }
+        if (scraped && scraped.images && scraped.images.length) {
+            for (const u of scraped.images) if (u && !images.includes(u)) images.push(u);
+        }
+        if (scraped && scraped.videos && scraped.videos.length) {
+            for (const u of scraped.videos) if (u && !videos.includes(u)) videos.push(u);
+        }
+        if (scraped && scraped.runtimeText) runtimeText = scraped.runtimeText;
+        if (scraped && scraped.firstSeen) firstSeen = scraped.firstSeen;
+        const allText = await page.evaluate(() => document.body ? document.body.innerText : '').catch(() => '');
+        if (!runtimeText) {
+            const startedMatch = allText.match(/Started running on\s+(\w+\s+\d{1,2},?\s+\d{4})/i) || allText.match(/First seen on\s+(\w+\s+\d{1,2},?\s+\d{4})/i);
+            if (startedMatch) runtimeText = startedMatch[1].trim();
+        }
+        if (!firstSeen) { const dateMatch = allText.match(/(\d{1,2}\/\d{1,2}\/\d{4})/); if (dateMatch) firstSeen = dateMatch[1]; }
+        if (!images.length) {
+            const mainAdImages = await page.evaluate(() => {
+                const main = document.querySelector('[role="main"]');
+                if (!main) return [];
+                const imgs = main.querySelectorAll('img[src*="fbcdn.net"]');
+                const out = []; for (const img of imgs) { const src = (img.src || '').trim(); if (src && !/\.(mp4|webm|mov)(\?|$)/i.test(src) && !out.includes(src)) out.push(src); } return out;
+            }).catch(() => []);
+            if (mainAdImages && mainAdImages.length) for (const u of mainAdImages) if (u && !images.includes(u)) images.push(u);
+        }
+        const ogImage = await page.$eval('meta[property="og:image"]', el => el.content).catch(() => null);
+        if (ogImage && !images.includes(ogImage)) images.push(ogImage);
+        const videoEls = await page.$$('video');
+        for (const v of videoEls) {
+            const src = await v.evaluate(el => el.src);
+            if (src) videos.push(src);
+            const poster = await v.evaluate(el => el.poster || '');
+            if (poster && !images.includes(poster)) images.push(poster);
+            break;
+        }
+        const ogVideoSel = 'meta[property="og:video:url"], meta[property="og:video"]';
+        const ogVideo = await page.$(ogVideoSel).then(el => el ? el.evaluate(n => n.getAttribute('content')) : null).catch(() => null);
+        if (ogVideo) videos.push(ogVideo);
+        const html = await page.content();
+        const imgRe = /https:\/\/scontent[^"'\s]+\.fbcdn\.net\/[^"'\s]+/g;
+        let match;
+        while ((match = imgRe.exec(html)) !== null) {
+            const u = match[0];
+            if (u && !/\.(mp4|webm|mov)(\?|$)/i.test(u) && !images.includes(u)) images.push(u);
+        }
+    } catch (e) {}
+    return { adId: requestedAdId, url: request.url, images: [...new Set(images)], videos: [...new Set(videos)], pageName, pageId, bodies, firstSeen, runtimeText };
+}
+"""
+
 
 def _fetch_ads_via_apify_ad_library_page(
     apify_token: str,
@@ -800,6 +974,7 @@ def _fetch_ads_via_apify_ad_library_page(
         image_urls = []
         video_urls = []
         bodies = []
+        first_link_url = None
         for c in cards:
             if isinstance(c, dict):
                 img = c.get("originalImageUrl") or c.get("resizedImageUrl")
@@ -811,12 +986,22 @@ def _fetch_ads_via_apify_ad_library_page(
                 body = (c.get("body") or "").strip()
                 if body and body not in bodies:
                     bodies.append(body)
+                if not first_link_url and (c.get("linkUrl") or c.get("link_url")):
+                    first_link_url = (c.get("linkUrl") or c.get("link_url") or "").strip()
         pub = item.get("publisherPlatform") or snapshot.get("publisherPlatform") or []
         if isinstance(pub, str):
             pub = [pub] if pub else []
+        # Targeting/reach: use if Apify returns them (same keys as Meta API for enrich_ads_with_gemini)
+        target_locations = item.get("target_locations") or snapshot.get("target_locations") or []
+        target_ages = item.get("target_ages") or snapshot.get("target_ages") or []
+        target_gender = (item.get("target_gender") or snapshot.get("target_gender") or "").strip() or None
+        eu_reach = item.get("eu_total_reach") if item.get("eu_total_reach") is not None else snapshot.get("eu_total_reach")
+        reach_by_loc = item.get("total_reach_by_location") or snapshot.get("total_reach_by_location")
+        br_reach = item.get("br_total_reach") if item.get("br_total_reach") is not None else snapshot.get("br_total_reach")
+        beneficiary_payers = item.get("beneficiary_payers") or snapshot.get("beneficiary_payers") or []
         # Meta Ad Library URL to view this ad (so "View in Meta" works in admin modal)
         ad_snapshot_url = f"https://www.facebook.com/ads/library/?id={ad_id}" if ad_id else None
-        out.append({
+        ad_dict = {
             "id": str(ad_id).strip(),
             "page_id": str(page_id_val).strip(),
             "page_name": page_name,
@@ -830,8 +1015,479 @@ def _fetch_ads_via_apify_ad_library_page(
             "publisher_platforms": pub,
             "creativeImageUrls": image_urls,
             "creativeVideoUrls": video_urls,
-        })
+        }
+        if target_locations:
+            ad_dict["target_locations"] = target_locations
+        if target_ages:
+            ad_dict["target_ages"] = target_ages
+        if target_gender:
+            ad_dict["target_gender"] = target_gender
+        if eu_reach is not None or reach_by_loc or br_reach is not None:
+            ad_dict["eu_total_reach"] = eu_reach
+            ad_dict["total_reach_by_location"] = reach_by_loc
+            ad_dict["br_total_reach"] = br_reach
+        if beneficiary_payers:
+            ad_dict["beneficiary_payers"] = beneficiary_payers
+        if first_link_url:
+            ad_dict["landing_page_url"] = first_link_url
+        out.append(ad_dict)
     return out[:limit]
+
+
+# Fields for direct single-ad read via Graph API (Archived Ad node). API does not return image/video URLs.
+# Targeting/reach/beneficiary available only for ads delivered to UK & EU (and political in Brazil); request them so we persist when API returns.
+_META_SINGLE_AD_FIELDS = [
+    "id",
+    "page_id",
+    "page_name",
+    "ad_creative_bodies",
+    "ad_creative_link_titles",
+    "ad_creative_link_descriptions",
+    "ad_creative_link_captions",
+    "ad_delivery_start_time",
+    "ad_delivery_stop_time",
+    "ad_snapshot_url",
+    "publisher_platforms",
+    "languages",
+    "target_ages",
+    "target_gender",
+    "target_locations",
+    "age_country_gender_reach_breakdown",
+    "eu_total_reach",
+    "total_reach_by_location",
+    "br_total_reach",
+    "beneficiary_payers",
+]
+
+
+def _fetch_single_ad_via_meta_api(meta_token: str, meta_ad_id: str) -> dict | None:
+    """
+    Try to fetch a single ad by its Library ID using Meta Graph API (Archived Ad node).
+    Requires META_AD_LIBRARY_ACCESS_TOKEN. API returns metadata only (no creative image/video URLs).
+    Returns ad dict in same shape as Puppeteer path, or None on any error or if API does not
+    support direct ID lookup / ad not in API scope (e.g. non-political, non-EU/UK).
+    """
+    if not (meta_token and str(meta_ad_id).strip()):
+        return None
+    ad_id = str(meta_ad_id).strip()
+    params = {
+        "access_token": meta_token,
+        "fields": ",".join(_META_SINGLE_AD_FIELDS),
+    }
+    url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/{urllib.parse.quote(ad_id)}?{urllib.parse.urlencode(params)}"
+    try:
+        data = _meta_api_request(url)
+    except Exception:
+        return None
+    if not data or not data.get("id"):
+        return None
+    bodies = data.get("ad_creative_bodies")
+    if isinstance(bodies, list):
+        bodies = [b for b in bodies if b and isinstance(b, str) and b.strip()]
+    else:
+        bodies = []
+    start_time = (data.get("ad_delivery_start_time") or "").strip()
+    stop_time = (data.get("ad_delivery_stop_time") or "").strip()
+    return {
+        "id": (data.get("id") or ad_id).strip(),
+        "page_id": (data.get("page_id") or "").strip() or None,
+        "page_name": (data.get("page_name") or "").strip() or "Unknown",
+        "ad_delivery_start_time": start_time[:30] if start_time else None,
+        "ad_delivery_stop_time": stop_time[:30] if stop_time else None,
+        "ad_snapshot_url": (data.get("ad_snapshot_url") or _canonical_ad_snapshot_url(ad_id)) or None,
+        "ad_creative_bodies": bodies,
+        "ad_creative_link_titles": data.get("ad_creative_link_titles") or [],
+        "ad_creative_link_descriptions": data.get("ad_creative_link_descriptions") or [],
+        "ad_creative_link_captions": data.get("ad_creative_link_captions") or [],
+        "publisher_platforms": data.get("publisher_platforms") or [],
+        "target_ages": data.get("target_ages") or [],
+        "target_gender": (data.get("target_gender") or "").strip() or None,
+        "target_locations": data.get("target_locations") or [],
+        "eu_total_reach": data.get("eu_total_reach"),
+        "total_reach_by_location": data.get("total_reach_by_location"),
+        "br_total_reach": data.get("br_total_reach"),
+        "beneficiary_payers": data.get("beneficiary_payers") or [],
+        "creativeImageUrls": [],
+        "creativeVideoUrls": [],
+        "creativeImageUrl": None,
+        "creativeVideoUrl": None,
+        "runtime": None,
+        "firstSeen": start_time[:20] if start_time else None,
+    }
+
+
+def _render_ad_url(meta_ad_id: str, meta_token: str) -> str:
+    """Build Facebook Ads Archive render_ad URL for a single ad (id + access_token)."""
+    ad_id = str(meta_ad_id or "").strip()
+    token = (meta_token or "").strip()
+    if not ad_id or not token:
+        return ""
+    return (
+        "https://www.facebook.com/ads/archive/render_ad/?"
+        "id=" + urllib.parse.quote(ad_id) + "&access_token=" + urllib.parse.quote(token)
+    )
+
+
+def _fetch_single_ad_via_facebook_scraper(
+    apify_token: str, meta_ad_id: str, meta_token: str
+) -> dict | None:
+    """
+    Fetch single ad metadata using Apify Facebook Ads Scraper with the render_ad URL.
+    Returns ad dict (metadata only; creatives filled by Puppeteer). Returns None on failure.
+    """
+    render_url = _render_ad_url(meta_ad_id, meta_token)
+    if not render_url or not apify_token:
+        return None
+    meta_ad_id_str = str(meta_ad_id).strip()
+    try:
+        client = ApifyClient(apify_token)
+        run_input = {
+            "startUrls": [{"url": render_url}],
+            "resultsLimit": 1,
+        }
+        run = client.actor("apify/facebook-ads-scraper").call(run_input=run_input)
+        items = list(client.dataset(run["defaultDatasetId"]).iterate_items())
+    except Exception as e:
+        print(f"   Apify Facebook Ads Scraper (render_ad) failed for id={meta_ad_id_str}: {e}", file=sys.stderr)
+        return None
+    if not items:
+        return None
+    item = items[0]
+    ad_id = item.get("adArchiveId") or item.get("adArchiveID") or item.get("id") or meta_ad_id_str
+    page_id_val = item.get("pageId") or item.get("pageID") or ""
+    snapshot = item.get("snapshot") or {}
+    page_name = snapshot.get("pageName") or item.get("pageName") or "Unknown"
+    start_ts = item.get("startDate")
+    end_ts = item.get("endDate")
+    is_active = item.get("isActive") is True
+
+    def _ts_to_iso(ts) -> str | None:
+        if ts is None:
+            return None
+        try:
+            t = int(ts) if isinstance(ts, (int, float)) else None
+            if t is None:
+                return None
+            if t > 1e12:
+                t = t // 1000
+            return datetime.utcfromtimestamp(t).strftime("%Y-%m-%d")
+        except (ValueError, TypeError, OSError):
+            return None
+
+    start_str = _ts_to_iso(start_ts)
+    end_str = _ts_to_iso(end_ts) if not is_active else None
+    cards = snapshot.get("cards") or []
+    bodies = []
+    for c in cards:
+        if isinstance(c, dict):
+            body = (c.get("body") or "").strip()
+            if body and body not in bodies:
+                bodies.append(body)
+    pub = item.get("publisherPlatform") or snapshot.get("publisherPlatform") or []
+    if isinstance(pub, str):
+        pub = [pub] if pub else []
+    return {
+        "id": str(ad_id).strip(),
+        "page_id": str(page_id_val).strip() or None,
+        "page_name": page_name,
+        "ad_delivery_start_time": start_str[:30] if start_str else None,
+        "ad_delivery_stop_time": end_str[:30] if end_str else None,
+        "ad_snapshot_url": f"https://www.facebook.com/ads/library/?id={ad_id}" if ad_id else None,
+        "ad_creative_bodies": bodies,
+        "ad_creative_link_titles": [],
+        "ad_creative_link_descriptions": [],
+        "ad_creative_link_captions": [],
+        "publisher_platforms": pub,
+        "creativeImageUrls": [],
+        "creativeVideoUrls": [],
+        "creativeImageUrl": None,
+        "creativeVideoUrl": None,
+        "runtime": None,
+        "firstSeen": start_str[:20] if start_str else None,
+    }
+
+
+# Puppeteer page function for render_ad URL: page is the single ad, extract creatives (and optional body/runtime) from whole page.
+PUPPETEER_RENDER_AD_PAGE_FUNCTION = r"""
+async function pageFunction(context) {
+    const { page, request } = context;
+    const urlMatch = request.url && request.url.match(/[?&]id=(\d+)/);
+    const requestedAdId = (request.userData && request.userData.adId) || (urlMatch ? urlMatch[1] : '') || '';
+    const images = [];
+    const videos = [];
+    let pageName = '';
+    let pageId = '';
+    const bodies = [];
+    let firstSeen = '';
+    let runtimeText = '';
+    try {
+        await page.waitForSelector('body', { timeout: 20000 }).catch(() => null);
+        await new Promise(r => setTimeout(r, 4000));
+        await page.evaluate(() => {
+            const m = document.querySelector('[role="main"]');
+            if (m) { m.scrollTop = m.scrollHeight; }
+            window.scrollTo(0, document.body.scrollHeight);
+        }).catch(() => null);
+        await new Promise(r => setTimeout(r, 2000));
+        const ogTitle = await page.$eval('meta[property="og:title"]', el => el.content).catch(() => null);
+        if (ogTitle) pageName = String(ogTitle).trim();
+        const ogDesc = await page.$eval('meta[property="og:description"]', el => el.content).catch(() => null);
+        if (ogDesc) bodies.push(String(ogDesc).trim());
+        const links = await page.$$('a[href*="view_all_page_id"]');
+        for (const a of links) {
+            const href = await a.evaluate(el => el.getAttribute('href') || '');
+            const m = href.match(/view_all_page_id=(\d+)/);
+            if (m && m[1]) { pageId = m[1]; break; }
+        }
+        const allText = await page.evaluate(() => document.body ? document.body.innerText : '').catch(() => '');
+        const startedMatch = allText.match(/Started running on\s+(\w+\s+\d{1,2},?\s+\d{4})/i) || allText.match(/First seen on\s+(\w+\s+\d{1,2},?\s+\d{4})/i);
+        if (startedMatch) runtimeText = startedMatch[1].trim();
+        const dateM = allText.match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
+        if (dateM) firstSeen = dateM[1];
+        const bodyMatch = allText.match(/Library ID:\s*\d+\s*([\s\S]*?)(?=See ad details|Started running|First seen on|Platforms|This ad has|$)/i);
+        if (bodyMatch && bodyMatch[1]) {
+            const b = bodyMatch[1].trim();
+            if (b.length >= 10 && b.length <= 500 && !/Sponsored|Library ID|See ad details/i.test(b)) bodies.push(b.slice(0, 500));
+        }
+        const mainImgs = await page.evaluate(() => {
+            const imgs = document.querySelectorAll('img[src*="fbcdn.net"]');
+            const out = [];
+            for (const img of imgs) {
+                const src = (img.src || '').trim();
+                if (src && !/\.(mp4|webm|mov)(\?|$)/i.test(src) && !out.includes(src)) out.push(src);
+            }
+            return out;
+        }).catch(() => []);
+        for (const u of mainImgs) if (u && !images.includes(u)) images.push(u);
+        const ogImage = await page.$eval('meta[property="og:image"]', el => el.content).catch(() => null);
+        if (ogImage && !images.includes(ogImage)) images.push(ogImage);
+        const videoEls = await page.$$('video');
+        for (const v of videoEls) {
+            const src = await v.evaluate(el => el.src);
+            if (src) videos.push(src);
+            const poster = await v.evaluate(el => el.poster || '');
+            if (poster && !images.includes(poster)) images.push(poster);
+        }
+        const ogVideo = await page.$('meta[property="og:video:url"], meta[property="og:video"]').then(el => el ? el.evaluate(n => n.getAttribute('content')) : null).catch(() => null);
+        if (ogVideo) videos.push(ogVideo);
+        const html = await page.content();
+        const videoRe = /https:\/\/video[^"'\s]+\.fbcdn\.net\/[^"'\s]+\.(?:mp4|webm)(?:\?[^"'\s]*)?/gi;
+        let match;
+        while ((match = videoRe.exec(html)) !== null) { if (match[0] && !videos.includes(match[0])) videos.push(match[0]); }
+        const imgRe = /https:\/\/scontent[^"'\s]+\.fbcdn\.net\/[^"'\s]+/g;
+        while ((match = imgRe.exec(html)) !== null) {
+            const u = match[0];
+            if (u && !/\.(mp4|webm|mov)(\?|$)/i.test(u) && !images.includes(u)) images.push(u);
+        }
+    } catch (e) {}
+    return { adId: requestedAdId, url: request.url, images: [...new Set(images)], videos: [...new Set(videos)], pageName, pageId, bodies, firstSeen, runtimeText };
+}
+"""
+
+
+def _fetch_single_ad_creatives_via_puppeteer_render(
+    apify_token: str, meta_ad_id: str, meta_token: str
+) -> dict | None:
+    """
+    Fetch creatives (images/videos) for a single ad by loading the render_ad URL in Puppeteer.
+    Uses the same canonical URL as the Facebook scraper so we get the correct ad. Returns dict with
+    creativeImageUrls, creativeVideoUrls, creativeImageUrl, creativeVideoUrl, and optionally
+    ad_creative_bodies, runtime, firstSeen.
+    """
+    render_url = _render_ad_url(meta_ad_id, meta_token)
+    if not render_url or not apify_token:
+        return None
+    meta_ad_id_str = str(meta_ad_id).strip()
+    try:
+        client = ApifyClient(apify_token)
+        run_input = {
+            "startUrls": [{"url": render_url, "userData": {"adId": meta_ad_id_str}}],
+            "pageFunction": PUPPETEER_RENDER_AD_PAGE_FUNCTION,
+            "proxyConfiguration": {"useApifyProxy": True},
+            "maxCrawlingDepth": 0,
+            "maxScrollHeightPixels": 0,
+        }
+        run = client.actor("apify/puppeteer-scraper").call(run_input=run_input)
+        items = list(client.dataset(run["defaultDatasetId"]).iterate_items())
+    except Exception as e:
+        print(f"   Apify Puppeteer (render_ad) failed for id={meta_ad_id_str}: {e}", file=sys.stderr)
+        return None
+    if not items:
+        return None
+    item = items[0]
+    raw_images = item.get("images") or []
+    raw_count = len(raw_images) if isinstance(raw_images, list) else 0
+    images = _filter_non_thumbnail_image_urls(raw_images)
+    print(f"[Puppeteer render_ad] adId={meta_ad_id_str} raw image count={raw_count} after filter={len(images)}")
+    for idx, u in enumerate(images):
+        su = (u or "")[:120]
+        print(f"[Puppeteer render_ad]   image[{idx}]={su}{'...' if len(u or '') > 120 else ''}")
+    videos = item.get("videos") or []
+    bodies = [b for b in (item.get("bodies") or []) if b and isinstance(b, str) and b.strip()]
+    first_seen = (item.get("firstSeen") or "").strip()[:20]
+    runtime_text = (item.get("runtimeText") or "").strip()[:100]
+    return {
+        "id": (item.get("adId") or meta_ad_id_str).strip(),
+        "page_id": (item.get("pageId") or "").strip() or None,
+        "page_name": (item.get("pageName") or "").strip() or "Unknown",
+        "ad_delivery_start_time": first_seen or None,
+        "ad_delivery_stop_time": None,
+        "ad_snapshot_url": f"https://www.facebook.com/ads/library/?id={meta_ad_id_str}" if meta_ad_id_str else None,
+        "ad_creative_bodies": bodies,
+        "ad_creative_link_titles": [],
+        "ad_creative_link_descriptions": [],
+        "ad_creative_link_captions": [],
+        "publisher_platforms": [],
+        "creativeImageUrls": images,
+        "creativeVideoUrls": videos,
+        "creativeImageUrl": images[0] if images else None,
+        "creativeVideoUrl": videos[0] if videos else None,
+        "runtime": runtime_text or None,
+        "firstSeen": first_seen or None,
+    }
+
+
+def _fetch_single_ad_via_puppeteer(apify_token: str, meta_ad_id: str) -> dict | None:
+    """
+    Fallback: scrape a single ad's snapshot URL with Apify Puppeteer to get creatives
+    when facebook-ads-scraper returns no data (common for direct ?id= URLs).
+    Returns same shape as fetch_single_ad_by_library_id.
+    """
+    if not apify_token or not str(meta_ad_id).strip():
+        return None
+    meta_ad_id_str = str(meta_ad_id).strip()
+    snapshot_url = (
+        "https://www.facebook.com/ads/library/?"
+        "id=" + meta_ad_id_str + "&active_status=active&ad_type=all&country=ALL&media_type=all"
+    )
+    try:
+        client = ApifyClient(apify_token)
+        run_input = {
+            "startUrls": [{"url": snapshot_url, "userData": {"adId": meta_ad_id_str}}],
+            "pageFunction": PUPPETEER_SINGLE_AD_PAGE_FUNCTION,
+            "proxyConfiguration": {"useApifyProxy": True},
+            "maxCrawlingDepth": 0,
+            "maxScrollHeightPixels": 0,
+        }
+        run = client.actor("apify/puppeteer-scraper").call(run_input=run_input)
+        items = list(client.dataset(run["defaultDatasetId"]).iterate_items())
+    except Exception as e:
+        print(f"   Apify Puppeteer single-ad scrape failed for id={meta_ad_id_str}: {e}", file=sys.stderr)
+        return None
+    if not items:
+        return None
+    item = items[0]
+    raw_images = item.get("images") or []
+    raw_count = len(raw_images) if isinstance(raw_images, list) else 0
+    images = _filter_non_thumbnail_image_urls(raw_images)
+    print(f"[Puppeteer ads/library] adId={meta_ad_id_str} raw image count={raw_count} after filter={len(images)}")
+    for idx, u in enumerate(images):
+        su = (u or "")[:120]
+        print(f"[Puppeteer ads/library]   image[{idx}]={su}{'...' if len(u or '') > 120 else ''}")
+    videos = item.get("videos") or []
+    page_name = (item.get("pageName") or "").strip() or "Unknown"
+    page_id = (item.get("pageId") or "").strip()
+    ad_id = (item.get("adId") or meta_ad_id_str).strip()
+    bodies = [b for b in (item.get("bodies") or []) if b and isinstance(b, str) and b.strip()]
+    first_seen = (item.get("firstSeen") or "").strip()[:20]
+    runtime_text = (item.get("runtimeText") or "").strip()[:100]
+    return {
+        "id": ad_id,
+        "page_id": page_id,
+        "page_name": page_name,
+        "ad_delivery_start_time": first_seen or None,
+        "ad_delivery_stop_time": None,
+        "ad_snapshot_url": f"https://www.facebook.com/ads/library/?id={ad_id}" if ad_id else None,
+        "ad_creative_bodies": bodies,
+        "ad_creative_link_titles": [],
+        "ad_creative_link_descriptions": [],
+        "ad_creative_link_captions": [],
+        "publisher_platforms": [],
+        "creativeImageUrls": images,
+        "creativeVideoUrls": videos,
+        "creativeImageUrl": images[0] if images else None,
+        "creativeVideoUrl": videos[0] if videos else None,
+        "runtime": runtime_text or None,
+        "firstSeen": first_seen or None,
+    }
+
+
+def fetch_single_ad_by_library_id(
+    apify_token: str,
+    meta_ad_id: str,
+    meta_token: str | None = None,
+) -> dict | None:
+    """
+    Fetch a single ad by its Meta Ad Library ID.
+
+    When meta_token (META_AD_LIBRARY_ACCESS_TOKEN) is set we use the Facebook Ads Archive
+    render_ad URL for accuracy:
+      1. Facebook Ads Scraper (Apify) with render_ad URL → metadata (body, page, dates).
+      2. Puppeteer with the same render_ad URL → creatives only (images/videos).
+    This ensures we get the correct ad and creatives. If the Facebook scraper returns no
+    items, we use Puppeteer (render_ad) for both metadata and creatives.
+
+    When meta_token is not set we fall back to: Meta Graph API (if available) for metadata,
+    then Puppeteer with the ads/library search URL for creatives (may be less accurate).
+    """
+    meta_ad_id_str = str(meta_ad_id).strip()
+    if not meta_ad_id_str or not apify_token:
+        return None
+
+    meta_token_clean = (meta_token or "").strip()
+
+    if meta_token_clean:
+        # Preferred: render_ad URL with Facebook scraper (metadata) + Puppeteer (creatives)
+        metadata_ad = _fetch_single_ad_via_facebook_scraper(apify_token, meta_ad_id_str, meta_token_clean)
+        creatives_ad = _fetch_single_ad_creatives_via_puppeteer_render(
+            apify_token, meta_ad_id_str, meta_token_clean
+        )
+        if creatives_ad:
+            if metadata_ad:
+                merged = {**metadata_ad}
+                merged["creativeImageUrls"] = creatives_ad.get("creativeImageUrls") or []
+                merged["creativeVideoUrls"] = creatives_ad.get("creativeVideoUrls") or []
+                merged["creativeImageUrl"] = creatives_ad.get("creativeImageUrl")
+                merged["creativeVideoUrl"] = creatives_ad.get("creativeVideoUrl")
+                if not merged.get("ad_creative_bodies") and creatives_ad.get("ad_creative_bodies"):
+                    merged["ad_creative_bodies"] = creatives_ad["ad_creative_bodies"]
+                if not merged.get("ad_delivery_start_time") and creatives_ad.get("ad_delivery_start_time"):
+                    merged["ad_delivery_start_time"] = creatives_ad["ad_delivery_start_time"]
+                if not merged.get("firstSeen") and creatives_ad.get("firstSeen"):
+                    merged["firstSeen"] = creatives_ad["firstSeen"]
+                if not merged.get("runtime") and creatives_ad.get("runtime"):
+                    merged["runtime"] = creatives_ad["runtime"]
+                return merged
+            return creatives_ad
+        if metadata_ad:
+            return metadata_ad
+        return None
+
+    # Fallback when no token: Meta API (if available) + Puppeteer with ads/library URL
+    api_ad: dict | None = None
+    if meta_token:
+        api_ad = _fetch_single_ad_via_meta_api(meta_token, meta_ad_id_str)
+
+    puppeteer_ad = _fetch_single_ad_via_puppeteer(apify_token, meta_ad_id_str)
+    if not puppeteer_ad:
+        return api_ad
+
+    if api_ad:
+        merged = {**api_ad}
+        merged["creativeImageUrls"] = puppeteer_ad.get("creativeImageUrls") or []
+        merged["creativeVideoUrls"] = puppeteer_ad.get("creativeVideoUrls") or []
+        merged["creativeImageUrl"] = puppeteer_ad.get("creativeImageUrl")
+        merged["creativeVideoUrl"] = puppeteer_ad.get("creativeVideoUrl")
+        if not merged.get("ad_creative_bodies") and puppeteer_ad.get("ad_creative_bodies"):
+            merged["ad_creative_bodies"] = puppeteer_ad["ad_creative_bodies"]
+        if not merged.get("ad_delivery_start_time") and puppeteer_ad.get("ad_delivery_start_time"):
+            merged["ad_delivery_start_time"] = puppeteer_ad["ad_delivery_start_time"]
+        if not merged.get("firstSeen") and puppeteer_ad.get("firstSeen"):
+            merged["firstSeen"] = puppeteer_ad["firstSeen"]
+        if not merged.get("runtime") and puppeteer_ad.get("runtime"):
+            merged["runtime"] = puppeteer_ad["runtime"]
+        return merged
+    return puppeteer_ad
 
 
 def _meta_api_request(url: str, timeout: int = 60) -> dict:
@@ -846,13 +1502,16 @@ def _meta_api_request(url: str, timeout: int = 60) -> dict:
             body = e.read()
         except Exception:
             pass
-        try:
-            err_json = json.loads(body.decode()) if body else {}
-            msg = err_json.get("error", {}).get("message", body.decode(errors="replace") if body else str(e))
-            code = err_json.get("error", {}).get("code")
-            print(f"   Meta API error (HTTP {e.code}): {msg}" + (f" [code={code}]" if code is not None else ""), file=sys.stderr)
-        except Exception:
-            print(f"   Meta API error (HTTP {e.code}): {body.decode(errors='replace') if body else e}", file=sys.stderr)
+        if e.code == 400 and body and (b"does not exist" in body or b"cannot be loaded" in body or b"missing permissions" in body):
+            print("   Meta API: ad not available via Graph API (using Puppeteer fallback)", file=sys.stderr)
+        else:
+            try:
+                err_json = json.loads(body.decode()) if body else {}
+                msg = err_json.get("error", {}).get("message", body.decode(errors="replace") if body else str(e))
+                code = err_json.get("error", {}).get("code")
+                print(f"   Meta API error (HTTP {e.code}): {msg}" + (f" [code={code}]" if code is not None else ""), file=sys.stderr)
+            except Exception:
+                print(f"   Meta API error (HTTP {e.code}): {body.decode(errors='replace') if body else e}", file=sys.stderr)
         raise
 
 

@@ -60,7 +60,7 @@ export class DvybAccount {
     nullable: true,
     comment: 'The flow through which the customer first signed up: website_analysis (flow 1) or product_photoshot (flow 2)'
   })
-  initialAcquisitionFlow!: 'website_analysis' | 'product_photoshot' | null;
+  initialAcquisitionFlow!: 'website_analysis' | 'product_photoshot' | 'chrome_extension' | null;
 
   // Free trial edit limit: user can edit and save design once after visiting discover
   @Column({ type: 'boolean', default: false })

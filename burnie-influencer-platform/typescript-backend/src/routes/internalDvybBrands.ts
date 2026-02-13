@@ -93,6 +93,10 @@ router.post('/:brandId/ads-callback', async (req: Request, res: Response) => {
         ? (ad.platform as string)
         : "meta";
 
+      const primaryKey = (ad.creativeImageS3Key as string) || '';
+      const extraImageS3Keys = Array.isArray(ad.extraImageS3Keys)
+        ? (ad.extraImageS3Keys as string[]).filter((k): k is string => typeof k === 'string' && k.length > 0 && k !== primaryKey)
+        : [];
       const entity = adRepo.create({
         brandId,
         metaAdId,
@@ -100,6 +104,7 @@ router.post('/:brandId/ads-callback', async (req: Request, res: Response) => {
         platform,
         creativeImageS3Key: (ad.creativeImageS3Key as string) || null,
         creativeVideoS3Key: (ad.creativeVideoS3Key as string) || null,
+        extraImages: extraImageS3Keys.length > 0 ? extraImageS3Keys : null,
         creativeImageUrl: (ad.creativeImageUrl as string) || null,
         creativeVideoUrl: (ad.creativeVideoUrl as string) || null,
         mediaType: ((ad.mediaType as string) || 'image') === 'video' ? 'video' : 'image',

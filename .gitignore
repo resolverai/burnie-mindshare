@@ -75,6 +75,8 @@ web_modules/
 # dotenv environment variable files
 .env
 .env.development.local
+# Chrome extension generated manifest (from scripts/generate-manifest.js)
+dvyb-chrome-extension/manifest.generated.json
 .env.test.local
 .env.production.local
 .env.local
@@ -275,3 +277,4 @@ cython_debug/
 
 sample_app/
 
+.cursor/

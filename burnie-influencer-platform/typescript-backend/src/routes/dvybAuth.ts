@@ -210,7 +210,7 @@ router.post('/google/callback', async (req: Request, res: Response) => {
       const result = await DvybGoogleAuthService.handleGoogleCallback(
         code,
         state,
-        initial_acquisition_flow as 'website_analysis' | 'product_photoshot' | undefined,
+        initial_acquisition_flow as 'website_analysis' | 'product_photoshot' | 'chrome_extension' | undefined,
         signInOnly
       );
       account = result.account;

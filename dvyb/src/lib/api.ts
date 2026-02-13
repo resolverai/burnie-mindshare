@@ -2140,6 +2140,7 @@ export const brandsApi = {
       data: {
         creativeImageUrl: string | null;
         creativeVideoUrl: string | null;
+        extraImageUrls?: string[];
         mediaType: 'image' | 'video';
         isSaved?: boolean;
       };
@@ -2196,6 +2197,7 @@ export const brandsApi = {
         aspectRatio: '1:1';
       }>;
       pagination: { page: number; limit: number; total: number; pages: number };
+      hasPending?: boolean;
       error?: string;
     }>(`/dvyb/brands/discover/ads/saved${qs ? `?${qs}` : ''}`);
   },

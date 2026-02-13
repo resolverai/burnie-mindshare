@@ -37,6 +37,10 @@ export class DvybBrandAd {
   @Column({ type: 'varchar', length: 512, nullable: true })
   creativeImageS3Key!: string | null;
 
+  /** S3 keys for additional ad creative images (carousel, etc.). Primary in creativeImageS3Key. */
+  @Column({ type: 'jsonb', nullable: true, default: () => "'[]'" })
+  extraImages!: string[] | null;
+
   /** S3 key for creative video (presigned URL generated when serving) */
   @Column({ type: 'varchar', length: 512, nullable: true })
   creativeVideoS3Key!: string | null;

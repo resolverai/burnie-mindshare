@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "DVYB - Save Ads from Meta Ad Library",
+  "version": "1.0.0",
+  "description": "Save competitor ads from Meta Ad Library directly to your DVYB account. Discover what's working and generate winning creatives.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "tabs",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "https://www.facebook.com/ads/library/*",
+    "http://localhost:3001/*",
+    "http://localhost:3005/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.facebook.com/ads/library/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "assets/icon16.png",
+      "48": "assets/icon48.png",
+      "128": "assets/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "assets/icon16.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
+  }
+}

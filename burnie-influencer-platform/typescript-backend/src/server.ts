@@ -117,6 +117,7 @@ import { dvybScheduledPostWorker, dvybScheduledPostQueue } from './services/Dvyb
 import { dvybAutoGenerationCronService } from './services/DvybAutoGenerationCronService';
 import { dvybAutoGenerationWorker, dvybAutoGenerationQueue } from './services/DvybAutoGenerationQueueService';
 import { inspirationAnalysisWorker } from './services/InspirationAnalysisQueueService';
+import { dvybExtensionSaveWorker } from './services/DvybExtensionSaveQueueService';
 // DISABLED: Commented out to prevent automatic fetching of latest tweets data
 // import { PopularTwitterHandlesCronService } from './services/PopularTwitterHandlesCronService';
 import { AppDataSource } from './config/database';
@@ -152,6 +153,11 @@ const corsOptions = {
     if (origin.endsWith('.nodeops.network')) {
       return callback(null, true);
     }
+
+    // Allow Chrome extension origins (chrome-extension://<id>)
+    if (origin.startsWith('chrome-extension://')) {
+      return callback(null, true);
+    }
     
     callback(new Error('Not allowed by CORS'), false);
   },
@@ -175,8 +181,8 @@ app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 // Handle preflight requests for all routes
 app.options('*', (req, res) => {
   const origin = req.headers.origin;
-  // Only set origin header if it's in our allowed origins or nodeops.network subdomain
-  if (origin && (env.cors.allowedOrigins.includes(origin) || origin.endsWith('.nodeops.network'))) {
+  // Only set origin header if it's in our allowed origins, nodeops.network subdomain, or chrome extension
+  if (origin && (env.cors.allowedOrigins.includes(origin) || origin.endsWith('.nodeops.network') || origin.startsWith('chrome-extension://'))) {
     res.header('Access-Control-Allow-Origin', origin);
   }
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
@@ -450,6 +456,7 @@ const gracefulShutdown = async (signal: string) => {
     await dvybScheduledPostWorker.close();
     await dvybAutoGenerationWorker.close();
     await inspirationAnalysisWorker.close();
+    await dvybExtensionSaveWorker.close();
     logger.info('⏹️ Cron services and workers stopped');
     
     // Close server

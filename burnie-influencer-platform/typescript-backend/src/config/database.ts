@@ -142,6 +142,7 @@ import { DvybBrand } from '../models/DvybBrand';
 import { DvybBrandAd } from '../models/DvybBrandAd';
 import { DvybBrandFollow } from '../models/DvybBrandFollow';
 import { DvybSavedAd } from '../models/DvybSavedAd';
+import { DvybExtensionSaveQueue } from '../models/DvybExtensionSaveQueue';
 import { DvybAccountProduct } from '../models/DvybAccountProduct';
 import { DvybDomainProductImage } from '../models/DvybDomainProductImage';
 import { DvybAccountHiddenDomainProduct } from '../models/DvybAccountHiddenDomainProduct';
@@ -286,6 +287,7 @@ export const AppDataSource = new DataSource({
     DvybBrandAd,
     DvybBrandFollow,
     DvybSavedAd,
+    DvybExtensionSaveQueue,
     DvybAccountProduct,
     DvybDomainProductImage,
     DvybAccountHiddenDomainProduct,
