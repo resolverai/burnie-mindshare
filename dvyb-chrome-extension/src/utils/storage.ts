@@ -10,6 +10,7 @@ export interface StoredAccount {
 const KEYS = {
   account: 'dvyb_account',
   savedCount: 'dvyb_saved_count',
+  mixpanelAnonymousId: 'dvyb_mixpanel_anonymous_id',
 } as const;
 
 export async function getAccount(): Promise<StoredAccount | null> {
@@ -23,6 +24,17 @@ export async function setAccount(account: StoredAccount): Promise<void> {
 
 export async function clearAccount(): Promise<void> {
   await chrome.storage.local.remove([KEYS.account, KEYS.savedCount]);
+}
+
+/** Get or create a persistent anonymous ID for Mixpanel (used when not logged in). */
+export async function getOrCreateMixpanelAnonymousId(): Promise<string> {
+  const result = await chrome.storage.local.get(KEYS.mixpanelAnonymousId);
+  let id = result[KEYS.mixpanelAnonymousId] as string | undefined;
+  if (!id) {
+    id = 'ext_' + crypto.randomUUID();
+    await chrome.storage.local.set({ [KEYS.mixpanelAnonymousId]: id });
+  }
+  return id;
 }
 
 export async function getSavedCount(): Promise<number> {

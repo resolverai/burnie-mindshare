@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "node scripts/generate-manifest.js && webpack --watch --mode development",
     "build": "node scripts/generate-manifest.js && webpack --mode production",
+    "build:production": "DVYB_API_BASE=https://api.dvyb.com DVYB_FRONTEND_URL=https://app.dvyb.com node scripts/generate-manifest.js && DVYB_API_BASE=https://api.dvyb.com DVYB_FRONTEND_URL=https://app.dvyb.com webpack --mode production",
     "clean": "rm -rf dist"
   },
   "devDependencies": {

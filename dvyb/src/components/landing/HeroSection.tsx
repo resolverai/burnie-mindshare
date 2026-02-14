@@ -9,9 +9,36 @@ import { Loader2, Globe, Check } from "lucide-react";
 import { contextApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { trackWebsiteAnalysisStarted, trackWebsiteAnalysisCompleted } from "@/lib/mixpanel";
-import { tileImages } from "@/lib/tileImages";
 
 const rotatingWords = ["ad research", "ad agencies", "ad designers"];
+
+/** Hero copy variants for A/B testing – one is chosen at random on load */
+const HERO_COPIES = [
+  {
+    mainPrefix: "Pick a competitor ad. ",
+    mainAccent: "We rebuild it for you.",
+    subText: "Your product. Your brand voice. Same proven structure. Live in under 3 minutes.",
+    buttonText: "Get 4 Free Ads",
+  },
+  {
+    mainPrefix: "Better creatives = ",
+    mainAccent: "better ROAS",
+    subText: "We help you recreate proven ad formats from your competitors instantly",
+    buttonText: "Get 4 Free Ads",
+  },
+  {
+    mainPrefix: "Your competitors test 50 creatives. ",
+    mainAccent: "You test 4",
+    subText: "Recreate proven ad structures in minutes instead of weeks",
+    buttonText: "Get 4 Free Ads",
+  },
+  {
+    mainPrefix: "Create scroll-stopping ads ",
+    mainAccent: "direct from your URL",
+    subText: "Take the highest ROI ads and convert them into yours",
+    buttonText: "Get 4 Free Ads",
+  },
+] as const;
 
 const analysisSteps = [
   { percent: 0, label: "Analyzing your brand identity" },
@@ -66,8 +93,6 @@ interface HeroSectionProps {
   onOpenOnboardingWithUrl?: (url: string) => void;
   websiteModalOpen?: boolean;
   onWebsiteModalOpenChange?: (open: boolean) => void;
-  adCount?: number;
-  floatingTiles?: { id: number; delay: number; imageIndex: number }[];
 }
 
 export function HeroSection({
@@ -76,9 +101,10 @@ export function HeroSection({
   onOpenOnboardingWithUrl,
   websiteModalOpen,
   onWebsiteModalOpenChange,
-  adCount = 0,
-  floatingTiles = [],
 }: HeroSectionProps) {
+  const [copyIndex] = useState(() => Math.floor(Math.random() * HERO_COPIES.length));
+  const heroCopy = HERO_COPIES[copyIndex];
+
   const [internalOpen, setInternalOpen] = useState(false);
   const isModalOpen = websiteModalOpen ?? internalOpen;
   const setIsModalOpen = onWebsiteModalOpenChange ?? setInternalOpen;
@@ -177,12 +203,6 @@ export function HeroSection({
     }
   };
 
-  const stats = [
-    { value: `${adCount.toLocaleString()}+`, label: "Ads created", hasAnimation: true },
-    { value: "15+", label: "Industries served", hasAnimation: false },
-    { value: "Weekly", label: "New teams joining", hasAnimation: false },
-  ];
-
   return (
     <>
       {/* Hero: responsive padding and typography (wander-discover-connect style) */}
@@ -242,13 +262,14 @@ export function HeroSection({
               </span>
             </div>
             <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight mb-6 sm:mb-8 animate-fade-up font-display">
-              winning Ads <span className="text-cta">in minutes</span>
+              {heroCopy.mainPrefix}
+              {heroCopy.mainAccent ? <span className="text-cta">{heroCopy.mainAccent}</span> : null}
             </h1>
             <p
               className="text-base sm:text-lg md:text-xl text-muted-foreground mb-8 sm:mb-10 animate-fade-up max-w-2xl mx-auto leading-relaxed px-1"
               style={{ animationDelay: "0.1s" }}
             >
-              AI finds top-performing competitor ads and instantly recreates them in your brand
+              {heroCopy.subText}
             </p>
 
             <div className="flex flex-col items-center gap-5 animate-fade-up" style={{ animationDelay: "0.2s" }}>
@@ -268,77 +289,36 @@ export function HeroSection({
                   <button
                     type="submit"
                     disabled={!websiteUrl.trim()}
-                    className="group relative h-12 sm:h-14 px-6 sm:px-8 bg-cta text-cta-foreground rounded-full font-semibold text-base sm:text-lg transition-all duration-300 hover:scale-105 flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-60 disabled:hover:scale-100"
+                    className="group relative h-12 sm:h-14 px-6 sm:px-8 bg-cta text-cta-foreground rounded-full font-semibold text-base sm:text-lg transition-all duration-300 hover:scale-105 flex items-center justify-center gap-3 whitespace-nowrap disabled:opacity-60 disabled:hover:scale-100"
                     style={{ boxShadow: "0 0 40px -10px hsl(25 100% 55% / 0.5)" }}
                   >
-                    Try for free
-                    <span aria-hidden>→</span>
+                    <span className="relative flex h-3 w-3">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500" />
+                    </span>
+                    {heroCopy.buttonText}
                   </button>
                 </form>
               ) : (
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(true)}
-                  className="group relative w-full sm:w-auto px-8 py-4 sm:px-10 sm:py-5 bg-cta text-cta-foreground rounded-full font-semibold text-base sm:text-lg transition-all duration-300 hover:scale-105"
+                  className="group relative w-full sm:w-auto h-12 sm:h-14 px-8 sm:px-10 bg-cta text-cta-foreground rounded-full font-semibold text-base sm:text-lg transition-all duration-300 hover:scale-105 flex items-center justify-center gap-3"
                   style={{ boxShadow: "0 0 40px -10px hsl(25 100% 55% / 0.5)" }}
                 >
-                  <span className="relative z-10">Try for free</span>
-                  <div className="absolute inset-0 rounded-full bg-cta opacity-0 group-hover:opacity-100 blur-xl transition-opacity duration-300" />
+                  <span className="relative flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500" />
+                  </span>
+                  {heroCopy.buttonText}
                 </button>
               )}
               {websiteError && useHeroUrlFlow && (
                 <p className="text-xs text-red-500 text-center -mt-2 w-full max-w-xl">{websiteError}</p>
               )}
               <p className="text-sm text-muted-foreground tracking-wide">
-                Takes ~2 minutes · No credit card required
+                No credit card · Takes 3 minutes
               </p>
-            </div>
-
-            {/* Traction Stats */}
-            <div className="mt-10 sm:mt-14 flex flex-wrap justify-center gap-6 sm:gap-10 md:gap-16 animate-fade-up" style={{ animationDelay: "0.3s" }}>
-              {stats.map((stat) => (
-                <div key={stat.label} className="text-center relative">
-                  <p className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-display font-bold text-foreground">
-                    {stat.value}
-                  </p>
-                  <p className="text-sm text-muted-foreground mt-1">{stat.label}</p>
-                  {stat.hasAnimation &&
-                    floatingTiles.map(({ id, delay, imageIndex }, index) => {
-                      const offsetPercent = (index % 3 - 1) * 30;
-                      return (
-                        <div
-                          key={id}
-                          className="absolute w-8 h-10 rounded-sm overflow-hidden shadow-lg pointer-events-none animate-float-up border border-border/50"
-                          style={{
-                            top: "-15px",
-                            left: `calc(50% + ${offsetPercent}%)`,
-                            transform: "translateX(-50%)",
-                            animationDelay: `${delay}ms`,
-                            opacity: 0,
-                          }}
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={tileImages[imageIndex]}
-                            alt=""
-                            className="w-full h-full object-cover"
-                          />
-                          <div className="absolute -left-0.5 top-1 z-10">
-                            <span
-                              className="block pl-1 pr-1.5 py-0.5 bg-gradient-to-r from-green-700 via-green-600 to-green-500 text-white text-[5px] font-bold tracking-wide"
-                              style={{
-                                clipPath: "polygon(0 0, 100% 0, 85% 100%, 0 100%)",
-                                boxShadow: "0 2px 4px rgba(0,0,0,0.3)",
-                              }}
-                            >
-                              WINNER
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                </div>
-              ))}
             </div>
           </div>
         </div>

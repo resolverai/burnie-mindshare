@@ -10,6 +10,7 @@ import { DiscoverPreview } from "./DiscoverPreview";
 import { BrandsSection } from "./BrandsSection";
 import { HowItWorksSection } from "./HowItWorksSection";
 import { LandingVideoSection } from "./LandingVideoSection";
+import { LandingHeroStatsSection } from "./LandingHeroStatsSection";
 import { FeaturesSection } from "./FeaturesSection";
 import { TestimonialsSection } from "./TestimonialsSection";
 import { FooterLanding } from "./FooterLanding";
@@ -160,12 +161,11 @@ export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: 
         <HeroSection
           onAnalysisComplete={onAnalysisComplete}
           onOpenOnboardingWithUrl={handleOpenOnboardingWithUrl}
-          adCount={adCount}
-          floatingTiles={floatingTiles}
         />
+        <LandingVideoSection />
+        <LandingHeroStatsSection adCount={adCount} floatingTiles={floatingTiles} />
         <DiscoverPreview onOpenWebsiteModal={handleGetStarted} />
         <BrandsSection />
-        <LandingVideoSection />
         {false && <HowItWorksSection />}
         {false && <FeaturesSection />}
         <TestimonialsSection />

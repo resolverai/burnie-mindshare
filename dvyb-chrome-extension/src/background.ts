@@ -3,11 +3,91 @@
  * Handles: auth completion, save/unsave messages from content script, badge updates
  */
 
-import { getAccount, setAccount, incrementSavedCount, decrementSavedCount } from './utils/storage';
+import { getAccount, setAccount, incrementSavedCount, decrementSavedCount, getOrCreateMixpanelAnonymousId } from './utils/storage';
 import { lookupAdByMetaId, saveAdByMetaId, unsaveAd, handleGoogleCallback, getSavedAdsCount, FRONTEND_URL } from './utils/api';
+
+// Injected at build time by webpack DefinePlugin (no runtime process in service worker)
+declare const __MIXPANEL_TOKEN__: string;
+const MIXPANEL_TOKEN = typeof __MIXPANEL_TOKEN__ !== 'undefined' ? __MIXPANEL_TOKEN__ : '';
 
 // Track which callback tabs we've already handled (prevent double-processing)
 const handledCallbackTabs = new Set<number>();
+
+// Mixpanel device/geo context (OS, browser, city, country) – populated once and cached
+const OS_DISPLAY: Record<string, string> = {
+  mac: 'Mac OS X',
+  win: 'Windows',
+  linux: 'Linux',
+  android: 'Android',
+  cros: 'Chrome OS',
+  openbsd: 'OpenBSD',
+};
+let cachedGeo: { $city?: string; $region?: string; mp_country_code?: string; fetchedAt: number } | null = null;
+const GEO_CACHE_MS = 60 * 60 * 1000; // 1 hour
+
+async function fetchGeoFromIpApiCo(): Promise<{ city?: string; region?: string; country_code?: string } | null> {
+  const res = await fetch('https://ipapi.co/json/', { method: 'GET' });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { city?: string; region?: string; country_code?: string; error?: boolean };
+  if (data.error) return null;
+  return data;
+}
+
+async function fetchGeoFromIpApiCom(): Promise<{ city?: string; region?: string; country_code?: string } | null> {
+  const res = await fetch('https://ip-api.com/json/?fields=status,country,countryCode,regionName,city', { method: 'GET' });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { status?: string; city?: string; regionName?: string; country?: string; countryCode?: string };
+  if (data.status !== 'success') return null;
+  return {
+    city: data.city,
+    region: data.regionName,
+    country_code: data.countryCode ?? data.country,
+  };
+}
+
+async function getMixpanelContext(): Promise<Record<string, string>> {
+  const ctx: Record<string, string> = {
+    $os: 'Unknown',
+    $browser: 'Chrome',
+  };
+  try {
+    const platform = await chrome.runtime.getPlatformInfo();
+    ctx.$os = OS_DISPLAY[platform.os] || platform.os || 'Unknown';
+  } catch (_) {}
+
+  const now = Date.now();
+  if (cachedGeo && now - cachedGeo.fetchedAt < GEO_CACHE_MS) {
+    if (cachedGeo.$city) ctx.$city = cachedGeo.$city;
+    if (cachedGeo.$region) ctx.$region = cachedGeo.$region;
+    if (cachedGeo.mp_country_code) ctx.mp_country_code = cachedGeo.mp_country_code;
+  } else {
+    let data: { city?: string; region?: string; country_code?: string } | null = null;
+    try {
+      data = await fetchGeoFromIpApiCo();
+    } catch (e) {
+      console.warn('[DVYB BG] Mixpanel geo (ipapi.co) failed:', e);
+    }
+    if (!data?.city && !data?.country_code) {
+      try {
+        data = await fetchGeoFromIpApiCom();
+      } catch (e) {
+        console.warn('[DVYB BG] Mixpanel geo (ip-api.com) failed:', e);
+      }
+    }
+    if (data && (data.city || data.region || data.country_code)) {
+      cachedGeo = {
+        $city: data.city ?? undefined,
+        $region: data.region ?? undefined,
+        mp_country_code: data.country_code ?? undefined,
+        fetchedAt: now,
+      };
+      if (cachedGeo.$city) ctx.$city = cachedGeo.$city;
+      if (cachedGeo.$region) ctx.$region = cachedGeo.$region;
+      if (cachedGeo.mp_country_code) ctx.mp_country_code = cachedGeo.mp_country_code;
+    }
+  }
+  return ctx;
+}
 
 // Message types
 interface SaveAdMessage {
@@ -43,7 +123,13 @@ interface AuthCallbackMessage {
   state: string;
 }
 
-type ExtMessage = SaveAdMessage | UnsaveAdMessage | LookupAdMessage | CheckAuthMessage | AuthCallbackMessage;
+interface MixpanelTrackMessage {
+  type: 'DVYB_MIXPANEL_TRACK';
+  event: string;
+  properties: Record<string, unknown>;
+}
+
+type ExtMessage = SaveAdMessage | UnsaveAdMessage | LookupAdMessage | CheckAuthMessage | AuthCallbackMessage | MixpanelTrackMessage;
 
 // Listen for messages from content script and popup
 chrome.runtime.onMessage.addListener(
@@ -82,6 +168,13 @@ async function handleMessage(message: ExtMessage): Promise<unknown> {
         } catch { /* ignore */ }
         // Notify popup and content scripts
         notifyAuthComplete();
+        if (MIXPANEL_TOKEN) {
+          try {
+            const distinctId = String(result.accountId);
+            const payload = [{ event: 'Extension Sign In Success', properties: { token: MIXPANEL_TOKEN, distinct_id: distinctId, source: 'chrome_extension' } }];
+            await fetch('https://api.mixpanel.com/track', { method: 'POST', body: new URLSearchParams({ data: btoa(JSON.stringify(payload)) }) });
+          } catch (_) {}
+        }
         return { success: true, account: result };
       } catch (err) {
         console.error('[DVYB BG] Auth callback error:', err);
@@ -132,6 +225,38 @@ async function handleMessage(message: ExtMessage): Promise<unknown> {
         await decrementSavedCount();
       }
       return result;
+    }
+
+    case 'DVYB_MIXPANEL_TRACK': {
+      if (!MIXPANEL_TOKEN) {
+        console.warn('[DVYB BG] Mixpanel: no token (set MIXPANEL_TOKEN in .env and rebuild)');
+        return {};
+      }
+      try {
+        const account = await getAccount();
+        const distinctId = account?.accountId != null ? String(account.accountId) : await getOrCreateMixpanelAnonymousId();
+        const context = await getMixpanelContext();
+        const payload = [
+          {
+            event: message.event,
+            properties: {
+              token: MIXPANEL_TOKEN,
+              distinct_id: distinctId,
+              source: 'chrome_extension',
+              ...context,
+              ...message.properties,
+            },
+          },
+        ];
+        const body = new URLSearchParams({ data: btoa(JSON.stringify(payload)) });
+        const res = await fetch('https://api.mixpanel.com/track', { method: 'POST', body });
+        if (res.status !== 200) {
+          console.warn('[DVYB BG] Mixpanel track HTTP', res.status, await res.text());
+        }
+      } catch (e) {
+        console.warn('[DVYB BG] Mixpanel track failed:', e);
+      }
+      return {};
     }
 
     default:

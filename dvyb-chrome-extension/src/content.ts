@@ -5,6 +5,7 @@
  */
 
 import './styles/content.css';
+import { track, ExtensionEvents } from './utils/mixpanel';
 
 const DVYB_BTN_CLASS = 'dvyb-save-btn';
 const DVYB_PROCESSED_ATTR = 'data-dvyb-processed';
@@ -321,6 +322,13 @@ async function handleSaveClick(metaAdId: string, btn: HTMLElement): Promise<void
 
   try {
     if (wasSaved && state?.adId) {
+      track(ExtensionEvents.UnsaveClicked, {
+        meta_ad_id: metaAdId,
+        ...(metadata.brandName && { brand_name: metadata.brandName }),
+        ...(metadata.brandDomain && { brand_domain: metadata.brandDomain }),
+        ...(metadata.facebookHandle && { facebook_handle: metadata.facebookHandle }),
+        ...(metadata.instagramHandle && { instagram_handle: metadata.instagramHandle }),
+      });
       const result = await sendMessage({ type: 'DVYB_UNSAVE_AD', metaAdId, adId: state.adId });
       if (result.success) {
         savedState.set(metaAdId, { saved: false });
@@ -328,6 +336,13 @@ async function handleSaveClick(metaAdId: string, btn: HTMLElement): Promise<void
         showToast('Ad removed from saved');
       }
     } else {
+      track(ExtensionEvents.SaveToDvybClicked, {
+        meta_ad_id: metaAdId,
+        ...(metadata.brandName && { brand_name: metadata.brandName }),
+        ...(metadata.brandDomain && { brand_domain: metadata.brandDomain }),
+        ...(metadata.facebookHandle && { facebook_handle: metadata.facebookHandle }),
+        ...(metadata.instagramHandle && { instagram_handle: metadata.instagramHandle }),
+      });
       const result = await sendMessage({
         type: 'DVYB_SAVE_AD',
         metaAdId,

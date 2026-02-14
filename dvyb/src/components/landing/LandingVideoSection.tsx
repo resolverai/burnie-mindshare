@@ -72,7 +72,7 @@ export function LandingVideoSection() {
           playsInline
         />
         {isMuted && (
-          <div className="absolute top-4 left-4 z-10 flex items-center gap-2 rounded-full bg-black/60 px-3 py-2 text-white text-sm backdrop-blur-sm">
+          <div className="absolute top-4 right-4 z-10 flex items-center gap-2 rounded-full bg-black/60 px-3 py-2 text-white text-sm backdrop-blur-sm">
             <Volume2 className="h-4 w-4" />
             <span>Tap for sound</span>
           </div>

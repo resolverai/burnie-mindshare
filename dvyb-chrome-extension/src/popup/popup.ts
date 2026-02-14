@@ -1,6 +1,7 @@
 import { getAccount, clearAccount } from '../utils/storage';
 import { startGoogleLogin } from '../utils/auth';
 import { FRONTEND_URL } from '../utils/api';
+import { track, ExtensionEvents } from '../utils/mixpanel';
 import './popup.css';
 
 const GOOGLE_SVG = `<svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
@@ -42,6 +43,7 @@ function hide(id: string) {
 async function init() {
   hide('logged-out');
   hide('logged-in');
+  hide('dvyb-offer');
   show('loading');
 
   const account = await getAccount();
@@ -50,6 +52,7 @@ async function init() {
 
   if (account) {
     show('logged-in');
+    show('dvyb-offer');
 
     // Account info
     const name = account.accountName || 'DVYB User';
@@ -60,10 +63,13 @@ async function init() {
     avatarEl.style.background = avatarColor(account.email || name);
 
     // Dashboard link
-    (document.getElementById('btn-dashboard') as HTMLAnchorElement).href = `${FRONTEND_URL}/discover`;
+    const dashboardLink = document.getElementById('btn-dashboard') as HTMLAnchorElement;
+    dashboardLink.href = `${FRONTEND_URL}/discover`;
+    dashboardLink.onclick = () => track(ExtensionEvents.DashboardClicked);
 
     // Refresh saved status (clears local-only "Saved" and re-fetches from server)
     document.getElementById('btn-refresh-saved')!.onclick = async () => {
+      track(ExtensionEvents.RefreshSavedClicked);
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab?.id || !tab.url?.includes('facebook.com/ads/library')) {
         alert('Open a Meta Ad Library tab first, then click "Refresh saved status" again.');
@@ -78,6 +84,7 @@ async function init() {
 
     // Logout
     document.getElementById('btn-logout')!.onclick = async () => {
+      track(ExtensionEvents.SignOutClicked);
       await clearAccount();
       // Notify content scripts
       chrome.tabs.query({ url: 'https://www.facebook.com/ads/library/*' }, (tabs) => {
@@ -89,8 +96,10 @@ async function init() {
     };
   } else {
     show('logged-out');
+    show('dvyb-offer');
 
     document.getElementById('btn-google-login')!.onclick = async (e) => {
+      track(ExtensionEvents.SignInClicked);
       const btn = e.currentTarget as HTMLButtonElement;
       btn.disabled = true;
       btn.textContent = 'Opening Google...';
@@ -120,4 +129,7 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', () => {
+  init();
+  track(ExtensionEvents.PopupOpened);
+});

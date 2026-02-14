@@ -19,6 +19,9 @@ const outPath = path.resolve(__dirname, '../manifest.generated.json');
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 manifest.host_permissions = [
   'https://www.facebook.com/ads/library/*',
+  'https://api.mixpanel.com/*',
+  'https://ipapi.co/*',
+  'https://ip-api.com/*',
   `${API_BASE}/*`,
   `${FRONTEND_URL}/*`,
 ];

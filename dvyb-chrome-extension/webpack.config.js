@@ -7,6 +7,7 @@ require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 
 const API_BASE = process.env.DVYB_API_BASE || 'http://localhost:3001';
 const FRONTEND_URL = process.env.DVYB_FRONTEND_URL || 'http://localhost:3005';
+const MIXPANEL_TOKEN = process.env.MIXPANEL_TOKEN || '';
 
 module.exports = {
   entry: {
@@ -39,6 +40,7 @@ module.exports = {
     new webpack.DefinePlugin({
       'process.env.DVYB_API_BASE': JSON.stringify(API_BASE),
       'process.env.DVYB_FRONTEND_URL': JSON.stringify(FRONTEND_URL),
+      '__MIXPANEL_TOKEN__': JSON.stringify(MIXPANEL_TOKEN),
     }),
     new MiniCssExtractPlugin({
       filename: '[name].css',
