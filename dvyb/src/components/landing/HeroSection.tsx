@@ -93,6 +93,8 @@ interface HeroSectionProps {
   onOpenOnboardingWithUrl?: (url: string) => void;
   websiteModalOpen?: boolean;
   onWebsiteModalOpenChange?: (open: boolean) => void;
+  /** Called once on mount with the main message copy that was selected (for Mixpanel). */
+  onCopyShown?: (mainMessage: string) => void;
 }
 
 export function HeroSection({
@@ -101,9 +103,14 @@ export function HeroSection({
   onOpenOnboardingWithUrl,
   websiteModalOpen,
   onWebsiteModalOpenChange,
+  onCopyShown,
 }: HeroSectionProps) {
   const [copyIndex] = useState(() => Math.floor(Math.random() * HERO_COPIES.length));
   const heroCopy = HERO_COPIES[copyIndex];
+
+  useEffect(() => {
+    onCopyShown?.(heroCopy.mainPrefix + heroCopy.mainAccent);
+  }, [onCopyShown, heroCopy.mainPrefix, heroCopy.mainAccent]);
 
   const [internalOpen, setInternalOpen] = useState(false);
   const isModalOpen = websiteModalOpen ?? internalOpen;

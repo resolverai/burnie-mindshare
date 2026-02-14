@@ -67,13 +67,13 @@ function HomePageContent() {
     localStorage.removeItem("dvyb_guest_session_id");
   };
 
-  // Track landing page view when shown
+  // Track landing page view when shown (product flow only; website flow is tracked by LandingPageNew with hero_main_message)
   useEffect(() => {
-    if (shouldShowLanding && !hasTrackedRef.current) {
+    if (shouldShowLanding && flowType === "product" && !hasTrackedRef.current) {
       hasTrackedRef.current = true;
       trackLandingPageViewed(isAuthenticated);
     }
-  }, [shouldShowLanding, isAuthenticated]);
+  }, [shouldShowLanding, isAuthenticated, flowType]);
 
   useEffect(() => {
     if (!isMounted || isLoading) return;

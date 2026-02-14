@@ -18,6 +18,7 @@ import { OnboardingFlowModal } from "./OnboardingFlowModal";
 import { GenerateContentDialog } from "@/components/onboarding/GenerateContentDialog";
 import { useOnboardingGuide } from "@/hooks/useOnboardingGuide";
 import { tileImages } from "@/lib/tileImages";
+import { trackLandingPageViewed } from "@/lib/mixpanel";
 
 function getInitialAdCount() {
   const startDate = new Date("2026-02-04");
@@ -52,6 +53,7 @@ export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: 
   const [floatingTiles, setFloatingTiles] = useState<{ id: number; delay: number; imageIndex: number }[]>([]);
   const nextImageIndexRef = useRef(0);
   const searchParams = useSearchParams();
+  const hasTrackedLandingViewRef = useRef(false);
 
   // Traction stats: ad count + floating tiles (shared by Hero and Stats)
   useEffect(() => {
@@ -161,6 +163,11 @@ export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: 
         <HeroSection
           onAnalysisComplete={onAnalysisComplete}
           onOpenOnboardingWithUrl={handleOpenOnboardingWithUrl}
+          onCopyShown={(mainMessage) => {
+            if (hasTrackedLandingViewRef.current) return;
+            hasTrackedLandingViewRef.current = true;
+            trackLandingPageViewed(isAuthenticated, { hero_main_message: mainMessage });
+          }}
         />
         <LandingVideoSection />
         <LandingHeroStatsSection adCount={adCount} floatingTiles={floatingTiles} />

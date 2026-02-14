@@ -464,8 +464,11 @@ export const trackContentDownloadClicked = (data: {
 };
 
 // --- LANDING PAGE ---
-export const trackLandingPageViewed = (isAuthenticated: boolean) => {
-  trackEvent('Landing Page Viewed', { isAuthenticated });
+export const trackLandingPageViewed = (
+  isAuthenticated: boolean,
+  extra?: { hero_main_message?: string }
+) => {
+  trackEvent('Landing Page Viewed', { isAuthenticated, ...extra });
 };
 
 // --- ANALYSIS DETAILS PAGE ---
