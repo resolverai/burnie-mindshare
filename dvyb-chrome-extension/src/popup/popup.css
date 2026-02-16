@@ -299,58 +299,51 @@ body {
   transform: none !important;
 }
 
-/* ─── Offer message (logged-in + logged-out) ─── */
+/* ─── Refer & Earn (logged-in + logged-out) ─── */
 
-.dvyb-offer {
+.dvyb-refer-earn {
   padding: 0 16px 14px;
   flex-shrink: 0;
+  display: flex;
+  justify-content: center;
 }
 
-.dvyb-offer-inner {
-  background: linear-gradient(135deg, rgba(242, 125, 43, 0.08) 0%, rgba(242, 125, 43, 0.04) 100%);
-  border: 1px solid rgba(242, 125, 43, 0.25);
+.dvyb-refer-earn-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #FDF3E8;
+  border: 1px solid rgba(242, 125, 43, 0.35);
   border-radius: 10px;
-  padding: 10px 12px;
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-.dvyb-offer-label {
-  display: inline-block;
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+.dvyb-refer-earn-inner:hover {
+  background: #FAEBD7;
+  border-color: rgba(242, 125, 43, 0.5);
+}
+
+.dvyb-refer-earn-icon {
+  flex-shrink: 0;
   color: #F27D2B;
-  margin-bottom: 6px;
 }
 
-.dvyb-offer-text {
-  font-size: 11px;
-  line-height: 1.45;
-  color: #444;
-  margin: 0;
+.dvyb-refer-earn-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.dvyb-offer-text + .dvyb-offer-text {
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid rgba(242, 125, 43, 0.15);
-}
-
-.dvyb-offer-referral {
-  color: #555;
-  font-weight: 500;
-}
-
-.dvyb-offer-40-line {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid rgba(242, 125, 43, 0.2);
-  font-weight: 500;
-  color: #444;
-}
-
-.dvyb-offer-40 {
-  font-size: 14px;
+.dvyb-refer-earn-title {
+  font-size: 13px;
   font-weight: 700;
-  color: #C45A11;
+  color: #1a1a1a;
+}
+
+.dvyb-refer-earn-desc {
+  font-size: 11px;
+  color: #555;
 }

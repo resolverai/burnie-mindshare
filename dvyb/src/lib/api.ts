@@ -2549,6 +2549,259 @@ export const contentStrategyApi = {
   },
 };
 
+// ==========================================
+// Affiliate API
+// ==========================================
+
+function getAffiliateIdHeader(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  const affiliateId = localStorage.getItem('dvyb_affiliate_id');
+  if (affiliateId) {
+    return { 'X-DVYB-Affiliate-ID': affiliateId };
+  }
+  return {};
+}
+
+async function affiliateApiRequest<T>(
+  endpoint: string,
+  options: RequestInit & { timeout?: number } = {}
+): Promise<T> {
+  const url = `${API_URL}${endpoint}`;
+  const { timeout, ...fetchOptions } = options;
+  const isFormData = fetchOptions.body instanceof FormData;
+  const affiliateHeader = getAffiliateIdHeader();
+  const baseHeaders: Record<string, string> = { ...affiliateHeader };
+  if (!isFormData) {
+    baseHeaders['Content-Type'] = 'application/json';
+  }
+  const customHeaders = fetchOptions.headers as Record<string, string> || {};
+  const finalHeaders = { ...baseHeaders, ...customHeaders, ...affiliateHeader };
+
+  const defaultOptions: RequestInit = {
+    credentials: 'include',
+    ...fetchOptions,
+    headers: finalHeaders,
+  };
+
+  let abortController: AbortController | null = null;
+  let timeoutId: NodeJS.Timeout | null = null;
+  if (timeout && timeout > 0) {
+    abortController = new AbortController();
+    timeoutId = setTimeout(() => abortController?.abort(), timeout);
+    defaultOptions.signal = abortController.signal;
+  }
+
+  try {
+    const response = await fetch(url, defaultOptions);
+    if (timeoutId) clearTimeout(timeoutId);
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error((errorData as any).error || `HTTP ${response.status}`);
+    }
+    return await response.json();
+  } catch (error) {
+    if (timeoutId) clearTimeout(timeoutId);
+    throw error;
+  }
+}
+
+export const affiliateAuthApi = {
+  async getGoogleLoginUrl() {
+    return affiliateApiRequest<{
+      success: boolean;
+      data: { oauth_url: string; state: string };
+    }>('/dvyb/affiliate/auth/google/login');
+  },
+
+  async handleGoogleCallback(code: string, state: string, parentReferralCode?: string) {
+    return affiliateApiRequest<{
+      success: boolean;
+      data: {
+        affiliate: {
+          id: number;
+          name: string;
+          email: string;
+          profilePicture: string | null;
+          referralCode: string;
+          commissionTier: string;
+          commissionRate: number;
+          secondTierRate: number;
+          commissionDurationMonths: number;
+        };
+        isNewAffiliate: boolean;
+      };
+    }>('/dvyb/affiliate/auth/google/callback', {
+      method: 'POST',
+      body: JSON.stringify({ code, state, parentReferralCode }),
+    });
+  },
+
+  async getAuthStatus() {
+    return affiliateApiRequest<{
+      success: boolean;
+      data: {
+        authenticated: boolean;
+        affiliateId?: number;
+        name?: string;
+        email?: string;
+        profilePicture?: string;
+        referralCode?: string;
+        commissionTier?: string;
+        commissionRate?: number;
+      };
+    }>('/dvyb/affiliate/auth/status');
+  },
+
+  async logout() {
+    return affiliateApiRequest<{ success: boolean }>('/dvyb/affiliate/auth/logout', { method: 'POST' });
+  },
+};
+
+export const affiliateApi = {
+  async getDashboard() {
+    return affiliateApiRequest<{
+      success: boolean;
+      data: {
+        affiliate: {
+          id: number;
+          name: string;
+          email: string;
+          profilePicture: string | null;
+          referralCode: string;
+          commissionTier: string;
+          commissionRate: number;
+          secondTierRate: number;
+          commissionDurationMonths: number;
+          createdAt: string;
+        };
+        stats: {
+          totalClicks: number;
+          totalSignups: number;
+          subscribedReferrals: number;
+          conversionRate: string;
+          totalCommission: number;
+          pendingCommission: number;
+          monthlyCommission: number;
+          totalPaid: number;
+          availableBalance: number;
+        };
+        monthlyEarnings: Array<{ month: string; earnings: number }>;
+        referralLink: string;
+      };
+    }>('/dvyb/affiliate/dashboard');
+  },
+
+  async getReferrals(page = 1, limit = 20, status?: string) {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (status) params.set('status', status);
+    return affiliateApiRequest<{
+      success: boolean;
+      data: {
+        referrals: Array<{
+          id: number;
+          referredAccount: { id: number; name: string; email: string; createdAt: string } | null;
+          status: string;
+          referralCode: string;
+          signedUpAt: string;
+          subscription: {
+            planName: string;
+            billingCycle: string;
+            status: string;
+            monthlyPrice: number;
+            annualPrice: number;
+          } | null;
+        }>;
+        pagination: { page: number; limit: number; total: number; totalPages: number };
+      };
+    }>(`/dvyb/affiliate/referrals?${params.toString()}`);
+  },
+
+  async getRevenue(page = 1, limit = 20) {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    return affiliateApiRequest<{
+      success: boolean;
+      data: {
+        commissions: Array<{
+          id: number;
+          referredUser: { name: string; email: string } | null;
+          commissionType: string;
+          subscriptionAmount: number;
+          commissionRate: number;
+          commissionAmount: number;
+          billingCycle: string;
+          periodLabel: string | null;
+          status: string;
+          createdAt: string;
+        }>;
+        pagination: { page: number; limit: number; total: number; totalPages: number };
+        payouts: Array<{
+          id: number;
+          amount: number;
+          status: string;
+          periodLabel: string;
+          paymentMethod: string | null;
+          paidAt: string | null;
+          createdAt: string;
+        }>;
+        monthlyBreakdown: Array<{ month: string; total: number; count: number }>;
+      };
+    }>(`/dvyb/affiliate/revenue?${params.toString()}`);
+  },
+
+  async getBanking() {
+    return affiliateApiRequest<{
+      success: boolean;
+      data: {
+        banking: {
+          accountHolderName: string | null;
+          bankName: string | null;
+          accountNumber: string | null;
+          routingNumber: string | null;
+          accountType: string | null;
+          country: string | null;
+          currency: string;
+          paypalEmail: string | null;
+          preferredMethod: string;
+        } | null;
+      };
+    }>('/dvyb/affiliate/banking');
+  },
+
+  async updateBanking(data: Record<string, any>) {
+    return affiliateApiRequest<{ success: boolean; message: string }>('/dvyb/affiliate/banking', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getReferralLink() {
+    return affiliateApiRequest<{
+      success: boolean;
+      data: {
+        referralCode: string;
+        referralLink: string;
+        affiliateRecruitLink: string;
+      };
+    }>('/dvyb/affiliate/link');
+  },
+
+  async trackClick(referralCode: string) {
+    return affiliateApiRequest<{ success: boolean }>('/dvyb/affiliate/track-click', {
+      method: 'POST',
+      body: JSON.stringify({ referralCode }),
+    });
+  },
+
+  async getPricingPlans() {
+    return affiliateApiRequest<{
+      success: boolean;
+      data: {
+        plans: Array<{ id: number; planName: string; monthlyPrice: number; annualPrice: number }>;
+      };
+    }>('/dvyb/affiliate/pricing-plans');
+  },
+};
+
 export const dvybApi = {
   auth: authApi,
   account: accountApi,
@@ -2570,4 +2823,6 @@ export const dvybApi = {
   inspirations: inspirationsApi,
   contentStrategy: contentStrategyApi,
   brands: brandsApi,
+  affiliateAuth: affiliateAuthApi,
+  affiliate: affiliateApi,
 };

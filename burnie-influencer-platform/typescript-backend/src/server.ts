@@ -104,6 +104,8 @@ import dvybSocialAuthRoutes from './routes/dvybSocialAuth';
 import dvybOAuth1AuthRoutes from './routes/dvybOAuth1Auth';
 import dvybInspirationsRoutes from './routes/dvybInspirations';
 import dvybProductsRoutes from './routes/dvybProducts';
+import dvybAffiliateAuthRoutes from './routes/dvybAffiliateAuth';
+import dvybAffiliateRoutes from './routes/dvybAffiliate';
 import cacheRoutes from './routes/cache';
 import s3PresignedRoutes from './routes/s3Presigned';
 import networkRoutes from './routes/networkRoutes';
@@ -163,7 +165,7 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-DVYB-Account-ID', 'X-DVYB-API-Key'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-DVYB-Account-ID', 'X-DVYB-API-Key', 'X-DVYB-Affiliate-ID'],
   exposedHeaders: ['X-Total-Count'],
   optionsSuccessStatus: 200
 };
@@ -186,7 +188,7 @@ app.options('*', (req, res) => {
     res.header('Access-Control-Allow-Origin', origin);
   }
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-DVYB-Account-ID, X-DVYB-API-Key');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-DVYB-Account-ID, X-DVYB-API-Key, X-DVYB-Affiliate-ID');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.sendStatus(200);
 });
@@ -291,6 +293,8 @@ app.use('/api/dvyb/subscription', dvybSubscriptionRoutes); // DVYB subscription 
 app.use('/api/dvyb/inspirations', dvybInspirationsRoutes); // DVYB inspiration matching for onboarding
 app.use('/api/dvyb/brands', dvybBrandsRoutes); // DVYB brands (user request, discover ads)
 app.use('/api/dvyb/products', dvybProductsRoutes); // DVYB account products (My Products screen)
+app.use('/api/dvyb/affiliate/auth', dvybAffiliateAuthRoutes); // DVYB affiliate authentication (Google OAuth)
+app.use('/api/dvyb/affiliate', dvybAffiliateRoutes); // DVYB affiliate dashboard, referrals, revenue, banking
 app.use('/api/internal/dvyb-brands', internalDvybBrandsRoutes); // Internal callback from Python fetch script
 app.use('/api/dvyb', dvybGenerationRoutes); // DVYB content generation routes (has /:uuid catch-all, must be last)
 app.use('/api/cache', cacheRoutes); // Redis URL cache management

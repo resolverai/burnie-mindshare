@@ -22,27 +22,47 @@ const OS_DISPLAY: Record<string, string> = {
   cros: 'Chrome OS',
   openbsd: 'OpenBSD',
 };
-let cachedGeo: { $city?: string; $region?: string; mp_country_code?: string; fetchedAt: number } | null = null;
+let cachedGeo: { $city?: string; $region?: string; $country?: string; mp_country_code?: string; fetchedAt: number } | null = null;
 const GEO_CACHE_MS = 60 * 60 * 1000; // 1 hour
 
-async function fetchGeoFromIpApiCo(): Promise<{ city?: string; region?: string; country_code?: string } | null> {
-  const res = await fetch('https://ipapi.co/json/', { method: 'GET' });
-  if (!res.ok) return null;
-  const data = (await res.json()) as { city?: string; region?: string; country_code?: string; error?: boolean };
-  if (data.error) return null;
-  return data;
+const GEO_FETCH_OPTS: RequestInit = {
+  method: 'GET',
+  headers: { Accept: 'application/json' },
+};
+
+async function fetchGeoFromIpApiCo(): Promise<{ city?: string; region?: string; country_code?: string; country_name?: string } | null> {
+  try {
+    const res = await fetch('https://ipapi.co/json/', GEO_FETCH_OPTS);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { city?: string; region?: string; country_code?: string; country_name?: string; error?: boolean };
+    if (data.error) return null;
+    return {
+      city: data.city,
+      region: data.region,
+      country_code: data.country_code,
+      country_name: data.country_name,
+    };
+  } catch {
+    return null;
+  }
 }
 
-async function fetchGeoFromIpApiCom(): Promise<{ city?: string; region?: string; country_code?: string } | null> {
-  const res = await fetch('https://ip-api.com/json/?fields=status,country,countryCode,regionName,city', { method: 'GET' });
-  if (!res.ok) return null;
-  const data = (await res.json()) as { status?: string; city?: string; regionName?: string; country?: string; countryCode?: string };
-  if (data.status !== 'success') return null;
-  return {
-    city: data.city,
-    region: data.regionName,
-    country_code: data.countryCode ?? data.country,
-  };
+// ip-api.com free tier: HTTP only (no HTTPS)
+async function fetchGeoFromIpApiCom(): Promise<{ city?: string; region?: string; country_code?: string; country_name?: string } | null> {
+  try {
+    const res = await fetch('http://ip-api.com/json/?fields=status,country,countryCode,regionName,city', GEO_FETCH_OPTS);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { status?: string; city?: string; regionName?: string; country?: string; countryCode?: string };
+    if (data.status !== 'success') return null;
+    return {
+      city: data.city,
+      region: data.regionName,
+      country_code: data.countryCode ?? undefined,
+      country_name: data.country,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function getMixpanelContext(): Promise<Record<string, string>> {
@@ -59,31 +79,32 @@ async function getMixpanelContext(): Promise<Record<string, string>> {
   if (cachedGeo && now - cachedGeo.fetchedAt < GEO_CACHE_MS) {
     if (cachedGeo.$city) ctx.$city = cachedGeo.$city;
     if (cachedGeo.$region) ctx.$region = cachedGeo.$region;
-    if (cachedGeo.mp_country_code) ctx.mp_country_code = cachedGeo.mp_country_code;
+    if (cachedGeo.$country) ctx.$country = cachedGeo.$country;
+    if (cachedGeo.mp_country_code) {
+      ctx.mp_country_code = cachedGeo.mp_country_code;
+      ctx.$country_code = cachedGeo.mp_country_code;
+    }
   } else {
-    let data: { city?: string; region?: string; country_code?: string } | null = null;
-    try {
-      data = await fetchGeoFromIpApiCo();
-    } catch (e) {
-      console.warn('[DVYB BG] Mixpanel geo (ipapi.co) failed:', e);
-    }
+    let data: { city?: string; region?: string; country_code?: string; country_name?: string } | null = null;
+    data = await fetchGeoFromIpApiCo();
     if (!data?.city && !data?.country_code) {
-      try {
-        data = await fetchGeoFromIpApiCom();
-      } catch (e) {
-        console.warn('[DVYB BG] Mixpanel geo (ip-api.com) failed:', e);
-      }
+      data = await fetchGeoFromIpApiCom();
     }
-    if (data && (data.city || data.region || data.country_code)) {
+    if (data && (data.city || data.region || data.country_code || data.country_name)) {
       cachedGeo = {
         $city: data.city ?? undefined,
         $region: data.region ?? undefined,
+        $country: data.country_name ?? undefined,
         mp_country_code: data.country_code ?? undefined,
         fetchedAt: now,
       };
       if (cachedGeo.$city) ctx.$city = cachedGeo.$city;
       if (cachedGeo.$region) ctx.$region = cachedGeo.$region;
-      if (cachedGeo.mp_country_code) ctx.mp_country_code = cachedGeo.mp_country_code;
+      if (cachedGeo.$country) ctx.$country = cachedGeo.$country;
+      if (cachedGeo.mp_country_code) {
+        ctx.mp_country_code = cachedGeo.mp_country_code;
+        ctx.$country_code = cachedGeo.mp_country_code;
+      }
     }
   }
   return ctx;
@@ -301,9 +322,12 @@ function handleOAuthRedirect(tabId: number, url: string): void {
       return;
     }
 
+    // Use the callback URL's origin for redirects so we never send users to localhost when they logged in on production
+    const redirectOrigin = parsed.origin;
+
     // Immediately redirect the tab to Discover before the frontend page loads and
     // tries to consume the OAuth code (it's single-use).
-    chrome.tabs.update(tabId, { url: `${FRONTEND_URL}/discover` }).catch(() => {});
+    chrome.tabs.update(tabId, { url: `${redirectOrigin}/discover` }).catch(() => {});
 
     // Process the auth callback in the background
     handleMessage({ type: 'DVYB_AUTH_CALLBACK', code, state })
@@ -312,7 +336,7 @@ function handleOAuthRedirect(tabId: number, url: string): void {
       })
       .catch((err) => {
         console.error('[DVYB BG] Auth callback failed:', err);
-        chrome.tabs.update(tabId, { url: `${FRONTEND_URL}/?error=extension_auth_failed` }).catch(() => {});
+        chrome.tabs.update(tabId, { url: `${redirectOrigin}/?error=extension_auth_failed` }).catch(() => {});
       });
   } catch (err) {
     console.error('[DVYB BG] Error parsing callback URL:', err);

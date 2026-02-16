@@ -43,7 +43,7 @@ function hide(id: string) {
 async function init() {
   hide('logged-out');
   hide('logged-in');
-  hide('dvyb-offer');
+  hide('dvyb-refer-earn');
   show('loading');
 
   const account = await getAccount();
@@ -52,7 +52,7 @@ async function init() {
 
   if (account) {
     show('logged-in');
-    show('dvyb-offer');
+    show('dvyb-refer-earn');
 
     // Account info
     const name = account.accountName || 'DVYB User';
@@ -65,6 +65,8 @@ async function init() {
     // Dashboard link
     const dashboardLink = document.getElementById('btn-dashboard') as HTMLAnchorElement;
     dashboardLink.href = `${FRONTEND_URL}/discover`;
+    // Refer & Earn link (subscription/referral page)
+    (document.getElementById('link-refer-earn') as HTMLAnchorElement).href = `${FRONTEND_URL}/subscription/manage`;
     dashboardLink.onclick = () => track(ExtensionEvents.DashboardClicked);
 
     // Refresh saved status (clears local-only "Saved" and re-fetches from server)
@@ -96,7 +98,8 @@ async function init() {
     };
   } else {
     show('logged-out');
-    show('dvyb-offer');
+    show('dvyb-refer-earn');
+    (document.getElementById('link-refer-earn') as HTMLAnchorElement).href = `${FRONTEND_URL}/subscription/manage`;
 
     document.getElementById('btn-google-login')!.onclick = async (e) => {
       track(ExtensionEvents.SignInClicked);

@@ -23,6 +23,18 @@ function HomePageContent() {
     
     // Check for ref parameter to determine flow type
     const ref = searchParams.get("ref");
+
+    // Track affiliate referral code (e.g., ?ref=DVYB-ABC123)
+    if (ref && ref.startsWith("DVYB-")) {
+      localStorage.setItem("dvyb_affiliate_referral_code", ref);
+      // Fire and forget click tracking
+      fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api"}/dvyb/affiliate/track-click`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ referralCode: ref }),
+      }).catch(() => {});
+    }
+
     if (ref === "product" || ref === "productshot" || ref === "product-shot") {
       // Explicit product flow from URL parameter
       setFlowType("product");

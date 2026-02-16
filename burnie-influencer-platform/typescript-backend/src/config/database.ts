@@ -147,6 +147,13 @@ import { DvybAccountProduct } from '../models/DvybAccountProduct';
 import { DvybDomainProductImage } from '../models/DvybDomainProductImage';
 import { DvybAccountHiddenDomainProduct } from '../models/DvybAccountHiddenDomainProduct';
 
+// Import DVYB Affiliate entities
+import { DvybAffiliate } from '../models/DvybAffiliate';
+import { DvybAffiliateReferral } from '../models/DvybAffiliateReferral';
+import { DvybAffiliateCommission } from '../models/DvybAffiliateCommission';
+import { DvybAffiliatePayout } from '../models/DvybAffiliatePayout';
+import { DvybAffiliateBankingDetails } from '../models/DvybAffiliateBankingDetails';
+
 // Import seed data functions
 import { seedDatabase } from './seedData';
 
@@ -291,6 +298,12 @@ export const AppDataSource = new DataSource({
     DvybAccountProduct,
     DvybDomainProductImage,
     DvybAccountHiddenDomainProduct,
+    // DVYB Affiliate entities
+    DvybAffiliate,
+    DvybAffiliateReferral,
+    DvybAffiliateCommission,
+    DvybAffiliatePayout,
+    DvybAffiliateBankingDetails,
   ],
   migrations: [],
   subscribers: [],

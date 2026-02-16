@@ -20,7 +20,7 @@ Create a `.env` file in `dvyb-chrome-extension/` (copy from `.env.example`):
 npm run build
 
 # Production (example)
-DVYB_API_BASE=https://api.dvyb.com DVYB_FRONTEND_URL=https://app.dvyb.com npm run build
+DVYB_API_BASE=https://api.dvyb.ai DVYB_FRONTEND_URL=https://app.dvyb.ai npm run build
 ```
 
 The build script generates `manifest.generated.json` with the correct `host_permissions` for the URLs you set, so the extension is allowed to call your backend and open the frontend for sign-in.

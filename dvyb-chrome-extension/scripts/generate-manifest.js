@@ -3,7 +3,7 @@
  * Run before webpack so dist gets the correct API/Frontend origins.
  * Loads .env from dvyb-chrome-extension/ so you can:
  *   - Use .env for local (DVYB_API_BASE=http://localhost:3001, DVYB_FRONTEND_URL=http://localhost:3005)
- *   - Or pass via CLI: DVYB_API_BASE=https://api.dvyb.com DVYB_FRONTEND_URL=https://app.dvyb.com npm run build
+ *   - Or pass via CLI: DVYB_API_BASE=https://api.dvyb.ai DVYB_FRONTEND_URL=https://app.dvyb.ai npm run build
  */
 const path = require('path');
 const fs = require('fs');
@@ -21,7 +21,7 @@ manifest.host_permissions = [
   'https://www.facebook.com/ads/library/*',
   'https://api.mixpanel.com/*',
   'https://ipapi.co/*',
-  'https://ip-api.com/*',
+  'http://ip-api.com/*',
   `${API_BASE}/*`,
   `${FRONTEND_URL}/*`,
 ];

@@ -8,6 +8,9 @@ import { DvybAccountSubscription } from '../models/DvybAccountSubscription';
 import { DvybAccountPayment } from '../models/DvybAccountPayment';
 import { DvybPricingPlan } from '../models/DvybPricingPlan';
 import { DvybAccountPlan } from '../models/DvybAccountPlan';
+import { DvybAffiliate } from '../models/DvybAffiliate';
+import { DvybAffiliateReferral } from '../models/DvybAffiliateReferral';
+import { DvybAffiliateCommission } from '../models/DvybAffiliateCommission';
 
 const router = Router();
 const stripe = new Stripe(env.stripe.secretKey);
@@ -324,6 +327,9 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
       
       logger.info(`✅ Account ${existingSub.accountId} downgraded to free plan due to unpaid subscription`);
     }
+
+    // Track affiliate churn for unpaid subscriptions
+    await processAffiliateChurn(existingSub.accountId);
     
     return; // No need to process further for unpaid subscriptions
   }
@@ -530,6 +536,9 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
     await accountPlanRepo.save(freeAccountPlan);
   }
 
+  // Track affiliate churn
+  await processAffiliateChurn(existingSub.accountId);
+
   logger.info(`✅ Subscription ${subscription.id} canceled for account ${existingSub.accountId}`);
 }
 
@@ -615,6 +624,25 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
 
   await paymentRepo.save(payment);
   logger.info(`✅ Recorded payment ${payment.id} for invoice ${invoice.id}`);
+
+  // Process affiliate commission for this payment
+  if (payment.amount > 0 && subscription) {
+    const periodStart = subscription.currentPeriodStart
+      ? new Date(subscription.currentPeriodStart)
+      : null;
+    const periodEnd = subscription.currentPeriodEnd
+      ? new Date(subscription.currentPeriodEnd)
+      : null;
+
+    await processAffiliateCommission(
+      subscription.accountId,
+      payment.amount,
+      subscription.selectedFrequency as 'monthly' | 'annual',
+      invoice.id,
+      periodStart,
+      periodEnd
+    );
+  }
 }
 
 /**
@@ -727,6 +755,172 @@ async function handleInvoicePaymentActionRequired(invoice: Stripe.Invoice) {
   
   // TODO: Optionally send your own email notification to the user
   // with the hostedInvoiceUrl link
+}
+
+/**
+ * Process affiliate commission for a subscription payment.
+ * Called when an invoice is successfully paid for a subscription.
+ * Creates commission records and updates referral/affiliate stats.
+ */
+async function processAffiliateCommission(
+  accountId: number,
+  paymentAmount: number,
+  billingCycle: 'monthly' | 'annual',
+  invoiceId: string,
+  periodStart: Date | null,
+  periodEnd: Date | null
+) {
+  try {
+    const referralRepo = AppDataSource.getRepository(DvybAffiliateReferral);
+    const affiliateRepo = AppDataSource.getRepository(DvybAffiliate);
+    const commissionRepo = AppDataSource.getRepository(DvybAffiliateCommission);
+
+    // Check if this account was referred by an affiliate
+    const referral = await referralRepo.findOne({
+      where: { referredAccountId: accountId },
+    });
+
+    if (!referral) return; // Not a referred user
+
+    const affiliate = await affiliateRepo.findOne({
+      where: { id: referral.affiliateId, isActive: true },
+    });
+
+    if (!affiliate) return; // Affiliate not found or inactive
+
+    // Check commission duration eligibility
+    // commissionDurationMonths = 0 means lifetime (no expiry)
+    if (affiliate.commissionDurationMonths > 0) {
+      const affiliateCreatedAt = new Date(affiliate.createdAt);
+      const expiryDate = new Date(affiliateCreatedAt);
+      expiryDate.setMonth(expiryDate.getMonth() + affiliate.commissionDurationMonths);
+      if (new Date() > expiryDate) {
+        logger.info(`⏰ Commission period expired for affiliate ${affiliate.referralCode} — skipping`);
+        return;
+      }
+    }
+
+    // Prevent duplicate commission for the same invoice
+    const existingCommission = await commissionRepo
+      .createQueryBuilder('c')
+      .where('c.affiliateId = :affiliateId', { affiliateId: affiliate.id })
+      .andWhere('c.referralId = :referralId', { referralId: referral.id })
+      .andWhere('c.periodLabel = :periodLabel', { periodLabel: invoiceId })
+      .getOne();
+
+    if (existingCommission) {
+      logger.info(`⚠️ Commission already recorded for invoice ${invoiceId} — skipping`);
+      return;
+    }
+
+    // Calculate commission
+    const commissionRate = Number(affiliate.commissionRate);
+    const commissionAmount = parseFloat(((paymentAmount * commissionRate) / 100).toFixed(2));
+
+    // Build period label
+    let periodLabel = invoiceId;
+    if (periodStart && periodEnd) {
+      const startStr = periodStart.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      const endStr = periodEnd.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      periodLabel = `${startStr} – ${endStr}`;
+    }
+
+    // Create commission record
+    const commission = commissionRepo.create({
+      affiliateId: affiliate.id,
+      referralId: referral.id,
+      subscriptionPaymentId: null,
+      commissionType: 'direct',
+      subscriptionAmount: paymentAmount,
+      commissionRate,
+      commissionAmount,
+      billingCycle,
+      periodLabel,
+      status: 'pending',
+    });
+    await commissionRepo.save(commission);
+
+    // Update referral status to 'subscribed' if still 'signed_up'
+    if (referral.status === 'signed_up') {
+      referral.status = 'subscribed';
+      await referralRepo.save(referral);
+    }
+
+    // Update denormalized affiliate stats
+    affiliate.totalPaidConversions = await referralRepo.count({
+      where: { affiliateId: affiliate.id, status: 'subscribed' },
+    });
+    affiliate.totalCommissionEarned = parseFloat(
+      (Number(affiliate.totalCommissionEarned) + commissionAmount).toFixed(2)
+    );
+    await affiliateRepo.save(affiliate);
+
+    logger.info(
+      `💰 Affiliate commission created: $${commissionAmount} (${commissionRate}% of $${paymentAmount}) ` +
+      `for affiliate ${affiliate.referralCode} from account ${accountId}`
+    );
+
+    // Handle second-tier commission if affiliate has a parent
+    if (affiliate.parentAffiliateId && Number(affiliate.secondTierRate) > 0) {
+      const parentAffiliate = await affiliateRepo.findOne({
+        where: { id: affiliate.parentAffiliateId, isActive: true },
+      });
+
+      if (parentAffiliate) {
+        const secondTierRate = Number(parentAffiliate.secondTierRate);
+        if (secondTierRate > 0) {
+          const secondTierAmount = parseFloat(((paymentAmount * secondTierRate) / 100).toFixed(2));
+
+          const secondTierCommission = commissionRepo.create({
+            affiliateId: parentAffiliate.id,
+            referralId: referral.id,
+            subscriptionPaymentId: null,
+            commissionType: 'second_tier',
+            subscriptionAmount: paymentAmount,
+            commissionRate: secondTierRate,
+            commissionAmount: secondTierAmount,
+            billingCycle,
+            periodLabel,
+            status: 'pending',
+          });
+          await commissionRepo.save(secondTierCommission);
+
+          parentAffiliate.totalCommissionEarned = parseFloat(
+            (Number(parentAffiliate.totalCommissionEarned) + secondTierAmount).toFixed(2)
+          );
+          await affiliateRepo.save(parentAffiliate);
+
+          logger.info(
+            `💰 Second-tier commission: $${secondTierAmount} (${secondTierRate}%) for parent affiliate ${parentAffiliate.referralCode}`
+          );
+        }
+      }
+    }
+  } catch (error) {
+    // Never let affiliate processing break the main webhook flow
+    logger.error('❌ Affiliate commission processing error:', error);
+  }
+}
+
+/**
+ * Mark a referral as churned when subscription is canceled.
+ */
+async function processAffiliateChurn(accountId: number) {
+  try {
+    const referralRepo = AppDataSource.getRepository(DvybAffiliateReferral);
+
+    const referral = await referralRepo.findOne({
+      where: { referredAccountId: accountId },
+    });
+
+    if (referral && referral.status === 'subscribed') {
+      referral.status = 'churned';
+      await referralRepo.save(referral);
+      logger.info(`📉 Referral for account ${accountId} marked as churned`);
+    }
+  } catch (error) {
+    logger.error('❌ Affiliate churn processing error:', error);
+  }
 }
 
 /**

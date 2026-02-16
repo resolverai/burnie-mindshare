@@ -26,7 +26,7 @@ function DvybGoogleCallbackContent() {
   }
 
   useEffect(() => {
-    const process = async () => {
+    const processCallback = async () => {
       if (processingRef.current) return
       processingRef.current = true
       
@@ -107,6 +107,19 @@ function DvybGoogleCallbackContent() {
           document.cookie = `dvyb_account_id=${response.data.account_id}; ${cookieOptions}`
           console.log('🍪 Auth cookie set')
           
+          // Track affiliate referral for new accounts
+          if (response.data.is_new_account) {
+            const affiliateRefCode = localStorage.getItem('dvyb_affiliate_referral_code')
+            if (affiliateRefCode) {
+              fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'}/dvyb/affiliate/track-signup`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ referralCode: affiliateRefCode, accountId: response.data.account_id }),
+              }).catch(() => {})
+              localStorage.removeItem('dvyb_affiliate_referral_code')
+            }
+          }
+
           // IMPORTANT: If this is a NEW account (either first time or re-registration after deletion),
           // reset all onboarding-related localStorage to ensure fresh onboarding experience
           if (response.data.is_new_account) {
@@ -425,7 +438,7 @@ function DvybGoogleCallbackContent() {
       }
     }
     
-    process()
+    processCallback()
   }, [searchParams])
 
   return (

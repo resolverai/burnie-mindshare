@@ -170,7 +170,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         
         // Define public routes that don't require authentication
-        const publicRoutes = ['/', '/auth/twitter', '/auth/twitter/callback', '/auth/login', '/onboarding/analysis-details', '/onboarding/brand-profile', '/auth/google/callback'];
+        const publicRoutes = ['/', '/auth/twitter', '/auth/twitter/callback', '/auth/login', '/onboarding/analysis-details', '/onboarding/brand-profile', '/auth/google/callback', '/affiliates'];
         const isPublicRoute = publicRoutes.some(route => pathname === route || pathname?.startsWith(route));
         
         // If user is not authenticated and not on a public route, redirect to landing page
@@ -216,7 +216,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       document.cookie = 'dvyb_twitter_handle=; path=/; max-age=0';
       
       // Redirect to landing page if not on a public route
-      const publicRoutes = ['/', '/auth/twitter', '/auth/twitter/callback', '/auth/login', '/onboarding/analysis-details', '/onboarding/brand-profile', '/auth/google/callback'];
+      const publicRoutes = ['/', '/auth/twitter', '/auth/twitter/callback', '/auth/login', '/onboarding/analysis-details', '/onboarding/brand-profile', '/auth/google/callback', '/affiliates'];
       const isPublicRoute = publicRoutes.some(route => pathname === route || pathname?.startsWith(route));
       
       if (!isPublicRoute) {

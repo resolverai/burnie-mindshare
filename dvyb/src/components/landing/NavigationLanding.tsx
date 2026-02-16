@@ -18,6 +18,7 @@ const navItems = [
   { name: "Home", path: "/" },
   { name: "Explore", path: "/explore" },
   { name: "Pricing", path: "/pricing" },
+  { name: "Affiliates", path: "/affiliates" },
 ];
 
 interface NavigationLandingProps {
@@ -33,6 +34,7 @@ const MOBILE_NAV_LINKS = [
   { name: "Home", path: "/" },
   { name: "Pricing", path: "/pricing" },
   { name: "Explore", path: "/explore" },
+  { name: "Affiliates", path: "/affiliates" },
 ];
 
 export function NavigationLanding({ variant = "default", onGetStarted, showSignIn = false, hideExplore = false }: NavigationLandingProps) {
