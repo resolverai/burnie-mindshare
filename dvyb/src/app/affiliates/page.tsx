@@ -87,34 +87,35 @@ export default function AffiliateLandingPage() {
       {/* Hero Section */}
       <section className="pt-32 sm:pt-40 pb-16 sm:pb-24 px-4">
         <div className="container mx-auto max-w-5xl text-center">
-          <div className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[hsl(var(--landing-cta-orange))/0.1] text-[hsl(var(--landing-cta-orange))] text-sm font-medium mb-8">
-            <Zap className="w-4 h-4" />
+          <div className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-[hsl(var(--landing-cta-orange))/0.1] text-[hsl(var(--landing-cta-orange))] text-base font-semibold mb-8">
+            <Zap className="w-5 h-5" />
             Affiliate Program
           </div>
 
           <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-foreground leading-tight">
             Earn{" "}
             <span className="text-[hsl(var(--landing-cta-orange))]">
-              ${Math.round(perReferralMonthly * 10) / 10}/mo
+              {COMMISSION_RATE}% LIFETIME
             </span>{" "}
-            per referral with lifetime commissions
+            commission on every referral.
+            <br />
+            Passive income guaranteed
           </h1>
 
           <p className="mt-6 text-lg sm:text-xl text-muted-foreground max-w-3xl mx-auto">
             That&apos;s{" "}
             <span className="font-semibold text-[hsl(var(--landing-cta-orange))]">
-              ${Math.round(estimatedAnnual)}/year
+              ${Math.round(estimatedAnnual).toLocaleString()}/year
             </span>{" "}
-            with {referralCount} referrals. You earn up to{" "}
-            <span className="font-semibold">{COMMISSION_RATE}% commission</span> on every plan.
+            with {referralCount} referrals, each year, every year
           </p>
 
           {/* Referral Slider */}
           <div className="mt-10 max-w-xl mx-auto flex items-center gap-6">
             <input
               type="range"
-              min={1}
-              max={100}
+              min={0}
+              max={1000}
               value={referralCount}
               onChange={(e) => setReferralCount(parseInt(e.target.value))}
               className="flex-1 h-2.5 bg-secondary rounded-full appearance-none cursor-pointer accent-[hsl(var(--landing-cta-orange))]"
@@ -128,7 +129,7 @@ export default function AffiliateLandingPage() {
           <div className="mt-10">
             <Button
               onClick={openAffiliateLogin}
-              className="px-10 py-4 h-auto text-lg font-semibold bg-[hsl(var(--landing-cta-orange))] hover:bg-[hsl(var(--landing-cta-orange))/0.9] text-white rounded-full shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105"
+              className="px-10 py-4 h-auto text-lg font-semibold bg-[hsl(var(--landing-cta-orange))] text-white rounded-full shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105 hover:opacity-90"
             >
               Apply Now
               <ArrowRight className="w-5 h-5 ml-2" />
@@ -284,7 +285,6 @@ export default function AffiliateLandingPage() {
                 tags: ["Assets", "Use in your content"],
                 description:
                   "Professional logos, banners, and promotional materials you can use in your content and marketing.",
-                available: true,
                 popular: true,
               },
               {
@@ -292,7 +292,6 @@ export default function AffiliateLandingPage() {
                 tags: ["Copy", "Use in posts & videos"],
                 description:
                   "30 attention-grabbing hooks specifically crafted for promoting dvyb that drive engagement.",
-                available: true,
                 popular: true,
               },
               {
@@ -300,28 +299,24 @@ export default function AffiliateLandingPage() {
                 tags: ["Examples", "Show in videos"],
                 description:
                   "Real ads generated with dvyb that you can show in your videos as examples or use as inspiration.",
-                available: true,
               },
               {
                 title: "5-Minute Campaign Tutorial",
                 tags: ["Tutorial", "Post on social media"],
                 description:
                   "Share this tutorial on X, LinkedIn, etc. to show your audience how to create winning ad campaigns with dvyb.",
-                available: true,
               },
               {
                 title: "UGC Video Ideas",
                 tags: ["Templates", "Create your own videos"],
                 description:
                   "30 proven video concepts and templates you can use to showcase dvyb's capabilities and features.",
-                available: false,
               },
               {
                 title: "Viral Content Guide",
                 tags: ["Guide", "Learn & apply"],
                 description:
                   "Step-by-step guide to creating engaging videos and posts that your audience will love and share.",
-                available: false,
               },
             ].map((resource) => (
               <div
@@ -346,18 +341,9 @@ export default function AffiliateLandingPage() {
                 </div>
                 <p className="text-muted-foreground flex-1 leading-relaxed">{resource.description}</p>
                 <div className="mt-6">
-                  {resource.available ? (
-                    <Button
-                      variant="default"
-                      className="w-full bg-foreground text-background hover:bg-foreground/90 rounded-xl py-3 h-auto text-sm font-medium"
-                    >
-                      Access <ArrowRight className="w-4 h-4 ml-1" />
-                    </Button>
-                  ) : (
-                    <Button variant="outline" disabled className="w-full rounded-xl py-3 h-auto text-sm">
-                      Coming Soon
-                    </Button>
-                  )}
+                  <Button variant="outline" disabled className="w-full rounded-xl py-3 h-auto text-sm">
+                    Coming Soon
+                  </Button>
                 </div>
               </div>
             ))}

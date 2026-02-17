@@ -1070,11 +1070,6 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
     }
   };
 
-  const handlePostClick = (post: any) => {
-    setSelectedPost(post);
-    setShowPostDetail(true);
-  };
-
   const handleScheduleClick = (post: any) => {
     // Use platforms from post data (saved during generation), not current state
     // Multiple fallbacks to ensure platforms are never empty
@@ -3243,14 +3238,9 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                         ? "opacity-80" 
                         : currentPost.isFailed
                           ? "opacity-70 border-red-200"
-                        : "cursor-pointer"
+                        : ""
                     }`}
                     style={getCardStyle()}
-                    onClick={() => {
-                      if (!currentPost.isGenerating && !currentPost.isFailed && currentPost.image) {
-                        handlePostClick(currentPost);
-                      }
-                    }}
                   >
                     <div className="relative">
                       {currentPost.isFailed ? (
