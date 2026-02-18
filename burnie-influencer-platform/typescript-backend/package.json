@@ -24,7 +24,8 @@
     "approve-reregistered-content": "ts-node scripts/approve-reregistered-content.ts",
     "update-prices": "ts-node scripts/update-content-prices.ts",
     "meta-ads-fetch": "ts-node src/scripts/meta-ads-fetch.ts",
-    "run-inventory-analysis": "ts-node scripts/run-inventory-analysis.ts"
+    "run-inventory-analysis": "ts-node scripts/run-inventory-analysis.ts",
+    "bulk-add-brands": "ts-node scripts/bulk-add-brands.ts"
   },
   "keywords": [
     "roastpower",
