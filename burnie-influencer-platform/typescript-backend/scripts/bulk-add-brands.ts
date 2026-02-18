@@ -237,35 +237,17 @@ async function main() {
       `    FB Page ID: ${entry.facebookPageId} | Handle: ${entry.facebookHandle || 'N/A'} | Category: ${entry.category || 'N/A'}`
     );
 
-    let brand = await brandRepo.findOne({
+    const existing = await brandRepo.findOne({
       where: { brandDomain: entry.domain },
-      order: { createdAt: 'DESC' },
     });
 
-    if (brand) {
-      if (brand.fetchStatus === 'completed') {
-        console.log(`    [SKIP] Already exists with completed fetch (id=${brand.id})`);
-        skipped++;
-        continue;
-      }
-      if (brand.fetchStatus === 'fetching') {
-        console.log(`    [WAIT] Fetch already in progress (id=${brand.id}), waiting...`);
-        const result = await waitForFetchCompletion(brand.id, entry.brandName, timeoutMs);
-        if (result === 'completed') completed++;
-        else failed++;
-        continue;
-      }
-      console.log(
-        `    [REFETCH] Exists (id=${brand.id}, status=${brand.fetchStatus}), retrying...`
-      );
-      brand.fetchStatus = 'fetching';
-      brand.fetchError = null;
-      brand.facebookPageId = entry.facebookPageId;
-      if (entry.facebookHandle) brand.facebookHandle = entry.facebookHandle;
-      brand.countries = null;
-      await brandRepo.save(brand);
-    } else {
-      brand = brandRepo.create({
+    if (existing) {
+      console.log(`    [SKIP] Already exists in DB (id=${existing.id}, status=${existing.fetchStatus})`);
+      skipped++;
+      continue;
+    }
+
+    let brand = brandRepo.create({
         brandName: entry.brandName,
         brandDomain: entry.domain,
         facebookHandle: entry.facebookHandle,
@@ -277,9 +259,8 @@ async function main() {
         mediaType: media,
         fetchStatus: 'fetching',
       });
-      await brandRepo.save(brand);
-      console.log(`    [CREATED] Brand id=${brand.id}`);
-    }
+    await brandRepo.save(brand);
+    console.log(`    [CREATED] Brand id=${brand.id}`);
 
     try {
       console.log(`    [FETCH] Starting fetch job...`);
