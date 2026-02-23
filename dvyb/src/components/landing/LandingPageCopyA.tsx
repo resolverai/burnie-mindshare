@@ -29,53 +29,60 @@ import { motion, AnimatePresence } from "framer-motion";
 // Wander-and-seek hero: ad images + videos for stack→burst→done animation
 const BASE = "/landing/ads";
 type MediaItem = { src: string; isVideo: boolean };
-const ALL_ITEMS: MediaItem[] = [
-  { src: `${BASE}/ad-mac.jpg`, isVideo: false },
-  { src: `${BASE}/video-celsius.mp4`, isVideo: true },
-  { src: `${BASE}/ad-pomellato.jpg`, isVideo: false },
-  { src: `${BASE}/video-daise.mp4`, isVideo: true },
-  { src: `${BASE}/ad-kiabi.jpg`, isVideo: false },
-  { src: `${BASE}/video-lip.mp4`, isVideo: true },
-  { src: `${BASE}/ad-dog.jpg`, isVideo: false },
-  { src: `${BASE}/video-multi.mp4`, isVideo: true },
-  { src: `${BASE}/ad-knitwear.jpg`, isVideo: false },
-  { src: `${BASE}/video-step.mp4`, isVideo: true },
-  { src: `${BASE}/ad-skechers.jpg`, isVideo: false },
-  { src: `${BASE}/video-watch.mp4`, isVideo: true },
-  { src: `${BASE}/ad-purina.jpg`, isVideo: false },
-  { src: `${BASE}/video-celsius.mp4`, isVideo: true },
-  { src: `${BASE}/ad-acana.jpg`, isVideo: false },
-  { src: `${BASE}/video-daise.mp4`, isVideo: true },
-  { src: `${BASE}/ad-dior2.jpg`, isVideo: false },
-  { src: `${BASE}/video-lip.mp4`, isVideo: true },
-  { src: `${BASE}/ad-geox.jpg`, isVideo: false },
-  { src: `${BASE}/video-step.mp4`, isVideo: true },
-];
+const NEW_IMAGES: MediaItem[] = [
+  "Allbirds.jpg",
+  "Anker.jpg",
+  "Article.jpg",
+  "Bags.jpg",
+  "Gymshark.jpg",
+  "Lulu.jpg",
+  "Olly.jpg",
+  "Paula-s-Choice.jpg",
+  "Sephora.jpg",
+  "Swarowski.jpg",
+].map((name) => ({ src: `${BASE}/${name}`, isVideo: false }));
+const VIDEOS: MediaItem[] = [
+  "video-celsius.mp4",
+  "video-daise.mp4",
+  "video-lip.mp4",
+  "video-multi.mp4",
+  "video-step.mp4",
+  "video-watch.mp4",
+].map((name) => ({ src: `${BASE}/${name}`, isVideo: true }));
+
+// Interleave new images with videos (image, video, image, video...)
+const ALL_ITEMS: MediaItem[] = (() => {
+  const out: MediaItem[] = [];
+  for (let i = 0; i < 20; i++) {
+    out.push(i % 2 === 0 ? NEW_IMAGES[i % NEW_IMAGES.length] : VIDEOS[i % VIDEOS.length]);
+  }
+  return out;
+})();
 const LEFT_ITEMS: MediaItem[] = [
-  { src: `${BASE}/ad-mac.jpg`, isVideo: false },
-  { src: `${BASE}/video-celsius.mp4`, isVideo: true },
-  { src: `${BASE}/ad-pomellato.jpg`, isVideo: false },
-  { src: `${BASE}/ad-kiabi.jpg`, isVideo: false },
-  { src: `${BASE}/video-daise.mp4`, isVideo: true },
-  { src: `${BASE}/ad-dog.jpg`, isVideo: false },
-  { src: `${BASE}/ad-knitwear.jpg`, isVideo: false },
-  { src: `${BASE}/video-lip.mp4`, isVideo: true },
-  { src: `${BASE}/ad-skechers.jpg`, isVideo: false },
-  { src: `${BASE}/ad-acana.jpg`, isVideo: false },
+  NEW_IMAGES[0],
+  VIDEOS[0],
+  NEW_IMAGES[1],
+  NEW_IMAGES[2],
+  VIDEOS[1],
+  NEW_IMAGES[3],
+  NEW_IMAGES[4],
+  VIDEOS[2],
+  NEW_IMAGES[5],
+  NEW_IMAGES[6],
 ];
 const RIGHT_ITEMS: MediaItem[] = [
-  { src: `${BASE}/ad-dior.jpg`, isVideo: false },
-  { src: `${BASE}/ad-aveda.jpg`, isVideo: false },
-  { src: `${BASE}/ad-bulgari.jpg`, isVideo: false },
-  { src: `${BASE}/video-multi.mp4`, isVideo: true },
-  { src: `${BASE}/ad-graff.jpg`, isVideo: false },
-  { src: `${BASE}/ad-braid.jpg`, isVideo: false },
-  { src: `${BASE}/ad-danner.jpg`, isVideo: false },
-  { src: `${BASE}/video-watch.mp4`, isVideo: true },
-  { src: `${BASE}/ad-purina.jpg`, isVideo: false },
-  { src: `${BASE}/ad-jamiekay.jpg`, isVideo: false },
-  { src: `${BASE}/ad-geox.jpg`, isVideo: false },
-  { src: `${BASE}/ad-dior2.jpg`, isVideo: false },
+  NEW_IMAGES[7],
+  NEW_IMAGES[8],
+  NEW_IMAGES[9],
+  VIDEOS[3],
+  NEW_IMAGES[0],
+  NEW_IMAGES[1],
+  NEW_IMAGES[2],
+  VIDEOS[4],
+  NEW_IMAGES[3],
+  NEW_IMAGES[4],
+  NEW_IMAGES[5],
+  NEW_IMAGES[6],
 ];
 
 const MediaTile = ({ item, className }: { item: MediaItem; className?: string }) =>
