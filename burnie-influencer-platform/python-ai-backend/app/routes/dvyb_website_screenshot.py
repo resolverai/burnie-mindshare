@@ -1,7 +1,7 @@
 """
 DVYB Website Screenshot
 Capture website snapshot for Copy A onboarding flow.
-Uses the ai/website_screenshot.py script, uploads to S3 at dvyb/guest-website-snapshots/{domainHash}/screenshot.png
+Uses app/services/website_screenshot.py (bundled in python-ai-backend container), uploads to S3 at dvyb/guest-website-snapshots/{domainHash}/screenshot.png
 """
 from __future__ import annotations
 
@@ -57,14 +57,16 @@ def capture_and_upload_website_screenshot_sync(url: str) -> str | None:
     domain_hash = get_domain_hash(domain)
     s3_key = f"dvyb/guest-website-snapshots/{domain_hash}/screenshot.png"
     try:
+        # Use app/services/website_screenshot.py (bundled in python-ai-backend container)
         this_file = Path(__file__).resolve()
-        project_root = this_file.parent.parent.parent.parent
-        script_path = project_root / "ai" / "website_screenshot.py"
+        services_dir = this_file.parent.parent / "services"
+        script_path = services_dir / "website_screenshot.py"
         if not script_path.exists():
-            script_path = Path(os.environ.get("DVYB_AI_SCRIPT_PATH", "") or str(project_root / "ai" / "website_screenshot.py"))
+            script_path = Path(os.environ.get("DVYB_WEBSITE_SCREENSHOT_SCRIPT", "") or str(script_path))
         if not script_path.exists():
             logger.warning("capture_and_upload_website_screenshot_sync: website_screenshot.py not found")
             return None
+        project_root = this_file.parent.parent.parent  # python-ai-backend root for cwd
     except Exception as e:
         logger.warning(f"capture_and_upload_website_screenshot_sync: {e}")
         return None
@@ -119,16 +121,16 @@ async def capture_website_screenshot(req: CaptureScreenshotRequest):
     domain_hash = get_domain_hash(domain)
     s3_key = f"dvyb/guest-website-snapshots/{domain_hash}/screenshot.png"
 
-    # Resolve script path: python-ai-backend/app/routes/ -> burnie-influencer-platform/ai/website_screenshot.py
+    # Resolve script path: app/services/website_screenshot.py (bundled in python-ai-backend container)
     try:
         this_file = Path(__file__).resolve()
-        project_root = this_file.parent.parent.parent.parent  # python-ai-backend -> burnie-influencer-platform
-        script_path = project_root / "ai" / "website_screenshot.py"
+        services_dir = this_file.parent.parent / "services"
+        script_path = services_dir / "website_screenshot.py"
         if not script_path.exists():
-            logger.warning(f"website_screenshot.py not found at {script_path}, trying alternate path")
-            script_path = Path(os.environ.get("DVYB_AI_SCRIPT_PATH", "") or str(project_root / "ai" / "website_screenshot.py"))
+            script_path = Path(os.environ.get("DVYB_WEBSITE_SCREENSHOT_SCRIPT", "") or str(script_path))
         if not script_path.exists():
             raise HTTPException(status_code=500, detail="Screenshot script not found")
+        project_root = this_file.parent.parent.parent  # python-ai-backend root for cwd
     except Exception as e:
         logger.error(f"Script path resolve error: {e}")
         raise HTTPException(status_code=500, detail="Screenshot service unavailable") from e

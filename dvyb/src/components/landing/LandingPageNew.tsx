@@ -163,20 +163,23 @@ export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: 
     if (!open) setInitialWebsiteUrl(null);
   };
 
+  const showAiVideosButton = searchParams.get("ai-videos") === "true";
+
   return (
     <div className="min-h-screen bg-background overflow-x-hidden">
-      {/* Floating CTA button - opens website analysis modal (same as Get Started) */}
-      <button
-        type="button"
-        onClick={handleGetStarted}
-        className="fixed bottom-6 right-4 z-50 px-4 py-2.5 rounded-full text-xs font-display font-bold text-white animate-pulse md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:right-6 md:px-5 md:py-3 md:text-sm"
-        style={{
-          background: "hsl(0 90% 50%)",
-          boxShadow: "0 0 20px hsl(0 100% 50% / 0.6), 0 0 40px hsl(0 100% 50% / 0.3)",
-        }}
-      >
-        CLICK FOR FREE AI VIDEOS
-      </button>
+      {showAiVideosButton && (
+        <button
+          type="button"
+          onClick={handleGetStarted}
+          className="fixed bottom-6 right-4 z-50 px-4 py-2.5 rounded-full text-xs font-display font-bold text-white animate-pulse md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:right-6 md:px-5 md:py-3 md:text-sm"
+          style={{
+            background: "hsl(0 90% 50%)",
+            boxShadow: "0 0 20px hsl(0 100% 50% / 0.6), 0 0 40px hsl(0 100% 50% / 0.3)",
+          }}
+        >
+          CLICK FOR FREE AI VIDEOS
+        </button>
+      )}
 
       <NavigationLanding
           onGetStarted={handleGetStarted}
@@ -196,7 +199,7 @@ export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: 
           }}
         />
         <LandingHeroStatsSection adCount={adCount} floatingTiles={floatingTiles} />
-        <DiscoverPreview onOpenWebsiteModal={handleGetStarted} />
+        {false && <DiscoverPreview onOpenWebsiteModal={handleGetStarted} />}
         <BrandsSection />
         {false && <HowItWorksSection />}
         {false && <FeaturesSection />}
