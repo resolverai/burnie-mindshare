@@ -87,6 +87,7 @@ interface DvybBrand {
   source: 'user' | 'admin';
   approvalStatus: 'approved' | 'pending_approval';
   countries: CountrySelection[] | null;
+  mediaType?: 'image' | 'video' | 'both';
   fetchStatus: 'pending' | 'fetching' | 'completed' | 'failed';
   fetchError: string | null;
   lastAdsFetchedAt: string | null;
@@ -370,7 +371,7 @@ export default function DvybBrandsPage() {
         setAddBrandDomain('');
         setAddFacebookHandle('');
         setAddFacebookPageId('');
-        setAddMedia('image');
+        setAddFetchVideoCreatives(false);
         fetchBrands();
         alert(data.data?.message || 'Brand added. Fetch started.');
       } else {
