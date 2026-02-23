@@ -94,8 +94,12 @@ function PricingPageContent() {
       return;
     }
 
-    router.replace("/?focus=hero");
-    return;
+    // Copy A: go to website input step. Copy B: go to landing + open website modal.
+    if (isCopyA) {
+      router.replace("/?copy=a&step=input");
+    } else {
+      router.replace("/?copy=b&openModal=website");
+    }
   };
 
   const hasDeal = plan?.dealActive && plan.dealMonthlyPrice != null && plan.dealAnnualPrice != null;

@@ -196,7 +196,10 @@ export function LandingPageCopyA() {
   const { completeStep } = useOnboardingGuide();
   const { toast } = useToast();
 
-  const [step, setStep] = useState<CopyAStep>("hero");
+  // When arriving from pricing "Start now" (?step=input), skip to website input step
+  const stepParam = searchParams.get("step");
+  const initialStep: CopyAStep = stepParam === "input" ? "input" : "hero";
+  const [step, setStep] = useState<CopyAStep>(initialStep);
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [analysisData, setAnalysisData] = useState<AnalysisData | null>(null);
   const [websiteSnapshotUrl, setWebsiteSnapshotUrl] = useState<string | null>(null);
