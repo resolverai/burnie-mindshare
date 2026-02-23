@@ -190,7 +190,7 @@ export default function DvybBrandsPage() {
   const [addBrandDomain, setAddBrandDomain] = useState('');
   const [addFacebookHandle, setAddFacebookHandle] = useState('');
   const [addFacebookPageId, setAddFacebookPageId] = useState('');
-  const [addMedia, setAddMedia] = useState<'image' | 'video' | 'both'>('image');
+  const [addFetchVideoCreatives, setAddFetchVideoCreatives] = useState(false);
   const [addCountries, setAddCountries] = useState<CountrySelection[]>([]);
   const [countryDropdownOpen, setCountryDropdownOpen] = useState(false);
   const [countrySearchQuery, setCountrySearchQuery] = useState('');
@@ -208,7 +208,7 @@ export default function DvybBrandsPage() {
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState('');
   const [refetchModalBrand, setRefetchModalBrand] = useState<DvybBrand | null>(null);
-  const [refetchMedia, setRefetchMedia] = useState<'image' | 'video' | 'both'>('image');
+  const [refetchVideoCreatives, setRefetchVideoCreatives] = useState(false);
   const [refetchCountries, setRefetchCountries] = useState<CountrySelection[]>([]);
   const [refetchCountryDropdownOpen, setRefetchCountryDropdownOpen] = useState(false);
   const [refetchCountrySearchQuery, setRefetchCountrySearchQuery] = useState('');
@@ -359,7 +359,7 @@ export default function DvybBrandsPage() {
           facebookHandle: addFacebookHandle.trim() || null,
           facebookPageId: addFacebookPageId.trim() || null,
           countries: addCountries.length > 0 ? addCountries : null,
-          media: addMedia,
+          media: addFetchVideoCreatives ? 'both' : 'image',
         }),
       });
       const data = await response.json();
@@ -453,7 +453,7 @@ export default function DvybBrandsPage() {
 
   const openRefetchModal = (brand: DvybBrand) => {
     setRefetchModalBrand(brand);
-    setRefetchMedia('image');
+    setRefetchVideoCreatives(brand.mediaType === 'both');
     setRefetchCountries((brand.countries as CountrySelection[]) ?? []);
     setRefetchCountrySearchQuery('');
   };
@@ -507,7 +507,7 @@ export default function DvybBrandsPage() {
           brandName: brand.brandName,
           brandDomain: brand.brandDomain,
           countries: refetchCountries.length > 0 ? refetchCountries : null,
-          media: refetchMedia,
+          media: refetchVideoCreatives ? 'both' : 'image',
         }),
       });
       const data = await response.json();
@@ -1105,45 +1105,23 @@ export default function DvybBrandsPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Creative media type</label>
-                <p className="text-xs text-gray-500 mb-2">Fetch image ads, video ads, or both.</p>
-                <div className="flex gap-4">
+                <p className="text-xs text-gray-500 mb-2">Fetch image ads. Optionally include video creatives.</p>
+                <div className="flex flex-col gap-2">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
-                      type="radio"
-                      name="addMedia"
-                      value="image"
-                      checked={addMedia === 'image'}
-                      onChange={() => setAddMedia('image')}
-                      className="text-sky-600 focus:ring-sky-500"
-                    />
-                    <ImageIcon className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm text-gray-900">Image</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="addMedia"
-                      value="video"
-                      checked={addMedia === 'video'}
-                      onChange={() => setAddMedia('video')}
-                      className="text-sky-600 focus:ring-sky-500"
+                      type="checkbox"
+                      checked={addFetchVideoCreatives}
+                      onChange={(e) => setAddFetchVideoCreatives(e.target.checked)}
+                      className="rounded border-gray-300 text-sky-600 focus:ring-sky-500"
                     />
                     <Video className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm text-gray-900">Video</span>
+                    <span className="text-sm text-gray-900">Also fetch video creatives</span>
                   </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="addMedia"
-                      value="both"
-                      checked={addMedia === 'both'}
-                      onChange={() => setAddMedia('both')}
-                      className="text-sky-600 focus:ring-sky-500"
-                    />
-                    <ImageIcon className="h-4 w-4 text-gray-500" />
-                    <Video className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm text-gray-900">Both</span>
-                  </label>
+                  <p className="text-xs text-gray-500">
+                    {addFetchVideoCreatives
+                      ? 'Video ads will be fetched and video files downloaded and saved to S3.'
+                      : 'Only image creatives will be fetched and saved.'}
+                  </p>
                 </div>
               </div>
               <div>
@@ -1166,7 +1144,7 @@ export default function DvybBrandsPage() {
                     setAddBrandDomain('');
                     setAddFacebookHandle('');
                     setAddFacebookPageId('');
-                    setAddMedia('image');
+                    setAddFetchVideoCreatives(false);
                     setAddCountries([]);
                     setCountrySearchQuery('');
                   }}
@@ -1354,47 +1332,24 @@ export default function DvybBrandsPage() {
                 </div>
               )}
             </div>
-            <div className="mb-2">
+            <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">Creative media type</label>
-            </div>
-            <div className="flex gap-4 mb-6">
+              <p className="text-xs text-gray-500 mb-2">Fetch image ads. Optionally include video creatives.</p>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
-                  type="radio"
-                  name="refetchMedia"
-                  value="image"
-                  checked={refetchMedia === 'image'}
-                  onChange={() => setRefetchMedia('image')}
-                  className="text-sky-600 focus:ring-sky-500"
-                />
-                <ImageIcon className="h-4 w-4 text-gray-500" />
-                <span className="text-sm text-gray-900">Image</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="refetchMedia"
-                  value="video"
-                  checked={refetchMedia === 'video'}
-                  onChange={() => setRefetchMedia('video')}
-                  className="text-sky-600 focus:ring-sky-500"
+                  type="checkbox"
+                  checked={refetchVideoCreatives}
+                  onChange={(e) => setRefetchVideoCreatives(e.target.checked)}
+                  className="rounded border-gray-300 text-sky-600 focus:ring-sky-500"
                 />
                 <Video className="h-4 w-4 text-gray-500" />
-                <span className="text-sm text-gray-900">Video</span>
+                <span className="text-sm text-gray-900">Also fetch video creatives</span>
               </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="refetchMedia"
-                  value="both"
-                  checked={refetchMedia === 'both'}
-                  onChange={() => setRefetchMedia('both')}
-                  className="text-sky-600 focus:ring-sky-500"
-                />
-                <ImageIcon className="h-4 w-4 text-gray-500" />
-                <Video className="h-4 w-4 text-gray-500" />
-                <span className="text-sm text-gray-900">Both</span>
-              </label>
+              <p className="text-xs text-gray-500 mt-1">
+                {refetchVideoCreatives
+                  ? 'Video ads will be fetched and video files downloaded and saved to S3.'
+                  : 'Only image creatives will be fetched and saved.'}
+              </p>
             </div>
             <div className="flex gap-3">
               <Button

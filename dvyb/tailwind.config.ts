@@ -15,6 +15,8 @@ export default {
     extend: {
       fontFamily: {
         display: ["var(--font-space-grotesk)", "Space Grotesk", "system-ui", "sans-serif"],
+        agdasima: ["var(--font-agdasima)", "Agdasima", "system-ui", "sans-serif"],
+        hind: ["var(--font-hind)", "Hind", "system-ui", "sans-serif"],
       },
       colors: {
         border: "hsl(var(--border))",

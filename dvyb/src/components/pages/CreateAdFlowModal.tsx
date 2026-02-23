@@ -405,9 +405,10 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
       : [];
 
     // Otherwise: template creatives OR custom reference — not both. Template takes precedence.
-    const adUrls = discoverAds
-      .filter((ad) => selectedAdIds.has(ad.id))
-      .flatMap((ad) => [ad.creativeImageUrl, ad.creativeVideoUrl].filter(Boolean) as string[]);
+    const selectedAds = discoverAds.filter((ad) => selectedAdIds.has(ad.id));
+    const adUrls = selectedAds.flatMap((ad) =>
+      [(ad.isVideo ? ad.creativeVideoUrl : ad.creativeImageUrl)].filter(Boolean)
+    ) as string[];
     const pastedLinks = inspirationLink.trim() ? [inspirationLink.trim()] : [];
     const uploadedLinks = uploadedS3Url ? [uploadedS3Url] : [];
 
@@ -423,15 +424,31 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
       return;
     }
 
-    const imageCount = allInspirationLinks.length;
+    // Compute number_of_images and number_of_videos from inspiration type (video template → video post, image → image post)
+    let numberOfImages: number;
+    let numberOfVideos: number;
+    if (preselectedUrls.length > 0 && preselectedInspiration) {
+      numberOfVideos = preselectedInspiration.isVideo ? 1 : 0;
+      numberOfImages = preselectedInspiration.isVideo ? 0 : 1;
+    } else if (adUrls.length > 0) {
+      numberOfVideos = selectedAds.filter((ad) => ad.isVideo).length;
+      numberOfImages = selectedAds.filter((ad) => !ad.isVideo).length;
+    } else {
+      const pastedIsVideo = pastedLinks.length > 0 && /\.(mp4|webm|mov|mpeg|avi|mkv)(\?|$)/i.test(pastedLinks[0]);
+      const uploadedIsVideo = uploadedLinks.length > 0 && uploadedFile?.type.startsWith("video/");
+      const isVideo = pastedLinks.length > 0 ? pastedIsVideo : uploadedIsVideo;
+      numberOfVideos = isVideo ? 1 : 0;
+      numberOfImages = isVideo ? 0 : 1;
+    }
+    const totalPosts = numberOfImages + numberOfVideos;
 
     try {
       const response = await adhocGenerationApi.generateContent({
         topic: "Ad Creative generation",
         platforms: ["instagram"],
-        number_of_posts: imageCount,
-        number_of_images: imageCount,
-        number_of_videos: 0,
+        number_of_posts: totalPosts,
+        number_of_images: numberOfImages,
+        number_of_videos: numberOfVideos,
         user_images: [selectedProduct.imageS3Key],
         inspiration_links: allInspirationLinks,
         user_prompt: instructions.trim() || undefined,
@@ -441,7 +458,7 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
         throw new Error(response.error || "Generation failed");
       }
 
-      setExpectedImageCount(imageCount);
+      setExpectedImageCount(totalPosts);
       setInitialJobId(response.job_id || (response as { uuid?: string }).uuid || null);
       setShowGenerateDialog(true);
       onOpenChange(false);

@@ -12,7 +12,16 @@ import { trackWebsiteAnalysisStarted, trackWebsiteAnalysisCompleted } from "@/li
 
 const rotatingWords = ["ad research", "ad agencies", "ad designers"];
 
-/** Hero copy variants for A/B testing – one is chosen at random on load */
+/** Fixed hero copy for Copy B (wander-connect style) – matches wander-discover-connect mock */
+const WANDER_HERO_COPY = {
+  mainPrefix: "Enter URL for ",
+  mainAccent: "scroll-stopping",
+  mainSuffix: " creatives.",
+  subText: "Change the way you create. Try for free.",
+  buttonText: "Generate for free",
+} as const;
+
+/** Hero copy variants for A/B testing – one is chosen at random on load (used when NOT Copy B) */
 const HERO_COPIES = [
   {
     mainPrefix: "Pick a competitor ad. ",
@@ -105,12 +114,17 @@ export function HeroSection({
   onWebsiteModalOpenChange,
   onCopyShown,
 }: HeroSectionProps) {
+  const useHeroUrlFlow = !!onOpenOnboardingWithUrl;
   const [copyIndex] = useState(() => Math.floor(Math.random() * HERO_COPIES.length));
-  const heroCopy = HERO_COPIES[copyIndex];
+  const heroCopy = useHeroUrlFlow ? WANDER_HERO_COPY : HERO_COPIES[copyIndex];
 
   useEffect(() => {
-    onCopyShown?.(heroCopy.mainPrefix + heroCopy.mainAccent);
-  }, [onCopyShown, heroCopy.mainPrefix, heroCopy.mainAccent]);
+    const fullMessage =
+      heroCopy.mainPrefix +
+      (heroCopy.mainAccent ?? "") +
+      ("mainSuffix" in heroCopy ? heroCopy.mainSuffix : "");
+    onCopyShown?.(fullMessage);
+  }, [onCopyShown, heroCopy]);
 
   const [internalOpen, setInternalOpen] = useState(false);
   const isModalOpen = websiteModalOpen ?? internalOpen;
@@ -123,8 +137,6 @@ export function HeroSection({
   const [currentProgress, setCurrentProgress] = useState(0);
   const router = useRouter();
   const { toast } = useToast();
-
-  const useHeroUrlFlow = !!onOpenOnboardingWithUrl;
 
   // Reset form when website modal opens (only when not using Hero URL flow)
   useEffect(() => {
@@ -240,37 +252,37 @@ export function HeroSection({
         <div className="container mx-auto relative z-10">
           {/* Hero Text */}
           <div className="text-center max-w-4xl mx-auto">
-            <div className="text-base sm:text-lg md:text-xl lg:text-2xl font-medium mb-4 sm:mb-6 animate-fade-up flex items-center justify-center gap-2 flex-wrap">
-              <span className="text-cta font-display">Skip</span>
-              <span
-                className="relative inline-flex items-center justify-center w-[120px] sm:w-[140px] md:w-[160px] lg:w-[180px] h-[1.8em]"
-                style={{ perspective: "300px" }}
-              >
-                {/* 3D Prism rotation */}
+            {!useHeroUrlFlow && (
+              <div className="text-base sm:text-lg md:text-xl lg:text-2xl font-medium mb-4 sm:mb-6 animate-fade-up flex items-center justify-center gap-2 flex-wrap">
+                <span className="text-cta font-display">Skip</span>
                 <span
-                  className="absolute animate-prism-rotate"
-                  style={{
-                    transformStyle: "preserve-3d",
-                  }}
+                  className="relative inline-flex items-center justify-center w-[120px] sm:w-[140px] md:w-[160px] lg:w-[180px] h-[1.8em]"
+                  style={{ perspective: "300px" }}
                 >
-                  {rotatingWords.map((word, index) => (
-                    <span
-                      key={word}
-                      className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center bg-foreground text-background px-3 py-1 rounded-lg font-display whitespace-nowrap"
-                      style={{
-                        transform: `translateX(-50%) translateY(-50%) rotateX(${index * -120}deg) translateZ(28px)`,
-                        backfaceVisibility: "hidden",
-                      }}
-                    >
-                      {word}
-                    </span>
-                  ))}
+                  <span
+                    className="absolute animate-prism-rotate"
+                    style={{ transformStyle: "preserve-3d" }}
+                  >
+                    {rotatingWords.map((word, index) => (
+                      <span
+                        key={word}
+                        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center bg-foreground text-background px-3 py-1 rounded-lg font-display whitespace-nowrap"
+                        style={{
+                          transform: `translateX(-50%) translateY(-50%) rotateX(${index * -120}deg) translateZ(28px)`,
+                          backfaceVisibility: "hidden",
+                        }}
+                      >
+                        {word}
+                      </span>
+                    ))}
+                  </span>
                 </span>
-              </span>
-            </div>
+              </div>
+            )}
             <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight mb-6 sm:mb-8 animate-fade-up font-display">
               {heroCopy.mainPrefix}
               {heroCopy.mainAccent ? <span className="text-cta">{heroCopy.mainAccent}</span> : null}
+              {"mainSuffix" in heroCopy ? heroCopy.mainSuffix : ""}
             </h1>
             <p
               className="text-base sm:text-lg md:text-xl text-muted-foreground mb-8 sm:mb-10 animate-fade-up max-w-2xl mx-auto leading-relaxed px-1"

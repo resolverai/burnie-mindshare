@@ -62,12 +62,16 @@ interface GenerateContentDialogProps {
   parentPage?: 'home' | 'content_library'; // Which page the dialog is opened from (for OAuth redirects)
   /** When true, use landing modal style (same dimensions/UI as OnboardingFlowModal) instead of full-screen */
   landingStyle?: boolean;
+  /** When true (Copy A flow), use dark theme for modal; when false/undefined (Copy B), use light */
+  isDarkTheme?: boolean;
   /** When true, bypass strategy questionnaire (Create Ad flow) */
   adFlowMode?: boolean;
   /** Number of images expected (Create Ad flow - matches inspirations count) */
   expectedImageCount?: number;
   /** Called when user saves design edits - parent can refetch content library */
   onDesignSaved?: () => void;
+  /** Copy A/B for onboarding flow tracking (when opened from landing) */
+  onboardingCopy?: 'A' | 'B';
 }
 
 type Step = "topic" | "platform" | "content_type" | "context" | "review" | "generating" | "results";
@@ -251,7 +255,7 @@ const analyzeCustomLink = (url: string): {
   return { type: 'unknown', embedUrl: url };
 };
 
-export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDialogClosed, parentPage = 'home', landingStyle = false, adFlowMode = false, expectedImageCount, onDesignSaved }: GenerateContentDialogProps) => {
+export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDialogClosed, parentPage = 'home', landingStyle = false, adFlowMode = false, expectedImageCount, onDesignSaved, isDarkTheme = false, onboardingCopy }: GenerateContentDialogProps) => {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [step, setStep] = useState<Step>("topic");
@@ -3057,12 +3061,16 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                   <div className="flex flex-col items-center pt-6 pb-8 sm:pb-12 md:pt-4 md:mb-10 shrink-0 gap-3 px-2">
                     <Button
                       onClick={() => {
-                        trackExploreMoreFeaturesClicked("generate_dialog_onboarding");
+                        trackExploreMoreFeaturesClicked("generate_dialog_onboarding", onboardingCopy ? { copy: onboardingCopy } : undefined);
                         onDialogClosed?.();
                         router.push("/discover");
                       }}
                       variant="outline"
-                      className="w-full sm:w-auto bg-neutral-900 hover:bg-neutral-800 text-white border-neutral-900 h-11 sm:h-12 px-6 sm:px-8 rounded-xl text-sm sm:text-base"
+                      className={`w-full sm:w-auto h-11 sm:h-12 px-6 sm:px-8 rounded-xl text-sm sm:text-base ${
+                        isDarkTheme
+                          ? "bg-cta hover:bg-cta/90 text-cta-foreground border-cta"
+                          : "bg-neutral-900 hover:bg-neutral-800 text-white border-neutral-900"
+                      }`}
                     >
                       Explore More Features
                     </Button>
@@ -3393,14 +3401,18 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
           />
           
           {(landingStyle || adFlowMode) ? (
-            /* Landing/Ad flow style: centered modal (ad flow matches Choose ad modal: 90vw) */
+            /* Landing/Ad flow style: centered modal (Copy A: dark theme, Copy B: light) */
             <div 
               className={`fixed inset-0 z-[101] flex items-center justify-center p-4 transition-opacity duration-300 ${
                 isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
               }`}
             >
               <div 
-                className={`relative flex flex-col bg-[hsl(0,0%,98%)] border border-neutral-200/80 text-neutral-900 rounded-2xl shadow-xl ${
+                className={`relative flex flex-col rounded-2xl shadow-xl ${isDarkTheme ? 'dark' : ''} ${
+                  isDarkTheme
+                    ? 'bg-[hsl(240_10%_6%)] border border-white/10 text-foreground'
+                    : 'bg-[hsl(0,0%,98%)] border border-neutral-200/80 text-neutral-900'
+                } ${
                   step === "results" && (landingStyle || adFlowMode) && initialJobId
                     ? `max-h-[95vh] overflow-y-auto ${adFlowMode ? "w-[90vw] max-w-[90vw] h-[min(95vh,920px)] min-h-[min(95vh,920px)]" : "max-w-[95vw] w-full h-[min(95vh,920px)] min-h-[min(95vh,920px)]"}`
                     : adFlowMode 
@@ -3411,10 +3423,10 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               >
                 <button
                   onClick={handleClose}
-                  className="absolute top-4 right-4 z-[102] p-2.5 rounded-full bg-muted hover:bg-muted/80 transition-colors border border-border"
+                  className={`absolute top-4 right-4 z-[102] p-2.5 rounded-full transition-colors ${isDarkTheme ? 'bg-white/10 hover:bg-white/20 border border-white/10' : 'bg-muted hover:bg-muted/80 border border-border'}`}
                   aria-label="Close"
                 >
-                  <X className="h-5 w-5 text-foreground" />
+                  <X className={`h-5 w-5 ${isDarkTheme ? 'text-white' : 'text-foreground'}`} />
                 </button>
                 <div className={`flex-1 min-h-0 p-6 pt-14 pb-8 flex flex-col ${step === "results" && (landingStyle || adFlowMode) && initialJobId ? "overflow-y-auto" : "overflow-y-auto"}`}>
                   <div className={`mx-auto flex-1 min-h-0 flex flex-col ${step === "results" && (landingStyle || adFlowMode) && initialJobId ? "max-w-6xl w-full" : "max-w-3xl"}`}>

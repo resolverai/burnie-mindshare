@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
 import { useAuth } from "@/contexts/AuthContext";
 import { NavigationLanding } from "./NavigationLanding";
 import { HeroSection } from "./HeroSection";
@@ -9,7 +10,6 @@ import { NotRegisteredModal } from "./NotRegisteredModal";
 import { DiscoverPreview } from "./DiscoverPreview";
 import { BrandsSection } from "./BrandsSection";
 import { HowItWorksSection } from "./HowItWorksSection";
-import { LandingVideoSection } from "./LandingVideoSection";
 import { LandingHeroStatsSection } from "./LandingHeroStatsSection";
 import { FeaturesSection } from "./FeaturesSection";
 import { TestimonialsSection } from "./TestimonialsSection";
@@ -18,7 +18,7 @@ import { OnboardingFlowModal } from "./OnboardingFlowModal";
 import { GenerateContentDialog } from "@/components/onboarding/GenerateContentDialog";
 import { useOnboardingGuide } from "@/hooks/useOnboardingGuide";
 import { tileImages } from "@/lib/tileImages";
-import { trackLandingPageViewed } from "@/lib/mixpanel";
+import { trackLandingPageViewed, trackOnboardingFlowCompleted } from "@/lib/mixpanel";
 
 function getInitialAdCount() {
   const startDate = new Date("2026-02-04");
@@ -42,7 +42,9 @@ interface LandingPageNewProps {
  */
 export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: LandingPageNewProps) {
   const router = useRouter();
+  const { setTheme, resolvedTheme } = useTheme();
   const { isAuthenticated, isLoading } = useAuth();
+  const isDarkTheme = resolvedTheme === "dark";
   const { completeStep } = useOnboardingGuide();
   const [onboardingModalOpen, setOnboardingModalOpen] = useState(false);
   const [initialWebsiteUrl, setInitialWebsiteUrl] = useState<string | null>(null);
@@ -54,6 +56,11 @@ export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: 
   const nextImageIndexRef = useRef(0);
   const searchParams = useSearchParams();
   const hasTrackedLandingViewRef = useRef(false);
+
+  // Copy B: default to light (applies on mount and when switching to Copy B via ?copy=b)
+  useEffect(() => {
+    setTheme("light");
+  }, [setTheme]);
 
   // Traction stats: ad count + floating tiles (shared by Hero and Stats)
   useEffect(() => {
@@ -158,7 +165,26 @@ export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: 
 
   return (
     <div className="min-h-screen bg-background overflow-x-hidden">
-      <NavigationLanding onGetStarted={handleGetStarted} showSignIn hideExplore />
+      {/* Floating CTA button - opens website analysis modal (same as Get Started) */}
+      <button
+        type="button"
+        onClick={handleGetStarted}
+        className="fixed bottom-6 right-4 z-50 px-4 py-2.5 rounded-full text-xs font-display font-bold text-white animate-pulse md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:right-6 md:px-5 md:py-3 md:text-sm"
+        style={{
+          background: "hsl(0 90% 50%)",
+          boxShadow: "0 0 20px hsl(0 100% 50% / 0.6), 0 0 40px hsl(0 100% 50% / 0.3)",
+        }}
+      >
+        CLICK FOR FREE AI VIDEOS
+      </button>
+
+      <NavigationLanding
+          onGetStarted={handleGetStarted}
+          showSignIn
+          hideExplore
+          showThemeToggle
+          variant={isDarkTheme ? "dark" : "default"}
+        />
       <main>
         <HeroSection
           onAnalysisComplete={onAnalysisComplete}
@@ -166,22 +192,22 @@ export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: 
           onCopyShown={(mainMessage) => {
             if (hasTrackedLandingViewRef.current) return;
             hasTrackedLandingViewRef.current = true;
-            trackLandingPageViewed(isAuthenticated, { hero_main_message: mainMessage });
+            trackLandingPageViewed(isAuthenticated, { copy: "B", hero_main_message: mainMessage });
           }}
         />
-        <LandingVideoSection />
         <LandingHeroStatsSection adCount={adCount} floatingTiles={floatingTiles} />
         <DiscoverPreview onOpenWebsiteModal={handleGetStarted} />
         <BrandsSection />
         {false && <HowItWorksSection />}
         {false && <FeaturesSection />}
-        <TestimonialsSection />
+        <TestimonialsSection onOpenOnboardingWithUrl={handleOpenOnboardingWithUrl} />
       </main>
       <FooterLanding />
       <OnboardingFlowModal
         open={onboardingModalOpen}
         onOpenChange={handleOnboardingModalOpenChange}
         initialWebsiteUrl={initialWebsiteUrl}
+        copy="B"
       />
       <NotRegisteredModal
         open={showNotRegisteredModal}
@@ -192,13 +218,20 @@ export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: 
         open={showGenerateDialog}
         onOpenChange={(open) => {
           setShowGenerateDialog(open);
-          if (!open) router.push("/discover");
+          if (!open) {
+            trackOnboardingFlowCompleted("B");
+            router.push("/discover?from_onboarding=1");
+          }
         }}
         initialJobId={onboardingJobId}
         parentPage="home"
         landingStyle
         expectedImageCount={2}
-        onDialogClosed={() => router.push("/discover")}
+        onboardingCopy="B"
+        onDialogClosed={() => {
+          trackOnboardingFlowCompleted("B");
+          router.push("/discover?from_onboarding=1");
+        }}
       />
     </div>
   );

@@ -107,8 +107,9 @@ def _decode_url(u: str) -> str:
     return (u or "").replace("&amp;", "&").replace("&#38;", "&").strip()
 
 
-# Skip fbcdn image URLs that look like thumbnails (s60x60, s200x200, etc) - same logic as meta-ads-fetch
-_THUMBNAIL_PATTERN = re.compile(r"/s\d+x\d+/", re.I)
+# Skip fbcdn image URLs that look like small thumbnails (s60x60, s120x120). s600x600 and larger are kept.
+# Same logic as meta_ads_fetch._is_small_thumbnail_image_url (max dimension <= 200).
+_SMALL_THUMBNAIL_MAX_DIM = 200
 
 
 def _derive_platform(publisher_platforms: list) -> str:
@@ -134,10 +135,13 @@ def _derive_platform(publisher_platforms: list) -> str:
 
 
 def _is_thumbnail_url(url: str) -> bool:
-    """True if URL looks like a small thumbnail (e.g. s60x60, s200x200 in fbcdn path)."""
+    """True if URL looks like a small thumbnail (e.g. s60x60, s120x120). s600x600 and larger are kept."""
     if not url or not isinstance(url, str):
         return True
-    return bool(_THUMBNAIL_PATTERN.search(url))
+    m = re.search(r"[/_]s(\d+)x(\d+)[/_]", url, re.I)
+    if not m:
+        return False
+    return max(int(m.group(1)), int(m.group(2))) <= _SMALL_THUMBNAIL_MAX_DIM
 
 
 def _get_creative_urls_from_apify(
@@ -146,23 +150,34 @@ def _get_creative_urls_from_apify(
     ad_snapshot_url: str | None = None,
 ) -> tuple[list[str], list[str]]:
     """
-    Match ad by id/adId or by ad_snapshot_url, return (image_urls, video_urls).
-    Skips thumbnail-sized image URLs (s60x60, s200x200, etc) - same logic as meta-ads-fetch.
-    Returns all non-thumbnail image URLs and all video URLs for max-size selection downstream.
+    Match ad by id/adId, ad_snapshot_url, or id in URL. Return (image_urls, video_urls).
+    Skips small thumbnail image URLs (s60x60, s120x120). s600x600+ kept.
     """
     ad_id_str = str(ad_id).strip()
     snapshot_url = (ad_snapshot_url or "").strip()
     suffix = ad_id_str.split("_")[-1] if "_" in ad_id_str else ad_id_str
 
+    def _extract_id_from_url(u: str) -> str | None:
+        if not u:
+            return None
+        m = re.search(r"[?&]id=(\d+)", str(u))
+        return m.group(1) if m else None
+
     def _match_item(item: dict) -> bool:
         lid = (
-            (item.get("adId") or item.get("id") or item.get("ad_id") or item.get("library_id")) or ""
-        )
+            item.get("adId") or item.get("id") or item.get("ad_id") or item.get("library_id")
+            or item.get("adArchiveId") or item.get("adArchiveID")
+        ) or ""
         lid_str = str(lid).strip()
         if lid_str == ad_id_str or lid_str == suffix:
             return True
         if snapshot_url and str(item.get("url") or "").strip() == snapshot_url:
             return True
+        item_url = str(item.get("url") or "").strip()
+        if item_url:
+            url_id = _extract_id_from_url(item_url)
+            if url_id and (url_id == ad_id_str or url_id == suffix):
+                return True
         return False
 
     for item in apify_items:
@@ -385,6 +400,7 @@ def enrich_ads_with_gemini(
     local_limit: int = 5,
     global_limit: int = 2,
     media: str = "both",
+    enrichment_override: dict | None = None,
 ) -> None:
     """
     Read meta_ads.json, enrich with Gemini (category + similar competitors) for the search_brand
@@ -418,11 +434,17 @@ def enrich_ads_with_gemini(
         print("No apify_results.json found; creative URLs may be missing")
 
     # Run Gemini only for the search brand (from CLI keywords), not for each brand in ads
+    # enrichment_override: skip Gemini when provided (used when processing batches and enrichment already done)
     category = "Others"
     search_brand_revenue: str | None = None
     search_brand_instagram: str | None = None
     similar_competitors: list = []
-    if search_brand and search_brand.strip():
+    if enrichment_override:
+        category = enrichment_override.get("category") or "Others"
+        search_brand_revenue = enrichment_override.get("searchBrandRevenue")
+        search_brand_instagram = enrichment_override.get("searchBrandInstagram")
+        similar_competitors = list(enrichment_override.get("similarCompetitors") or [])
+    elif search_brand and search_brand.strip():
         print(f"Enriching search brand '{search_brand}' with Gemini (category + revenue + similar competitors)...")
         result = _get_brand_enrichment_from_gemini(
             search_brand.strip(),
@@ -547,6 +569,66 @@ def _load_meta_ads_fetch():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def fetch_ad_pool_for_brand(
+    *,
+    brand_domain: str,
+    country: str = "US",
+    limit: int = 100,
+    exclude_meta_ad_ids: set[str] | None = None,
+    pool_size: int = 100,
+    media: str = "both",
+    meta_token: str,
+    apify_token: str,
+    no_keyword_filter: bool = False,
+    recent: bool = False,
+    meta_search_type: str = "KEYWORD_UNORDERED",
+    facebook_handle: str | None = None,
+    facebook_page_id: str | None = None,
+) -> list[dict]:
+    """
+    Fetch ad pool for a brand (same setup as fetch_and_enrich_ads but no Puppeteer).
+    Returns list of meta ads up to pool_size. Used by DVYB brands fetch.
+    """
+    meta_fetch = _load_meta_ads_fetch()
+    exclude_set = set(exclude_meta_ad_ids or [])
+    search_page_ids = None
+    meta_keywords = [brand_domain]
+    filter_domain = brand_domain.strip() if brand_domain and str(brand_domain).strip() else None
+    filter_handle = None
+    if facebook_page_id and str(facebook_page_id).strip().replace(" ", "").isdigit():
+        search_page_ids = [int(str(facebook_page_id).strip().replace(" ", ""))]
+        meta_keywords = []
+        if facebook_handle and str(facebook_handle).strip():
+            filter_handle = str(facebook_handle).strip().lstrip("@")
+    elif facebook_handle and str(facebook_handle).strip():
+        filter_handle = str(facebook_handle).strip().lstrip("@")
+        page_id_str = meta_fetch.resolve_facebook_handle_to_page_id(meta_token, filter_handle)
+        if page_id_str and page_id_str.isdigit():
+            search_page_ids = [int(page_id_str)]
+            meta_keywords = []
+        else:
+            meta_keywords = [f"@{filter_handle}"]
+            meta_search_type = "KEYWORD_UNORDERED"
+    explicit_page_id = bool(facebook_page_id and str(facebook_page_id).strip().replace(" ", "").isdigit())
+    use_keyword_filter = not no_keyword_filter and not explicit_page_id
+    return meta_fetch.fetch_ad_pool(
+        keywords=meta_keywords,
+        country=country,
+        limit=limit,
+        exclude_meta_ad_ids=exclude_set,
+        pool_size=pool_size,
+        media=media,
+        meta_token=meta_token,
+        apify_token=apify_token,
+        recent=recent,
+        keyword_filter=use_keyword_filter,
+        meta_search_type=meta_search_type,
+        search_page_ids=search_page_ids,
+        filter_domain=filter_domain if use_keyword_filter else None,
+        filter_handle=filter_handle if use_keyword_filter else None,
+    )
 
 
 def fetch_and_enrich_ads(

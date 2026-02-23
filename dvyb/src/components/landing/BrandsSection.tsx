@@ -24,7 +24,7 @@ export function BrandsSection() {
     >
       <div className="text-center mb-6 sm:mb-8">
         <h2 className="text-2xl sm:text-3xl md:text-4xl font-display font-semibold px-2">
-          Create ads like <span className="text-cta">billion dollar brands</span>
+          Create like <span className="text-cta">billion $ brands</span>
         </h2>
       </div>
       <div className="relative">

@@ -204,6 +204,7 @@ All colors MUST be HSL.
 
     --landing-accent-orange: 25 80% 55%;
     --landing-cta-orange: 25 80% 55%;
+
   }
 }
 
@@ -441,6 +442,23 @@ All colors MUST be HSL.
 [data-settings-page] textarea:focus-visible {
   --tw-ring-color: #e88d44;
   border-color: #e88d44;
+}
+
+@keyframes scroll-up {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-50%); }
+}
+@keyframes scroll-down {
+  0% { transform: translateY(-50%); }
+  100% { transform: translateY(0); }
+}
+@keyframes scroll-left {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+@keyframes scroll-right {
+  0% { transform: translateX(-50%); }
+  100% { transform: translateX(0); }
 }
 
 @layer utilities {

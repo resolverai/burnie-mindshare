@@ -81,6 +81,8 @@ export function MyContentPage({
   const [savedLoading, setSavedLoading] = useState(false);
   const [selectedSavedAd, setSelectedSavedAd] = useState<SavedAdCard | null>(null);
   const [savedDrawerOpen, setSavedDrawerOpen] = useState(false);
+  const [savedAdsHoveredId, setSavedAdsHoveredId] = useState<number | null>(null);
+  const savedAdsVideoRefs = useRef<{ [key: number]: HTMLVideoElement | null }>({});
   const contentLibraryCreateNewRef = useRef<ContentLibraryRef | null>(null);
 
   // Products state
@@ -530,9 +532,61 @@ export function MyContentPage({
                       setSelectedSavedAd(ad);
                       setSavedDrawerOpen(true);
                     }}
+                    onMouseEnter={() => {
+                      setSavedAdsHoveredId(ad.id);
+                      if (ad.videoSrc && savedAdsVideoRefs.current[ad.id]) {
+                        savedAdsVideoRefs.current[ad.id]?.play().catch(() => {});
+                      }
+                    }}
+                    onMouseLeave={() => {
+                      setSavedAdsHoveredId(null);
+                      const v = savedAdsVideoRefs.current[ad.id];
+                      if (v) {
+                        v.pause();
+                        v.currentTime = 0;
+                      }
+                    }}
                   >
                     <div className="relative">
-                      {ad.image ? (
+                      {ad.videoSrc ? (
+                        <>
+                          {ad.image && ad.image !== ad.videoSrc ? (
+                            <>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={ad.image}
+                                alt={ad.brandName}
+                                className={`w-full h-auto block transition-opacity duration-300 ${
+                                  savedAdsHoveredId === ad.id ? "opacity-0" : "opacity-100"
+                                }`}
+                              />
+                              <video
+                                ref={(el) => {
+                                  savedAdsVideoRefs.current[ad.id] = el;
+                                }}
+                                src={ad.videoSrc}
+                                className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
+                                  savedAdsHoveredId === ad.id ? "opacity-100" : "opacity-0"
+                                }`}
+                                muted
+                                playsInline
+                                loop
+                              />
+                            </>
+                          ) : (
+                            <video
+                              ref={(el) => {
+                                savedAdsVideoRefs.current[ad.id] = el;
+                              }}
+                              src={ad.videoSrc}
+                              className="w-full h-auto block"
+                              muted
+                              playsInline
+                              loop
+                            />
+                          )}
+                        </>
+                      ) : ad.image ? (
                         /* eslint-disable-next-line @next/next/no-img-element */
                         <img
                           src={ad.image}
@@ -558,9 +612,18 @@ export function MyContentPage({
                           {ad.brandLetter} {ad.brandName}
                         </span>
                       </div>
-                      <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full bg-gray-800/80 text-white z-10">
-                        <ImageIcon className="w-3 h-3" />
-                        <span className="text-xs font-medium">Image</span>
+                      <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full bg-gray-800/80 text-white z-10 opacity-100 group-hover:opacity-0 transition-opacity duration-200">
+                        {ad.isVideo ? (
+                          <>
+                            <Video className="w-3 h-3" />
+                            <span className="text-xs font-medium">Video</span>
+                          </>
+                        ) : (
+                          <>
+                            <ImageIcon className="w-3 h-3" />
+                            <span className="text-xs font-medium">Image</span>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>

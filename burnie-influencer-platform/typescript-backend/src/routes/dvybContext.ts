@@ -527,6 +527,55 @@ router.post('/domain-product-image-callback', async (req, res) => {
 });
 
 /**
+ * POST /api/dvyb/context/capture-website-screenshot
+ * Capture website screenshot for Copy A onboarding. Proxies to Python, uploads to guest S3.
+ */
+router.post('/capture-website-screenshot', async (req, res) => {
+  try {
+    const { url } = req.body || {};
+    if (!url || typeof url !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'url is required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+    const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
+    const response = await fetch(`${pythonBackendUrl}/api/dvyb/capture-website-screenshot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: url.trim() }),
+    });
+    const data = (await response.json()) as {
+      error?: string;
+      success?: boolean;
+      presigned_url?: string;
+      s3_key?: string;
+    };
+    if (!response.ok) {
+      return res.status(response.status).json({
+        success: false,
+        error: data.error || 'Screenshot capture failed',
+        timestamp: new Date().toISOString(),
+      });
+    }
+    return res.json({
+      success: data.success,
+      data: data.presigned_url ? { presignedUrl: data.presigned_url, s3Key: data.s3_key } : null,
+      error: data.error,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    logger.error('❌ Capture website screenshot error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Screenshot capture failed',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
  * GET /api/dvyb/context/domain-product-images
  * Get cached product images for a domain (from website analysis).
  * No auth required - used during onboarding before login.

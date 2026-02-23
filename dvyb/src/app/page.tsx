@@ -4,9 +4,11 @@ import { useEffect, useState, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { LandingPageNew } from "@/components/landing/LandingPageNew";
+import { LandingPageCopyA } from "@/components/landing/LandingPageCopyA";
 import { ProductShotFlow } from "@/components/onboarding/ProductShotFlow";
 import { Loader2 } from "lucide-react";
 import { trackLandingPageViewed } from "@/lib/mixpanel";
+import { getOnboardingCopyForPage } from "@/lib/abCopy";
 
 function HomePageContent() {
   const router = useRouter();
@@ -80,10 +82,11 @@ function HomePageContent() {
   };
 
   // Track landing page view when shown (product flow only; website flow is tracked by LandingPageNew with hero_main_message)
+  // Product flow uses Copy B style
   useEffect(() => {
     if (shouldShowLanding && flowType === "product" && !hasTrackedRef.current) {
       hasTrackedRef.current = true;
-      trackLandingPageViewed(isAuthenticated);
+      trackLandingPageViewed(isAuthenticated, { copy: "B" });
     }
   }, [shouldShowLanding, isAuthenticated, flowType]);
 
@@ -170,10 +173,15 @@ function HomePageContent() {
   }
 
   // Landing page - for logged out users OR logged in users without website analysis
-  // Show different flow based on ref parameter
-  // New landing (website flow): LandingPageNew. Old landing kept in @/components/onboarding/WebsiteAnalysis.tsx for reference.
+  // Copy A: wander-and-seek dark flow. Copy B: existing LandingPageNew (light).
+  // Product flow (ref=product) always uses ProductShotFlow (Copy B style).
   if (flowType === "product") {
     return <ProductShotFlow />;
+  }
+
+  const copy = getOnboardingCopyForPage(searchParams);
+  if (copy === "A") {
+    return <LandingPageCopyA />;
   }
 
   const openModal = searchParams.get("openModal") === "website";

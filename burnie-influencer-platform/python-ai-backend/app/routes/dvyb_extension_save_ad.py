@@ -205,23 +205,41 @@ def _upload_creative_to_s3_with_key(
     return None
 
 
+def _filter_video_urls(urls: list[str]) -> list[str]:
+    """Dedupe video URLs by normalized form."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for u in ((u or "").strip() for u in urls if u):
+        if not u:
+            continue
+        norm = _normalize_image_url(u)
+        if norm in seen:
+            continue
+        seen.add(norm)
+        out.append(u)
+    return out
+
+
 @router.post("/upload-ad-creatives")
 async def upload_ad_creatives(request: UploadAdCreativesRequest):
     """
-    Download all creative image URLs (excluding small thumbnails/icons), upload each to S3.
-    Returns primary image in creativeImageS3Key and all others in extraImageS3Keys.
+    Download all creative image URLs (excluding small thumbnails/icons) and video URLs,
+    upload each to S3. Returns primary image in creativeImageS3Key, extras in extraImageS3Keys,
+    and primary video in creativeVideoS3Key.
     """
     brand_id = request.brandId
     meta_ad_id = (request.metaAdId or "").strip()
     if not meta_ad_id:
         raise HTTPException(status_code=400, detail="metaAdId is required")
 
-    raw_count = len(request.creativeImageUrls or [])
+    raw_img_count = len(request.creativeImageUrls or [])
     image_urls = _filter_non_thumbnail_image_urls(list(request.creativeImageUrls or []))
-    print(f"[upload-ad-creatives] metaAdId={meta_ad_id} input image URLs={raw_count} after filter={len(image_urls)}")
+    video_urls = _filter_video_urls(list(request.creativeVideoUrls or []))
+    print(f"[upload-ad-creatives] metaAdId={meta_ad_id} images={raw_img_count}->{len(image_urls)} videos={len(video_urls)}")
     s3_service = S3StorageService()
     creative_image_s3_key: str | None = None
     extra_image_s3_keys: list[str] = []
+    creative_video_s3_key: str | None = None
 
     for i, url in enumerate(image_urls):
         sub_key = "image" if i == 0 else f"image_{i}"
@@ -235,12 +253,24 @@ async def upload_ad_creatives(request: UploadAdCreativesRequest):
                 extra_image_s3_keys.append(s3_key)
         print(f"[upload-ad-creatives] url_i={i} sub_key={sub_key} s3_key={s3_key or 'FAILED'}")
 
-    print(f"[upload-ad-creatives] result primary={creative_image_s3_key} extras={extra_image_s3_keys}")
+    for i, url in enumerate(video_urls):
+        sub_key = "video" if i == 0 else f"video_{i}"
+        s3_key = _upload_creative_to_s3_with_key(
+            s3_service, url, brand_id, meta_ad_id, "video", sub_key
+        )
+        if s3_key:
+            if i == 0:
+                creative_video_s3_key = s3_key
+            # Only store first video (schema has creativeVideoS3Key singular)
+            break
+        print(f"[upload-ad-creatives] video url_i={i} sub_key={sub_key} s3_key={s3_key or 'FAILED'}")
+
+    print(f"[upload-ad-creatives] result primary_img={creative_image_s3_key} extras={extra_image_s3_keys} video={creative_video_s3_key}")
     return {
         "success": True,
         "data": {
             "creativeImageS3Key": creative_image_s3_key,
             "extraImageS3Keys": extra_image_s3_keys,
-            "creativeVideoS3Key": None,
+            "creativeVideoS3Key": creative_video_s3_key,
         },
     }

@@ -647,13 +647,25 @@ def is_video_platform_url(url: str) -> bool:
     return any(re.search(pattern, url) for pattern in patterns)
 
 
+def _is_direct_video_url(url: str) -> bool:
+    """True if URL is a direct video file (S3, CDN) - use requests.get, not yt-dlp."""
+    if not url or not isinstance(url, str):
+        return False
+    url_lower = url.lower()
+    # S3 presigned URLs
+    if 's3.amazonaws.com' in url_lower or 'burnie-' in url_lower:
+        return True
+    # CDN or path suggests video
+    video_extensions = ['.mp4', '.webm', '.mov', '.mpeg', '.avi', '.mkv']
+    path = (url.split('?')[0] or '').lower()
+    return any(path.endswith(ext) for ext in video_extensions)
+
+
 def download_inspiration_video(url: str, output_dir: str = "/tmp/dvyb-inspirations") -> tuple:
     """
-    Download video from YouTube/Instagram/Twitter using yt-dlp.
-    Uses 3-step retry approach for Instagram:
-    1. Basic (no cookies)
-    2. With enhanced headers via extractor args
-    3. With session cookie
+    Download video from URL.
+    - Direct URLs (S3, CDN): use requests.get
+    - Platform URLs (YouTube/Instagram/Twitter): use yt-dlp with retry for Instagram
     Returns (video_path, is_video) - is_video is False if it's an image.
     """
     os.makedirs(output_dir, exist_ok=True)
@@ -662,7 +674,22 @@ def download_inspiration_video(url: str, output_dir: str = "/tmp/dvyb-inspiratio
     print(f"  📥 Downloading inspiration video...")
     print(f"     URL: {url[:80]}...")
     
-    # Check if Instagram
+    # Direct URLs (S3 presigned, CDN): use requests.get - yt-dlp fails on these
+    if _is_direct_video_url(url):
+        try:
+            r = requests.get(url, timeout=120, stream=True)
+            r.raise_for_status()
+            with open(output_filename, "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            size = os.path.getsize(output_filename)
+            print(f"  ✅ Downloaded: {size / 1024 / 1024:.2f} MB")
+            return (output_filename, True)
+        except Exception as e:
+            print(f"  ❌ Direct download failed: {e}")
+            return (None, False)
+    
+    # Platform URLs: use yt-dlp
     is_instagram = 'instagram.com' in url.lower()
     
     # Define retry steps for Instagram
@@ -1640,6 +1667,70 @@ Be DETAILED and SPECIFIC in your analysis."""
         return {}
 
 
+def _gemini_marketing_analysis_to_video_inspiration(gemini_response: dict, transcript: str) -> dict:
+    """
+    Map Gemini marketing_analysis output to the video_inspiration format expected by downstream
+    (storyline, hook, creative_elements, etc.) for both multi-clip prompts and compatibility.
+    """
+    ma = gemini_response.get("marketing_analysis") or gemini_response
+    if not isinstance(ma, dict):
+        return {}
+    timeline = ma.get("timeline") or []
+    hooks = ma.get("hooks") or {}
+    transitions = ma.get("activity_transitions") or []
+    # Build storyline from timeline
+    storyline_parts = []
+    for seg in timeline:
+        ts = seg.get("timestamp", "")
+        visual = seg.get("visual_action", "")
+        script = seg.get("script_dialogue", "")
+        if visual or script:
+            storyline_parts.append(f"{ts}: {visual}. {script}".strip().rstrip("."))
+    storyline = " ".join(storyline_parts) if storyline_parts else ma.get("full_script_verbatim", "N/A")
+    # Hook from start
+    start_hook = hooks.get("start") if isinstance(hooks, dict) else {}
+    hook = (start_hook.get("content") or start_hook.get("psychology") or "N/A") if isinstance(start_hook, dict) else "N/A"
+    # Creative elements from visual_action and transitions
+    creative = []
+    for seg in timeline:
+        v = (seg.get("visual_action") or "").strip()
+        if v and v not in creative:
+            creative.append(v)
+    for t in transitions:
+        desc = (t.get("transition_description") or t.get("to_activity") or "").strip()
+        if desc and desc not in creative:
+            creative.append(desc)
+    if not creative:
+        creative = ["Visual storytelling"]
+    # Key moments from transitions
+    key_moments = []
+    for t in transitions:
+        fr = t.get("from_timestamp", "")
+        to = t.get("to_timestamp", "")
+        desc = t.get("transition_description", "")
+        if desc:
+            key_moments.append(f"{fr}-{to}: {desc}")
+    return {
+        "storyline": storyline,
+        "hook": hook,
+        "creative_elements": creative[:15],
+        "visual_techniques": creative[:8],
+        "visual_subjects": {
+            "humans": "See timeline",
+            "objects_props": [],
+            "setting_location": "See timeline",
+            "actions_interactions": creative[:5],
+            "environmental_elements": "",
+        },
+        "mood_atmosphere": "",
+        "message": ma.get("full_script_verbatim", "")[:200] or "N/A",
+        "pacing": "medium",
+        "key_moments": key_moments[:10] or ["See timeline"],
+        "product_showcase_style": "N/A",
+        "replication_tips": "Match timeline and activity transitions for brand consistency",
+    }
+
+
 def analyze_video_inspiration_with_grok(frame_urls: list, transcript: str, context: dict) -> dict:
     """
     Analyze video inspiration using Grok - pass frames in sequence + transcript.
@@ -1875,152 +1966,34 @@ async def process_image_inspiration_link(url: str, context: dict, account_id: in
 
 async def process_video_inspiration_link(url: str, context: dict, account_id: int, clips_per_video: int = 1) -> dict:
     """
-    Full pipeline for processing a video inspiration link:
-    1. Download video
-    2. Extract frames
-    3. Extract & transcribe audio
-    4. Upload frames to S3 and get presigned URLs
-    5. Analyze with Grok
-    6. Cleanup
+    Process a video inspiration link for Kling O3 v2v pipeline.
+    Download + verify video, return source_url.
+    Kling O3 does its own download, Demucs, Gemini; clips_per_video/video_duration are not needed.
     
     Args:
         url: Video URL to process
         context: Context dict with brand info
         account_id: Account ID for S3 paths
-        clips_per_video: Number of clips per video (used to calculate max_duration: clips * 8 seconds)
+        clips_per_video: Unused (kept for API compatibility)
     
-    Returns video inspiration analysis dict.
+    Returns video inspiration dict with source_url.
     """
-    # Calculate max duration based on number of clips (8 seconds per clip)
-    max_duration = clips_per_video * 8
-    
     print(f"\n{'='*60}")
-    print(f"🎬 VIDEO INSPIRATION ANALYSIS")
+    print(f"🎬 VIDEO INSPIRATION (Kling O3 v2v)")
     print(f"{'='*60}")
     print(f"  URL: {url[:80]}...")
-    print(f"  📊 Clips per video: {clips_per_video} → Max duration for frames: {max_duration}s")
     
     output_dir = f"/tmp/dvyb-inspirations/{uuid.uuid4().hex[:8]}"
     os.makedirs(output_dir, exist_ok=True)
     
     try:
-        # Step 1: Download video
         video_path, is_video = download_inspiration_video(url, output_dir)
         if not is_video or not video_path:
-            print(f"  ⚠️ Not a video or download failed, skipping video analysis")
+            print(f"  ⚠️ Not a video or download failed")
             return {}
         
-        # Step 1b: Get video duration to dynamically determine clips_per_video
-        import cv2
-        cap = cv2.VideoCapture(video_path)
-        video_fps = cap.get(cv2.CAP_PROP_FPS)
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        video_duration = total_frames / video_fps if video_fps > 0 else 0
-        cap.release()
-        
-        print(f"  📊 Inspiration video duration: {video_duration:.1f}s")
-        
-        # Dynamically determine clips_per_video based on video duration
-        # Rule: 
-        #   - Video 0-10s → 1 clip (8s output)
-        #   - Video >10s → 2 clips (16s output)
-        # This ensures we capture enough of the inspiration for longer videos
-        original_clips_per_video = clips_per_video
-        
-        if video_duration <= 10:
-            clips_per_video = 1
-            print(f"  🎯 Video ≤10s → Using 1 clip")
-        else:
-            # Video > 10s: use 2 clips to capture more of the inspiration
-            clips_per_video = 2
-            print(f"  🎯 Video >10s ({video_duration:.1f}s) → Using 2 clips")
-        
-        # Recalculate max_duration if clips_per_video changed
-        if clips_per_video != original_clips_per_video:
-            max_duration = clips_per_video * 8
-            print(f"  📊 Adjusted: Clips per video: {clips_per_video} → Max duration for frames: {max_duration}s")
-        
-        # Step 2: Extract frames (1 per second, up to max_duration)
-        frames_dir = os.path.join(output_dir, "frames")
-        frame_paths = extract_frames_from_video(video_path, frames_dir, fps=1, max_duration=max_duration)
-        if not frame_paths:
-            print(f"  ⚠️ No frames extracted, skipping video analysis")
-            return {}
-        
-        # Step 3: Extract and transcribe audio (also saves FULL background music)
-        # Note: Background music is saved in FULL, only transcription processing is trimmed
-        transcript, background_music_path = extract_and_transcribe_audio(video_path, output_dir, max_duration=max_duration)
-        
-        # Step 4: Upload frames to S3 and get presigned URLs
-        print(f"  📤 Uploading {len(frame_paths)} frames to S3...")
-        frame_presigned_urls = []
-        for i, frame_path in enumerate(frame_paths):
-            s3_key = web2_s3_helper.upload_from_file(
-                file_path=frame_path,
-                folder=f"dvyb/inspiration-frames/{account_id}",
-                filename=f"frame_{i:02d}_{uuid.uuid4().hex[:6]}.jpg"
-            )
-            if s3_key:
-                presigned_url = web2_s3_helper.generate_presigned_url(s3_key)
-                if presigned_url:
-                    frame_presigned_urls.append(presigned_url)
-        
-        print(f"  ✅ Uploaded {len(frame_presigned_urls)} frames to S3")
-        
-        # Step 4b: Check if inspiration audio has significant vocals (English words > 5)
-        # If yes, don't use inspiration music (keep AI-generated audio in final video)
-        use_inspiration_music = True
-        if transcript and transcript.strip():
-            # Count words in transcript (split by whitespace)
-            word_count = len(transcript.strip().split())
-            print(f"  🎤 Transcript word count: {word_count}")
-            
-            if word_count > 5:
-                # Check if it contains English words (basic check: has ASCII letters)
-                import re
-                english_words = re.findall(r'[a-zA-Z]+', transcript)
-                english_word_count = len(english_words)
-                
-                if english_word_count > 5:
-                    use_inspiration_music = False
-                    print(f"  ⚠️ Significant vocals detected ({english_word_count} English words)")
-                    print(f"     Skipping inspiration music - will keep AI-generated audio in final video")
-                else:
-                    print(f"  ✅ Minimal English vocals ({english_word_count} words) - will use inspiration music")
-            else:
-                print(f"  ✅ Minimal vocals ({word_count} words) - will use inspiration music")
-        else:
-            print(f"  ✅ No vocals detected - will use inspiration music")
-        
-        # Step 4c: Upload background music to S3 (only if no significant vocals)
-        background_music_s3_key = None
-        if use_inspiration_music and background_music_path and os.path.exists(background_music_path):
-            print(f"  📤 Uploading background music to S3...")
-            background_music_s3_key = web2_s3_helper.upload_from_file(
-                file_path=background_music_path,
-                folder=f"dvyb/inspiration-audio/{account_id}",
-                filename=f"background_music_{uuid.uuid4().hex[:8]}.wav"
-            )
-            if background_music_s3_key:
-                print(f"  ✅ Background music uploaded: {background_music_s3_key}")
-            else:
-                print(f"  ⚠️ Failed to upload background music")
-        elif not use_inspiration_music:
-            print(f"  ⏭️ Skipping background music upload (significant vocals detected)")
-        
-        # Step 5: Analyze with Grok
-        analysis = analyze_video_inspiration_with_grok(frame_presigned_urls, transcript, context)
-        
-        # Add metadata
-        analysis["source_url"] = url
-        analysis["frame_count"] = len(frame_presigned_urls)
-        analysis["has_transcript"] = bool(transcript)
-        analysis["transcript"] = transcript
-        analysis["background_music_s3_key"] = background_music_s3_key  # For use in final video
-        analysis["video_duration"] = video_duration  # Original video duration
-        analysis["clips_per_video"] = clips_per_video  # Dynamically determined clips per video
-        
-        return analysis
+        print(f"  ✅ Ready for Kling O3 v2v pipeline")
+        return {"source_url": url}
         
     except Exception as e:
         print(f"  ❌ Video inspiration processing failed: {e}")
@@ -4256,9 +4229,16 @@ def get_existing_inspiration_analysis(url: str) -> Optional[Dict]:
                     inv = ad_result[0] if isinstance(ad_result[0], dict) else json.loads(ad_result[0])
                     media_type = ad_result[1] or "image"
                     if media_type == "video":
-                        # For video ads, wrap in video_inspiration; downstream may need adaptation
-                        print(f"  ✅ Found existing inventory_analysis in dvyb_brand_ads (video) for: {url[:80]}...")
-                        return {"video_inspiration": {"inventory_analysis": inv}}
+                        # For video ads, wrap in video_inspiration; add source_url for Kling O3 v2v pipeline
+                        video_insp = {"inventory_analysis": inv}
+                        presigned = web2_s3_helper.generate_presigned_url(s3_key)
+                        if presigned:
+                            video_insp["source_url"] = presigned
+                            print(f"  ✅ Found existing inventory_analysis in dvyb_brand_ads (video) for: {url[:80]}...")
+                            print(f"  📹 Added source_url for Kling O3 v2v pipeline")
+                        else:
+                            print(f"  ✅ Found existing inventory_analysis in dvyb_brand_ads (video) for: {url[:80]}...")
+                        return {"video_inspiration": video_insp}
                     else:
                         # For image ads, convert to image_inspiration format and add presigned URL for FAL
                         img_insp = _inventory_analysis_to_image_inspiration(inv)
@@ -4994,6 +4974,48 @@ def _format_enhanced_context(context: Dict) -> str:
     return "\n".join(sections)
 
 
+async def _generate_platform_texts_for_kling_o3(
+    request, number_of_posts: int, num_clips: int, num_images: int,
+    video_indices, image_only_indices,
+) -> list:
+    """Minimal Grok call for platform_texts only (Kling O3 path - no clip prompts needed)."""
+    try:
+        from xai_sdk import Client
+        from xai_sdk.chat import user, system
+        import json
+        client = Client(api_key=settings.xai_api_key, timeout=120)
+        chat = client.chat.create(model="grok-4-fast-reasoning")
+        prompt = f"""Generate platform-specific captions for {number_of_posts} post(s).
+Topic: {request.topic}
+Platforms: {request.platforms}
+Mix: {num_clips} video(s), {num_images} image(s)
+
+Return ONLY valid JSON:
+{{"platform_texts": [
+  {{"post_index": 0, "topic": "...", "content_type": "video" or "image", "platforms": {{"twitter": "...", "instagram": "...", "linkedin": "...", "tiktok": "..."}}}}
+]}}
+One entry per post. content_type="video" for video posts, "image" for image posts."""
+        chat.append(system("You generate social media captions. Respond ONLY with valid JSON."))
+        chat.append(user(prompt))
+        resp = chat.sample()
+        text = (resp.content or "").strip()
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
+        data = json.loads(text)
+        return data.get("platform_texts", [])
+    except Exception as e:
+        print(f"  ⚠️ Platform texts Grok failed: {e}, using defaults")
+        return [
+            {
+                "post_index": i,
+                "topic": request.topic or "product showcase",
+                "content_type": "video" if i in video_indices else "image",
+                "platforms": {"twitter": "", "instagram": "", "linkedin": "", "tiktok": ""},
+            }
+            for i in range(number_of_posts)
+        ]
+
+
 async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, context: Dict) -> Dict:
     """Generate image and clip prompts with Grok - Multi-clip Veo3.1 support"""
     
@@ -5091,7 +5113,47 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
     print(f"🎲 Video indices: {sorted(video_indices)}")
     print(f"🖼️ Image-only indices: {sorted(image_only_indices)}")
     
-    # Build comprehensive prompt for Grok
+    # Kling O3 path: bypass old multi-clip Grok; Kling O3 pipeline generates its own prompts
+    link_analysis = context.get("link_analysis", {})
+    video_inspiration = link_analysis.get("video_inspiration", {}) if link_analysis else {}
+    inventory_analysis = context.get("inventory_analysis", {})
+    use_kling_o3_early = bool(
+        video_inspiration
+        and video_inspiration.get("source_url")
+        and inventory_analysis
+        and (inventory_analysis.get("product_images", {}).get("count", 0) or 0) >= 1
+        and video_indices
+    )
+    if use_kling_o3_early:
+        print("\n" + "=" * 80)
+        print("🤖 KLING O3 MODE: Bypassing multi-clip Grok - Kling O3 pipeline will generate prompts")
+        print("=" * 80)
+        # Minimal Grok call for platform_texts only
+        platform_texts = await _generate_platform_texts_for_kling_o3(
+            request, number_of_posts, num_clips, num_images, video_indices, image_only_indices
+        )
+        # Ensure platform_texts have correct content_type
+        for i, pt in enumerate(platform_texts):
+            pt["content_type"] = "video" if i in video_indices else "image"
+        return {
+            "video_type": "brand_marketing",
+            "voiceover": False,
+            "no_characters": False,
+            "human_characters_only": False,
+            "influencer_marketing": False,
+            "video_indices": list(video_indices),
+            "image_only_indices": image_only_indices,
+            "clips_per_video": 1,
+            "video_prompts": {vid: {} for vid in video_indices},
+            "video_audio_prompts": {},
+            "platform_texts": platform_texts,
+            "image_prompts_dict": {},
+            "image_only_prompts": {},
+            "image_logo_decisions": {},
+            "image_product_mappings": {},
+        }
+    
+    # Build comprehensive prompt for Grok (multi-clip flow only)
     dvyb_context = context.get("dvyb_context", {})
     inventory_analysis = context.get("inventory_analysis", {})
     link_analysis = context.get("link_analysis", {})
@@ -8811,41 +8873,124 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                 progress = 40 + int((len(all_generated_content) / total_items) * 30)
                 await update_progress_in_db(request.account_id, progress, f"Generated image {idx}", generation_uuid)
     
-    # STEP 3: Generate multi-clip videos with Kling v2.6 / Veo3.1 (60:40 ratio)
-    print("\n" + "=" * 80)
-    print(f"🎬 MULTI-CLIP VIDEO GENERATION (Kling v2.6 10% / Veo3.1 90%, 9:16)")
-    print(f"⏱️  VIDEO GENERATION IN PROGRESS - This may take several minutes...")
-    print(f"📊 Generating {len(video_indices)} video(s), each {CLIPS_PER_VIDEO} clip(s) × 8-10s")
-    print("=" * 80)
-    
-    # Update progress with video generation message
+    # STEP 3: Generate videos (Kling O3 v2v when video inspiration, else Kling v2.6 / Veo3.1 multi-clip)
+    use_kling_o3 = bool(
+        video_inspiration
+        and video_inspiration.get("source_url")
+        and product_presigned_urls
+        and video_indices
+    )
+    first_video_idx = min(video_indices) if video_indices else None
+
+    if use_kling_o3:
+        print("\n" + "=" * 80)
+        print(f"🎬 KLING O3 V2V EDIT (video inspiration pipeline - no duration limit)")
+        print(f"📹 Using inspiration video for product fusion")
+        print("=" * 80)
+    else:
+        print("\n" + "=" * 80)
+        print(f"🎬 MULTI-CLIP VIDEO GENERATION (Kling v2.6 10% / Veo3.1 90%, 9:16)")
+        print(f"⏱️  VIDEO GENERATION IN PROGRESS - This may take several minutes...")
+        print(f"📊 Generating {len(video_indices)} video(s), each {CLIPS_PER_VIDEO} clip(s) × 8-10s")
+        print("=" * 80)
+
     await update_progress_in_db(
         request.account_id,
         40,
-        f"🎬 Generating videos... ({len(video_indices)} video(s), 8-10s clips - this may take a few minutes)",
+        f"🎬 Generating videos... ({len(video_indices)} video(s))",
         generation_uuid
     )
-    
-    # Track which model was used for each video
+
     video_model_selections = {}
-    
+
     for video_idx in sorted(video_indices):
-        # Select model for this video (60% Kling, 40% Veo)
+        # Kling O3 v2v path: when video inspiration with source_url + product
+        if use_kling_o3 and video_idx == first_video_idx:
+            print(f"\n{'='*80}")
+            print(f"🎥 VIDEO AT INDEX {video_idx} (Kling O3 v2v - product fusion)")
+            print(f"{'='*80}")
+            try:
+                from app.services.video_inspiration_kling_o3 import generate_video_via_kling_o3_v2v
+
+                product_url = list(product_presigned_urls.values())[0]
+                raw_source = video_inspiration["source_url"]
+                # Ensure fresh presigned URL: S3 key → presigned; S3 presigned URL → refresh if expired
+                if raw_source and not raw_source.startswith(("http://", "https://")):
+                    # S3 key (e.g. dvyb_brands/xxx/video.mp4)
+                    s3_key = _extract_s3_key_from_url(raw_source) or (raw_source if raw_source.startswith("dvyb") else None)
+                    inspiration_url = web2_s3_helper.generate_presigned_url(s3_key) if s3_key else raw_source
+                else:
+                    inspiration_url = refresh_presigned_url_if_needed(raw_source) if raw_source else raw_source
+
+                def _upload_kling(p: str, folder: str, ft: str):
+                    ext = os.path.splitext(p)[1] or ".mp4"
+                    filename = f"{ft}_{uuid.uuid4().hex[:8]}{ext}"
+                    s3_key = web2_s3_helper.upload_from_file(file_path=p, folder=folder, filename=filename)
+                    if not s3_key:
+                        return None
+                    url = web2_s3_helper.generate_presigned_url(s3_key)
+                    return (s3_key, url)
+
+                # Pass existing inventory analysis to avoid redundant Grok call
+                existing_inv = context.get("inventory_analysis")
+
+                s3_key_result = await asyncio.to_thread(
+                    generate_video_via_kling_o3_v2v,
+                    inspiration_video_url=inspiration_url,
+                    product_url=product_url,
+                    topic=request.topic or "product showcase",
+                    upload_to_s3_fn=_upload_kling,
+                    account_id=request.account_id,
+                    generation_uuid=generation_uuid,
+                    existing_inventory=existing_inv,
+                )
+                if s3_key_result:
+                    all_generated_content[video_idx] = {"type": "video", "url": s3_key_result}
+                    video_model_selections[video_idx] = {"name": "kling_o3_v2v", "fal_model": "fal-ai/kling-video/o3/pro/video-to-video/edit"}
+                    model_usage["videoClipGeneration"].append({
+                        "post_index": video_idx,
+                        "clip_number": 1,
+                        "model": "fal-ai/kling-video/o3/pro/video-to-video/edit",
+                        "model_name": "kling_o3_v2v",
+                        "duration": "full",
+                        "aspect_ratio": "9:16",
+                    })
+                    platform_text = prompts["platform_texts"][video_idx] if video_idx < len(prompts["platform_texts"]) else {}
+                    await update_progressive_content(
+                        account_id=request.account_id,
+                        generation_uuid=generation_uuid,
+                        post_index=video_idx,
+                        content_type="video",
+                        content_url=s3_key_result,
+                        platform_text=platform_text
+                    )
+                    print(f"  ✅ Kling O3 v2v video generated for index {video_idx}")
+                else:
+                    print(f"  ❌ Kling O3 v2v failed for index {video_idx} - no fallback (Kling O3 is final for video inspiration)")
+            except Exception as e:
+                print(f"  ❌ Kling O3 v2v error: {e}")
+                import traceback
+                traceback.print_exc()
+
+            if video_idx in all_generated_content or (use_kling_o3 and video_idx == first_video_idx):
+                continue  # Kling O3 path done (success or fail) - skip standard flow
+
+        # Standard multi-clip path (only when NOT Kling O3)
         selected_model = select_video_model()
         video_model_selections[video_idx] = selected_model
         CLIP_DURATION = selected_model["clip_duration"]
         VIDEO_DURATION = CLIPS_PER_VIDEO * CLIP_DURATION
-        
+
         print(f"\n{'='*80}")
         print(f"🎥 VIDEO AT INDEX {video_idx}")
         print(f"🎯 Selected Model: {selected_model['name'].upper()} ({CLIP_DURATION}s clips, {VIDEO_DURATION}s total)")
         print(f"{'='*80}")
-        
+
         video_clip_data = video_prompts.get(video_idx, {})
         if not video_clip_data:
             print(f"⚠️ No clip data for video {video_idx}, skipping")
             continue
-            
+
         # Step 3a: Generate starting frames for all clips
         print(f"\n🖼️ Generating {CLIPS_PER_VIDEO} starting frames...")
         

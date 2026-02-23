@@ -67,6 +67,7 @@ from app.routes.dvyb_brands_fetch import router as dvyb_brands_fetch_router
 from app.routes.dvyb_extension_save_ad import router as dvyb_extension_save_ad_router
 from app.routes.dvyb_discover_ranking import router as dvyb_discover_ranking_router
 from app.routes.dvyb_domain_products import router as dvyb_domain_products_router
+from app.routes.dvyb_website_screenshot import router as dvyb_website_screenshot_router
 from app.routes.utils import router as utils_router
 
 # Setup logging
@@ -170,6 +171,7 @@ app.include_router(dvyb_brands_fetch_router, tags=["dvyb-brands-fetch"])
 app.include_router(dvyb_extension_save_ad_router, tags=["dvyb-extension-save-ad"])
 app.include_router(dvyb_discover_ranking_router, tags=["dvyb-discover-ranking"])
 app.include_router(dvyb_domain_products_router, tags=["dvyb-domain-products"])
+app.include_router(dvyb_website_screenshot_router, tags=["dvyb-website-screenshot"])
 app.include_router(utils_router, prefix="/api/utils", tags=["utils"])
 
 

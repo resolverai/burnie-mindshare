@@ -7,6 +7,7 @@ All in-memory: no file I/O, no subprocess, no stdout.
 """
 
 import html
+import json
 import logging
 import mimetypes
 import os
@@ -287,14 +288,16 @@ def _run_brands_fetch_task(
         if not country_codes:
             country_codes = [ALL_COUNTRY_SENTINEL]
 
-    all_ads: list[dict] = []
-    seen_ids: set[str] = set()
     enrichment: dict | None = None
 
     try:
-        from app.services.gemini_competitor_analysis import fetch_and_enrich_ads
+        from app.services.gemini_competitor_analysis import (
+            fetch_ad_pool_for_brand,
+            enrich_ads_with_gemini,
+        )
+        from app.services import meta_ads_fetch
     except ImportError as e:
-        logger.error(f"Failed to import fetch_and_enrich_ads: {e}")
+        logger.error(f"Failed to import fetch modules: {e}")
         _callback_failed(callback_url, brand_id, "Fetch module not available")
         return
 
@@ -303,101 +306,160 @@ def _run_brands_fetch_task(
     want_image = media in ("image", "both")
     want_video = media in ("video", "both")
     s3_service = S3StorageService()
-    save_limit_remaining = save_limit if save_limit and save_limit > 0 else 99999
-    total_saved = 0
+    target_save = save_limit if save_limit and save_limit > 0 else 20
+    # Strategy: fetch 100 ads in one shot, filter (DB exclude + keyword), use as pool.
+    # Process 20 at a time from pool (no re-fetch until pool exhausted).
+    # When pool exhausted and <20 saved: increase limit (100->200->...), fetch again.
+    POOL_INITIAL = 100
+    BATCH_SIZE = 20
 
     try:
         for country_code in country_codes:
             code = str(country_code).strip().upper() or "US"
             if code == ALL_COUNTRY_SENTINEL:
-                logger.info("Fetching ads (all countries, single run)")
-            try:
-                out_data = fetch_and_enrich_ads(
-                    brand_domain=brand_domain,
-                    country=code,
-                    limit=limit,
-                    exclude_meta_ad_ids=exclude_meta_ad_ids or [],
-                    media=media,
-                    meta_token=meta_token,
-                    apify_token=apify_token,
-                    no_keyword_filter=no_keyword_filter,
+                logger.info("Fetching ads (all countries): pool of 100, process 20 at a time until %d saved", target_save)
+            total_with_creatives = 0
+            all_processed_ids: set[str] = set(exclude_meta_ad_ids or [])
+            fetch_limit = POOL_INITIAL
+            pool: list[dict] = []
+            pool_idx = 0
+
+            while total_with_creatives < target_save:
+                # Refill pool when exhausted
+                if pool_idx >= len(pool):
+                    try:
+                        pool = fetch_ad_pool_for_brand(
+                            brand_domain=brand_domain,
+                            country=code,
+                            limit=fetch_limit,
+                            exclude_meta_ad_ids=all_processed_ids,
+                            pool_size=fetch_limit,
+                            media=media,
+                            meta_token=meta_token,
+                            apify_token=apify_token,
+                            no_keyword_filter=no_keyword_filter,
+                            facebook_handle=facebook_handle,
+                            facebook_page_id=facebook_page_id,
+                        )
+                    except (Exception, SystemExit) as e:
+                        err_msg = str(e)[:500] if e else "Unknown error"
+                        logger.error("fetch_ad_pool_for_brand failed for %s: %s", code, e)
+                        if len(country_codes) == 1:
+                            _callback_failed(callback_url, brand_id, err_msg)
+                            return
+                        break
+                    pool_idx = 0
+                    if not pool:
+                        logger.info("   No more ads from API. Stopping.")
+                        break
+                    # Next time fetch more if we need to continue
+                    fetch_limit = min(fetch_limit * 2, 500)
+
+                batch = pool[pool_idx : pool_idx + BATCH_SIZE]
+                pool_idx += BATCH_SIZE
+                for ad in batch:
+                    aid = str(ad.get("id") or "").strip()
+                    if aid:
+                        all_processed_ids.add(aid)
+
+                logger.info(
+                    "   Batch: processing %d ads from pool (target: %d saved, have %d)",
+                    len(batch),
+                    target_save,
+                    total_with_creatives,
+                )
+
+                # Save batch to meta_ads.json for enrich
+                meta_path = out_dir / "meta_ads.json"
+                with open(meta_path, "w", encoding="utf-8") as f:
+                    json.dump(batch, f, indent=2, ensure_ascii=False)
+
+                # Run Puppeteer on batch snapshot URLs
+                _, apify_path = meta_ads_fetch.run_puppeteer_snapshot_for_ads(
+                    batch, apify_token, out_dir
+                )
+
+                # Enrich (Gemini only on first batch; reuse enrichment_override for rest)
+                out_data = enrich_ads_with_gemini(
+                    meta_path,
+                    None,
+                    apify_results_path=apify_path,
+                    search_brand=brand_domain,
+                    keywords=[brand_domain] if brand_domain else [],
+                    keyword_filter=False,  # batch already filtered at fetch
                     local_limit=local_competitors,
                     global_limit=global_competitors,
-                    out_dir=out_dir,
-                    download_media=False,
-                    facebook_handle=facebook_handle,
-                    facebook_page_id=facebook_page_id,
+                    media=media,
+                    enrichment_override=enrichment,
                 )
-            except (Exception, SystemExit) as e:
-                err_msg = str(e)[:500] if e else "Unknown error"
-                logger.error(f"fetch_and_enrich_ads failed for {code}: {e}")
-                if len(country_codes) == 1:
-                    _callback_failed(callback_url, brand_id, err_msg)
-                    return
-                continue
+                if enrichment is None:
+                    enrichment = {
+                        "category": out_data.get("category"),
+                        "similarCompetitors": out_data.get("similarCompetitors"),
+                        "searchBrandInstagram": out_data.get("searchBrandInstagram"),
+                        "searchBrandRevenue": out_data.get("searchBrandRevenue"),
+                    }
 
-            if enrichment is None:
-                enrichment = {
-                    "category": out_data.get("category"),
-                    "similarCompetitors": out_data.get("similarCompetitors"),
-                    "searchBrandInstagram": out_data.get("searchBrandInstagram"),
-                    "searchBrandRevenue": out_data.get("searchBrandRevenue"),
-                }
+                ads_ui = out_data.get("ads") or []
 
-            ads_this_country = out_data.get("ads") or []
-            new_ads = []
-            for ad in ads_this_country:
-                aid = str(ad.get("id") or ad.get("metaAdId") or "").strip()
-                if aid and aid not in seen_ids:
-                    seen_ids.add(aid)
-                    new_ads.append(ad)
+                for ad in ads_ui:
+                    meta_ad_id = str(ad.get("id") or ad.get("metaAdId") or "").strip()
+                    ad["creativeImageS3Key"] = None
+                    ad["extraImageS3Keys"] = []
+                    ad["creativeVideoS3Key"] = None
+                    img_urls = ad.get("creativeImageUrls") or []
+                    if not img_urls and ad.get("creativeImageUrl"):
+                        img_urls = [ad.get("creativeImageUrl")]
+                    vid_urls = ad.get("creativeVideoUrls") or []
+                    if not vid_urls and ad.get("creativeVideoUrl"):
+                        vid_urls = [ad.get("creativeVideoUrl")]
 
-            batch = new_ads[:save_limit_remaining]
-            save_limit_remaining -= len(batch)
-            if not batch:
-                continue
-
-            if save_limit and save_limit < 99999:
-                logger.info(f"Country {code}: saving {len(batch)} ads (saveLimit remaining)")
-
-            for ad in batch:
-                meta_ad_id = str(ad.get("id") or ad.get("metaAdId") or "").strip()
-                ad["creativeImageS3Key"] = None
-                ad["extraImageS3Keys"] = []
-                ad["creativeVideoS3Key"] = None
-                img_urls = ad.get("creativeImageUrls") or []
-                if not img_urls and ad.get("creativeImageUrl"):
-                    img_urls = [ad.get("creativeImageUrl")]
-                vid_urls = ad.get("creativeVideoUrls") or []
-                if not vid_urls and ad.get("creativeVideoUrl"):
-                    vid_urls = [ad.get("creativeVideoUrl")]
-
-                if want_image and img_urls:
-                    primary_key, extra_keys = _download_all_images_and_upload_to_s3(
-                        s3_service, img_urls, brand_id, meta_ad_id
-                    )
-                    if primary_key:
-                        ad["creativeImageS3Key"] = primary_key
-                    if extra_keys:
-                        ad["extraImageS3Keys"] = extra_keys
-                    if primary_key or extra_keys:
-                        logger.info(
-                            f"Uploaded images for {meta_ad_id}: primary={bool(primary_key)}, extras={len(extra_keys)}"
+                    if want_image and img_urls:
+                        primary_key, extra_keys = _download_all_images_and_upload_to_s3(
+                            s3_service, img_urls, brand_id, meta_ad_id
                         )
-                if want_video and vid_urls:
-                    s3_key = _download_largest_and_upload_to_s3(s3_service, vid_urls, brand_id, meta_ad_id, "video")
-                    if s3_key:
-                        ad["creativeVideoS3Key"] = s3_key
-                        print(f"   Uploaded video (max of {len(vid_urls)}): {meta_ad_id} -> {s3_key}")
-                        logger.info(f"Uploaded video (max of {len(vid_urls)}): {meta_ad_id} -> {s3_key}")
+                        if primary_key:
+                            ad["creativeImageS3Key"] = primary_key
+                        if extra_keys:
+                            ad["extraImageS3Keys"] = extra_keys
+                        if primary_key or extra_keys:
+                            logger.info(
+                                "Uploaded images for %s: primary=%s, extras=%d",
+                                meta_ad_id, bool(primary_key), len(extra_keys),
+                            )
+                    if want_video and vid_urls:
+                        s3_key = _download_largest_and_upload_to_s3(
+                            s3_service, vid_urls, brand_id, meta_ad_id, "video"
+                        )
+                        if s3_key:
+                            ad["creativeVideoS3Key"] = s3_key
+                            logger.info("Uploaded video (max of %d): %s -> %s", len(vid_urls), meta_ad_id, s3_key)
 
-            for ad in batch:
-                if ad.get("creativeImageS3Key") or ad.get("creativeVideoS3Key"):
-                    _callback_success(callback_url, [ad], enrichment, is_complete=False)
-            total_saved += len(batch)
+                saved_this_batch = 0
+                for ad in ads_ui:
+                    if ad.get("creativeImageS3Key") or ad.get("creativeVideoS3Key"):
+                        _callback_success(callback_url, [ad], enrichment, is_complete=False)
+                        saved_this_batch += 1
+                    else:
+                        meta_ad_id_skip = str(ad.get("id") or ad.get("metaAdId") or "").strip()
+                        logger.info(
+                            "   Skipped %s: no creatives extracted (img=%d, vid=%d)",
+                            meta_ad_id_skip,
+                            len(ad.get("creativeImageUrls") or []),
+                            len(ad.get("creativeVideoUrls") or []),
+                        )
 
-            if save_limit_remaining <= 0:
-                break
+                total_with_creatives += saved_this_batch
+                logger.info(
+                    "   Batch result: %d processed, %d saved to DB, total=%d/%d",
+                    len(ads_ui),
+                    saved_this_batch,
+                    total_with_creatives,
+                    target_save,
+                )
+
+                if total_with_creatives >= target_save:
+                    break
 
         _callback_success(callback_url, [], enrichment, is_complete=True)
     finally:

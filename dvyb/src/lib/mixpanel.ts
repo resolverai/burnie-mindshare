@@ -346,17 +346,21 @@ export const trackOnboardingCompleted = () => {
   trackEvent('Onboarding Completed');
 };
 
-export const trackWebsiteAnalysisStarted = (websiteUrl: string) => {
-  trackEvent('Website Analysis Started', { websiteUrl });
+export const trackWebsiteAnalysisStarted = (websiteUrl: string, extra?: { copy?: OnboardingCopyType }) => {
+  trackEvent('Website Analysis Started', { websiteUrl, ...extra });
 };
 
-export const trackWebsiteAnalysisCompleted = (websiteUrl: string, durationMs: number) => {
-  trackEvent('Website Analysis Completed', { websiteUrl, durationMs });
+export const trackWebsiteAnalysisCompleted = (websiteUrl: string, durationMs: number, extra?: { copy?: OnboardingCopyType }) => {
+  trackEvent('Website Analysis Completed', { websiteUrl, durationMs, ...extra });
 };
 
 // --- USER ACTIONS ---
-export const trackSignInClicked = (method: 'google', source: 'landing_page' | 'login_page' | 'onboarding_modal') => {
-  trackEvent('Sign In Clicked', { method, source });
+export const trackSignInClicked = (
+  method: 'google',
+  source: 'landing_page' | 'login_page' | 'onboarding_modal',
+  extra?: { copy?: OnboardingCopyType }
+) => {
+  trackEvent('Sign In Clicked', { method, source, ...extra });
 };
 
 export const trackSignIn = (method: 'google') => {
@@ -464,11 +468,33 @@ export const trackContentDownloadClicked = (data: {
 };
 
 // --- LANDING PAGE ---
+export type OnboardingCopyType = 'A' | 'B';
+
 export const trackLandingPageViewed = (
   isAuthenticated: boolean,
-  extra?: { hero_main_message?: string }
+  extra?: { copy?: OnboardingCopyType; hero_main_message?: string }
 ) => {
   trackEvent('Landing Page Viewed', { isAuthenticated, ...extra });
+};
+
+// --- COPY A / B ONBOARDING FLOW ---
+export const trackOnboardingFlowStepViewed = (
+  copy: OnboardingCopyType,
+  step: string,
+  extra?: Record<string, any>
+) => {
+  trackEvent('Onboarding Flow Step Viewed', { copy, step, ...extra });
+};
+
+export const trackOnboardingFlowCompleted = (
+  copy: OnboardingCopyType,
+  extra?: { source?: 'generate_dialog' | 'explore_more' }
+) => {
+  trackEvent('Onboarding Flow Completed', { copy, ...extra });
+};
+
+export const trackDiscoverScreenViewedFromOnboarding = (copy: OnboardingCopyType) => {
+  trackEvent('Discover Screen Viewed From Onboarding', { copy });
 };
 
 // --- ANALYSIS DETAILS PAGE ---
@@ -653,8 +679,11 @@ export const trackOnboardingInspirationSelected = (data: { adIds: number[]; coun
   trackEvent('Onboarding Inspiration Selected', data);
 };
 
-export const trackExploreMoreFeaturesClicked = (source: 'generate_dialog_onboarding' | 'pricing_modal') => {
-  trackEvent('Explore More Features Clicked', { source });
+export const trackExploreMoreFeaturesClicked = (
+  source: 'generate_dialog_onboarding' | 'pricing_modal',
+  extra?: { copy?: OnboardingCopyType }
+) => {
+  trackEvent('Explore More Features Clicked', { source, ...extra });
 };
 
 export const trackStartNowClicked = (data: {

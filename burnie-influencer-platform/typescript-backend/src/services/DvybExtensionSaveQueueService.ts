@@ -208,35 +208,48 @@ async function processExtensionSaveJob(queueRowId: number): Promise<{ adId: numb
   }
 
   let creativeImageS3Key: string | null = null;
+  let creativeVideoS3Key: string | null = null;
   let extraImageS3Keys: string[] = [];
   const imageUrls = data.creativeImageUrls ?? [];
-  if (imageUrls.length > 0) {
+  const videoUrls = data.creativeVideoUrls ?? [];
+  // Prefer video: if ad has both image and video, download only video
+  const preferVideo = videoUrls.length > 0;
+  const urlsToUpload = preferVideo
+    ? { creativeImageUrls: [] as string[], creativeVideoUrls: videoUrls }
+    : { creativeImageUrls: imageUrls, creativeVideoUrls: [] as string[] };
+  if (urlsToUpload.creativeImageUrls.length > 0 || urlsToUpload.creativeVideoUrls.length > 0) {
     const uploadRes = await fetch(`${pythonBackendUrl}/api/dvyb/extension/upload-ad-creatives`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         brandId: brand.id,
         metaAdId,
-        creativeImageUrls: imageUrls,
-        creativeVideoUrls: [],
+        creativeImageUrls: urlsToUpload.creativeImageUrls,
+        creativeVideoUrls: urlsToUpload.creativeVideoUrls,
       }),
     });
     if (uploadRes.ok) {
-      const uploadJson = (await uploadRes.json()) as { data?: { creativeImageS3Key?: string; extraImageS3Keys?: unknown[] } };
+      const uploadJson = (await uploadRes.json()) as {
+        data?: {
+          creativeImageS3Key?: string;
+          creativeVideoS3Key?: string;
+          extraImageS3Keys?: unknown[];
+        };
+      };
       const ud = uploadJson?.data;
       if (ud) {
         creativeImageS3Key = ud.creativeImageS3Key ?? null;
+        creativeVideoS3Key = ud.creativeVideoS3Key ?? null;
         const raw = Array.isArray(ud.extraImageS3Keys) ? ud.extraImageS3Keys : [];
-        // Ensure extraImages never contains the primary key (avoid duplicate display)
         extraImageS3Keys = raw.filter((k: unknown): k is string => typeof k === 'string' && k.length > 0 && k !== creativeImageS3Key);
       }
     }
   }
 
   const adSnapshotUrl = data.adSnapshotUrl ?? `https://www.facebook.com/ads/library/?id=${metaAdId}`;
-  const mediaType = 'image';
+  const mediaType = creativeVideoS3Key ? 'video' : 'image';
   const creativeImageUrl = data.creativeImageUrl ?? data.creativeImageUrls?.[0] ?? null;
-  const creativeVideoUrl: string | null = null;
+  const creativeVideoUrl = data.creativeVideoUrl ?? data.creativeVideoUrls?.[0] ?? null;
 
   let firstSeen: string | null = row.firstSeen ?? (data.firstSeen ?? (data.adDeliveryStartTime ? String(data.adDeliveryStartTime).slice(0, 10) : null)) ?? null;
   let runtime: string | null = row.runtime ?? data.runtime ?? null;
@@ -259,7 +272,7 @@ async function processExtensionSaveJob(queueRowId: number): Promise<{ adId: numb
     adSnapshotUrl,
     platform: 'meta',
     creativeImageS3Key,
-    creativeVideoS3Key: null,
+    creativeVideoS3Key,
     creativeImageUrl,
     creativeVideoUrl,
     mediaType,

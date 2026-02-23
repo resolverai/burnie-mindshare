@@ -13,6 +13,7 @@ Uses gpt-5-mini (Responses API) with web search to extract:
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, HttpUrl
 from typing import Optional, List, Dict, Any
+import asyncio
 import logging
 import re
 import urllib.parse
@@ -2824,6 +2825,90 @@ Return the COMPLETE JSON now:"""
     return prompt
 
 
+# Font options available in the Business DNA font dropdown (must match frontend FONT_OPTIONS)
+FONT_OPTIONS = ["Arial", "Inter", "Roboto", "Open Sans", "Poppins", "Playfair Display", "Georgia", "Helvetica"]
+
+
+async def analyze_screenshot_with_grok(screenshot_presigned_url: str) -> dict:
+    """
+    Use Grok vision to analyze a website screenshot: detect font and extract brand tagline.
+    Returns {"font": str, "tagline": str}. Font is one of FONT_OPTIONS; tagline is the brand tagline or empty.
+    """
+    result = {"font": None, "tagline": None}
+    try:
+        from xai_sdk import Client
+        from xai_sdk.chat import user, system, image
+
+        from app.config.settings import settings
+
+        xai_key = (settings.xai_api_key or os.getenv("XAI_API_KEY") or "").strip()
+        if not xai_key:
+            logger.warning("XAI_API_KEY not set - skipping Grok screenshot analysis")
+            return result
+
+        client = Client(api_key=xai_key, timeout=120)
+        chat = client.chat.create(model="grok-4-fast-reasoning")
+
+        system_prompt = """You are an expert brand analyst. Analyze this website landing page screenshot and extract TWO things:
+
+1. **Font**: Identify the primary/dominant font used for body text and headings. Reply with exactly ONE of these: Arial, Inter, Roboto, Open Sans, Poppins, Playfair Display, Georgia, Helvetica. Choose the one that most closely matches the typography.
+
+2. **Tagline**: Extract the brand's main tagline or hero headline. This is typically the short, punchy phrase on the hero/above-the-fold area - e.g. "Welcome to your brand", "Quality products for modern life", etc. If there is no clear tagline, use the main headline or value proposition. Keep it concise (under 15 words). If truly nothing fits, reply with empty string.
+
+Respond in this EXACT JSON format only (no markdown, no extra text):
+{"font": "Inter", "tagline": "Welcome to your brand"}
+"""
+
+        user_prompt = "Analyze this website screenshot. Return JSON with font (one of: Arial, Inter, Roboto, Open Sans, Poppins, Playfair Display, Georgia, Helvetica) and tagline (the brand tagline/hero headline, or empty string if none)."
+
+        chat.append(system(system_prompt))
+        chat.append(user(user_prompt, image(image_url=screenshot_presigned_url, detail="high")))
+
+        response = chat.sample()
+        text = (response.content or "").strip()
+
+        # Parse JSON from response
+        import json
+        json_str = text
+        if "```json" in text:
+            start = text.find("```json") + 7
+            end = text.find("```", start)
+            json_str = text[start:end].strip()
+        elif "```" in text:
+            start = text.find("```") + 3
+            end = text.find("```", start)
+            json_str = text[start:end].strip()
+        elif "{" in text and "}" in text:
+            start = text.find("{")
+            end = text.rfind("}") + 1
+            json_str = text[start:end]
+        try:
+            parsed = json.loads(json_str)
+            font_raw = parsed.get("font") or ""
+            for f in FONT_OPTIONS:
+                if f.lower() in str(font_raw).lower():
+                    result["font"] = f
+                    break
+            if not result["font"] and font_raw in FONT_OPTIONS:
+                result["font"] = font_raw
+            result["tagline"] = (parsed.get("tagline") or "").strip()
+            if result["tagline"] and len(result["tagline"]) > 120:
+                result["tagline"] = result["tagline"][:117] + "..."
+            logger.info(f"  ✅ Grok: font={result['font']}, tagline={result['tagline'][:50]}..." if result['tagline'] else f"  ✅ Grok: font={result['font']}, tagline=(empty)")
+        except json.JSONDecodeError:
+            # Fallback: try to extract font only (legacy behavior)
+            for font in FONT_OPTIONS:
+                if font.lower() in text.lower():
+                    result["font"] = font
+                    logger.info(f"  ✅ Grok detected font (fallback): {font}")
+                    break
+            logger.warning(f"  ⚠️ Grok JSON parse failed, extracted font only: {text[:100]}")
+        return result
+    except Exception as e:
+        logger.warning(f"  ⚠️ Grok screenshot analysis failed: {e}")
+        return result
+
+
 async def call_gpt4o_chat(prompt: str) -> str:
     """
     Call OpenAI Chat Completions API with GPT-4o.
@@ -3253,6 +3338,10 @@ async def analyze_website_fast(url: str) -> Dict[str, Any]:
         # Step 1: Extract base name
         base_name = extract_base_name(url)
         logger.info(f"  → Base name: {base_name}")
+
+        # Start screenshot capture in background (for Grok font detection)
+        from app.routes.dvyb_website_screenshot import capture_and_upload_website_screenshot_sync
+        screenshot_task = asyncio.create_task(asyncio.to_thread(capture_and_upload_website_screenshot_sync, url))
         
         # Step 2: Fetch website HTML
         logger.info(f"  → Fetching website content...")
@@ -3609,6 +3698,22 @@ async def analyze_website_fast(url: str) -> Dict[str, Any]:
         print(f"   Primary: {final_colors['primary']}")
         print(f"   Secondary: {final_colors['secondary']}")
         print(f"   Accent: {final_colors['accent']}")
+
+        # Grok font + tagline analysis from website snapshot
+        try:
+            screenshot_presigned = await screenshot_task
+            if screenshot_presigned:
+                logger.info("  → Analyzing website snapshot with Grok (font + tagline)...")
+                grok_result = await analyze_screenshot_with_grok(screenshot_presigned)
+                analysis_data["detected_font"] = grok_result.get("font") or "Inter"
+                analysis_data["tagline"] = grok_result.get("tagline") or ""
+            else:
+                analysis_data["detected_font"] = "Inter"
+                analysis_data["tagline"] = ""
+        except Exception as e:
+            logger.warning(f"  ⚠️ Grok screenshot analysis failed: {e}")
+            analysis_data["detected_font"] = "Inter"
+            analysis_data["tagline"] = ""
         
         # Add logo data if extracted
         if logo_data:

@@ -928,7 +928,8 @@ def _fetch_ads_via_apify_ad_library_page(
     url = (
         "https://www.facebook.com/ads/library/?"
         "active_status=active&ad_type=all&country=ALL&is_targeted_country=false&"
-        "media_type=all&search_type=page&view_all_page_id=" + page_id_str
+        "media_type=all&search_type=page&view_all_page_id=" + page_id_str +
+        "&sort_data%5Bdirection%5D=desc&sort_data%5Bmode%5D=total_impressions"
     )
     try:
         client = ApifyClient(apify_token)
@@ -1795,6 +1796,202 @@ def _library_id_from_item(item: dict) -> str | None:
         if val is not None and str(val).strip():
             return str(val).strip()
     return None
+
+
+def fetch_ad_pool(
+    *,
+    keywords: list[str],
+    country: str = "US",
+    limit: int = 100,
+    exclude_meta_ad_ids: set[str] | None = None,
+    pool_size: int = 100,
+    media: str = "both",
+    meta_token: str,
+    apify_token: str = "",
+    recent: bool = False,
+    min_running_days: int = 15,
+    stopped_within_days: int = 15,
+    ad_active_status: str = "ACTIVE",
+    ad_delivery_date_min: str | None = None,
+    keyword_filter: bool = True,
+    meta_search_type: str = "KEYWORD_UNORDERED",
+    search_page_ids: list[int] | None = None,
+    filter_keywords: list[str] | None = None,
+    filter_domain: str | None = None,
+    filter_handle: str | None = None,
+) -> list[dict]:
+    """
+    Fetch ads from Meta (or Apify Ad Library fallback) and apply filters.
+    Returns up to pool_size ads. Does NOT run Puppeteer or download creatives.
+    Used by DVYB brands fetch to maintain a pool and process batches of 20.
+    """
+    exclude_ids = exclude_meta_ad_ids or set()
+
+    if search_page_ids:
+        search_terms = ""
+    elif meta_search_type == "KEYWORD_EXACT_PHRASE" and keywords:
+        search_terms = " ".join(k for k in keywords if k and str(k).strip()).strip() or " ".join(keywords)
+    else:
+        search_terms = _search_terms_for_meta_api(keywords)
+    api_filters = []
+    if ad_active_status and ad_active_status.upper() != "ALL":
+        api_filters.append(f"ad_active_status={ad_active_status}")
+    if ad_delivery_date_min:
+        api_filters.append(f"delivery_date_min={ad_delivery_date_min}")
+    filter_str = f" ({', '.join(api_filters)})" if api_filters else ""
+    if search_page_ids:
+        print(f"Fetching ads from Meta Graph API (ads_archive) by page_id(s)={search_page_ids}{filter_str}...")
+    else:
+        print(f"Fetching ads from Meta Graph API (ads_archive){filter_str}...")
+    active_status = ad_active_status or "ACTIVE"
+    try:
+        fetched_ads = fetch_ads_via_meta_api(
+            meta_token,
+            search_terms,
+            country,
+            limit,
+            media,
+            ad_active_status=active_status,
+            ad_delivery_date_min=ad_delivery_date_min,
+            search_type=meta_search_type,
+            search_page_ids=search_page_ids,
+        )
+    except urllib.error.HTTPError as e:
+        if e.code == 500 and search_page_ids and active_status.upper() == "ACTIVE":
+            print("   Meta returned 500 for page_id + ACTIVE; retrying with ad_active_status=ALL...", file=sys.stderr)
+            fetched_ads = fetch_ads_via_meta_api(
+                meta_token,
+                search_terms,
+                country,
+                limit,
+                media,
+                ad_active_status="ALL",
+                ad_delivery_date_min=ad_delivery_date_min,
+                search_type=meta_search_type,
+                search_page_ids=search_page_ids,
+            )
+        else:
+            raise
+    print(f"Fetched {len(fetched_ads)} ad(s) from Meta API.")
+    if (
+        not search_page_ids
+        and len(fetched_ads) == 0
+        and (search_terms or "").strip().startswith("@")
+    ):
+        search_terms_alt = (search_terms or "").lstrip("@").strip()
+        if search_terms_alt:
+            print(f"   Retrying keyword search without '@' (search_terms={search_terms_alt!r})...")
+            try:
+                alt_ads = fetch_ads_via_meta_api(
+                    meta_token,
+                    search_terms_alt,
+                    country,
+                    limit,
+                    media,
+                    ad_active_status=active_status,
+                    ad_delivery_date_min=ad_delivery_date_min,
+                    search_type=meta_search_type,
+                    search_page_ids=None,
+                )
+                if alt_ads:
+                    fetched_ads = alt_ads
+                    print(f"   Got {len(fetched_ads)} ad(s) with search_terms without '@'.")
+            except Exception as e:
+                print(f"   Retry without '@' failed: {e}", file=sys.stderr)
+    if search_page_ids and len(fetched_ads) == 0:
+        print(f"   No ads returned for page_id(s)={search_page_ids}. Trying Apify Ad Library page scraper (same as UI)...")
+        if apify_token:
+            fetched_ads = _fetch_ads_via_apify_ad_library_page(
+                apify_token, search_page_ids[0], limit
+            )
+            if fetched_ads:
+                print(f"   Apify Ad Library page scraper returned {len(fetched_ads)} ad(s).")
+        if not fetched_ads:
+            print(f"   No ads for page_id(s)={search_page_ids}. Check page ID or try a different country.")
+
+    before_exclude = len(fetched_ads)
+    fetched_ads = [a for a in fetched_ads if (a.get("id") or "").strip() not in exclude_ids]
+    excluded_count = before_exclude - len(fetched_ads)
+    if excluded_count > 0:
+        print(f"   Excluded {excluded_count} ad(s) already in DB or previously processed this run.")
+
+    if recent:
+        meta_ads = filter_ads_by_three_buckets(
+            fetched_ads,
+            min_running_days=min_running_days,
+            stopped_within_days=stopped_within_days,
+        )
+        if fetched_ads and len(meta_ads) < len(fetched_ads):
+            print(f"   Filter (3 buckets): {len(fetched_ads)} → {len(meta_ads)} (running>{min_running_days}d | stopped in last {stopped_within_days}d+ran long | any running)")
+        if not meta_ads:
+            return []
+    else:
+        meta_ads = fetched_ads
+
+    country_upper = country.upper()
+    if country_upper in ("EU", "ALL"):
+        before_country = len(meta_ads)
+        meta_ads = filter_ads_by_country(meta_ads, country)
+        if before_country > 0 and len(meta_ads) < before_country:
+            print(f"   Country filter ({country}): {before_country} → {len(meta_ads)}")
+    if not meta_ads:
+        return []
+
+    if keyword_filter and (filter_domain is not None or filter_keywords or keywords):
+        before_caption = len(meta_ads)
+        if filter_domain is not None:
+            meta_ads = filter_ads_by_domain_or_handle(meta_ads, filter_domain, filter_handle)
+        else:
+            caption_filter_kw = (filter_keywords if filter_keywords is not None else keywords) if (filter_keywords or keywords) else []
+            if caption_filter_kw:
+                meta_ads = filter_ads_by_keyword_in_captions(meta_ads, caption_filter_kw)
+        if before_caption > 0 and len(meta_ads) < before_caption:
+            print(f"   Keyword filter (in link_captions/link_titles): {before_caption} → {len(meta_ads)}")
+        if not meta_ads:
+            return []
+    else:
+        if not keyword_filter:
+            print("   Keyword filter: skipped (--no-keyword-filter)")
+
+    if len(meta_ads) > pool_size:
+        meta_ads = meta_ads[:pool_size]
+        print(f"   Pool capped to {pool_size} ad(s) (will process 20 at a time until target saved).")
+    return meta_ads
+
+
+def run_puppeteer_snapshot_for_ads(
+    meta_ads: list[dict],
+    apify_token: str,
+    out_dir: Path,
+) -> tuple[list[dict], Path]:
+    """
+    Run Apify Puppeteer Scraper on snapshot URLs for the given meta ads.
+    Returns (apify_items, apify_path). Does not download media.
+    """
+    start_urls = []
+    for ad in meta_ads:
+        snapshot_url = (ad.get("ad_snapshot_url") or "").strip()
+        if not snapshot_url:
+            continue
+        ad_id = (ad.get("id") or "unknown").strip()
+        start_urls.append({"url": snapshot_url, "userData": {"adId": ad_id}})
+    if not start_urls:
+        return ([], out_dir / "apify_results.json")
+    print(f"Running Apify Puppeteer Scraper on {len(start_urls)} snapshot URL(s)...")
+    client = ApifyClient(apify_token)
+    run_input = {
+        "startUrls": start_urls,
+        "pageFunction": PUPPETEER_SNAPSHOT_PAGE_FUNCTION,
+        "proxyConfiguration": {"useApifyProxy": True},
+        "maxCrawlingDepth": 0,
+    }
+    run = client.actor("apify/puppeteer-scraper").call(run_input=run_input)
+    apify_items = list(client.dataset(run["defaultDatasetId"]).iterate_items())
+    apify_path = out_dir / "apify_results.json"
+    with open(apify_path, "w", encoding="utf-8") as f:
+        json.dump(apify_items, f, indent=2, ensure_ascii=False)
+    print(f"Saved Apify snapshot results ({len(apify_items)} item(s)) to {apify_path}")
+    return (apify_items, apify_path)
 
 
 def run_fetch(

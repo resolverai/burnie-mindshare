@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useTheme } from "next-themes";
+import { cn } from "@/lib/utils";
 import { NavigationLanding } from "@/components/landing/NavigationLanding";
+import { getOnboardingCopyForPage } from "@/lib/abCopy";
 import { Button } from "@/components/ui/button";
 import { affiliateApi } from "@/lib/api";
 import {
@@ -56,6 +59,8 @@ const FAQ_ITEMS = [
 ];
 
 export default function AffiliateLandingPage() {
+  const { resolvedTheme } = useTheme();
+  const isCopyA = getOnboardingCopyForPage() === "A";
   const [plans, setPlans] = useState<PricingPlan[]>([]);
   const [referralCount, setReferralCount] = useState(10);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
@@ -81,8 +86,15 @@ export default function AffiliateLandingPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[hsl(var(--background))]">
-      <NavigationLanding hideExplore onGetStarted={openAffiliateLogin} />
+    <div className={cn("min-h-screen bg-[hsl(var(--background))]", isCopyA && "font-hind")}>
+      <NavigationLanding
+        variant={resolvedTheme === "dark" ? "dark" : "default"}
+        hideExplore
+        onGetStarted={openAffiliateLogin}
+        navStyle={isCopyA ? "wander" : "default"}
+        showSignIn={isCopyA}
+        showThemeToggle={isCopyA}
+      />
 
       {/* Hero Section */}
       <section className="pt-32 sm:pt-40 pb-16 sm:pb-24 px-4">

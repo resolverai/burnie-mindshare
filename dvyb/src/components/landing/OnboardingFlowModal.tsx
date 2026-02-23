@@ -18,6 +18,7 @@ import {
   trackOnboardingInspirationSelected,
   trackWebsiteAnalysisStarted,
   trackWebsiteAnalysisCompleted,
+  trackOnboardingFlowStepViewed,
 } from "@/lib/mixpanel";
 
 const ANALYSIS_STEPS = [
@@ -75,9 +76,11 @@ interface OnboardingFlowModalProps {
   onOpenChange: (open: boolean) => void;
   /** When set, modal opens on "analyzing" step with this URL (from Hero); otherwise opens on "website" step. */
   initialWebsiteUrl?: string | null;
+  /** Copy B for tracking (Copy A uses separate flow) */
+  copy?: "B";
 }
 
-export function OnboardingFlowModal({ open, onOpenChange, initialWebsiteUrl }: OnboardingFlowModalProps) {
+export function OnboardingFlowModal({ open, onOpenChange, initialWebsiteUrl, copy = "B" }: OnboardingFlowModalProps) {
   const { toast } = useToast();
   const [step, setStep] = useState<Step>("website");
 
@@ -140,6 +143,13 @@ export function OnboardingFlowModal({ open, onOpenChange, initialWebsiteUrl }: O
     }
   }, [open, initialWebsiteUrl]);
 
+  // Track Copy B flow steps
+  useEffect(() => {
+    if (open && step) {
+      trackOnboardingFlowStepViewed(copy, step);
+    }
+  }, [open, step, copy]);
+
   const analysisStartedRef = useRef(false);
 
   useEffect(() => {
@@ -148,7 +158,7 @@ export function OnboardingFlowModal({ open, onOpenChange, initialWebsiteUrl }: O
     analysisStartedRef.current = true;
     const url = normalizeUrl(analyzingUrl);
     localStorage.setItem("dvyb_pending_website_url", url);
-    trackWebsiteAnalysisStarted(url);
+    trackWebsiteAnalysisStarted(url, { copy });
     analysisStartTimeRef.current = Date.now();
     setIsAnalyzing(true);
     setAnalysisProgress(ANALYSIS_STEPS[0].percent);
@@ -168,7 +178,7 @@ export function OnboardingFlowModal({ open, onOpenChange, initialWebsiteUrl }: O
         const response = await contextApi.analyzeWebsiteGuest(url);
         if (response.success && response.data) {
           localStorage.setItem("dvyb_website_analysis", JSON.stringify(response.data));
-          trackWebsiteAnalysisCompleted(url, Date.now() - analysisStartTimeRef.current);
+          trackWebsiteAnalysisCompleted(url, Date.now() - analysisStartTimeRef.current, { copy });
           setAnalysisProgress(100);
           setAnalysisStepIndex(ANALYSIS_STEPS.length - 1);
           setTimeout(() => setStep("product"), 800);
@@ -532,7 +542,7 @@ export function OnboardingFlowModal({ open, onOpenChange, initialWebsiteUrl }: O
 
   const handleGoogleLogin = async () => {
     if (isConnecting) return;
-    trackSignInClicked("google", "onboarding_modal");
+    trackSignInClicked("google", "onboarding_modal", { copy });
     setIsConnecting(true);
     try {
       localStorage.removeItem("dvyb_google_oauth_state");

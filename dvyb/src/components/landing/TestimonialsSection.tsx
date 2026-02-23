@@ -2,12 +2,37 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Star, ChevronLeft, ChevronRight } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import {
   Carousel,
   CarouselContent,
   CarouselItem,
   type CarouselApi,
 } from "@/components/ui/carousel";
+
+function normalizeUrl(url: string): string {
+  const u = url.trim();
+  if (!u) return "";
+  if (!/^https?:\/\//i.test(u)) return "https://" + u;
+  return u;
+}
+
+function isValidWebsiteUrl(input: string): boolean {
+  const value = input.trim();
+  if (!value) return false;
+  const toParse = /^https?:\/\//i.test(value) ? value : "https://" + value;
+  try {
+    const parsed = new URL(toParse);
+    const host = parsed.hostname;
+    if (!host || host.includes(" ")) return false;
+    const parts = host.split(".");
+    if (parts.length < 2) return false;
+    const tld = parts[parts.length - 1];
+    return tld.length >= 2 && /^[a-zA-Z]{2,}$/.test(tld);
+  } catch {
+    return false;
+  }
+}
 
 const testimonials = [
   {
@@ -55,9 +80,30 @@ const StarsRating = () => (
   </div>
 );
 
-export function TestimonialsSection() {
+interface TestimonialsSectionProps {
+  /** When provided, show URL input + Generate for free button (wander-connect style) */
+  onOpenOnboardingWithUrl?: (url: string) => void;
+}
+
+export function TestimonialsSection({ onOpenOnboardingWithUrl }: TestimonialsSectionProps) {
   const [api, setApi] = useState<CarouselApi>();
   const [current, setCurrent] = useState(0);
+  const [websiteUrl, setWebsiteUrl] = useState("");
+  const [websiteError, setWebsiteError] = useState<string | null>(null);
+
+  const handleCtaClick = () => {
+    if (!onOpenOnboardingWithUrl) return;
+    if (!websiteUrl.trim()) {
+      setWebsiteError("Please enter your website URL.");
+      return;
+    }
+    if (!isValidWebsiteUrl(websiteUrl)) {
+      setWebsiteError("Please enter a valid website URL like yourbrand.com or https://yourbrand.com.");
+      return;
+    }
+    setWebsiteError(null);
+    onOpenOnboardingWithUrl(normalizeUrl(websiteUrl));
+  };
 
   const onSelect = useCallback((api: CarouselApi) => {
     setCurrent(api?.selectedScrollSnap() ?? 0);
@@ -84,11 +130,44 @@ export function TestimonialsSection() {
       <div className="container mx-auto">
         <div className="text-center mb-10 sm:mb-16 px-2">
           <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-display font-bold mb-4 sm:mb-6">
-            Obsessed on by D2C founders and marketers
+            Built with <span className="text-cta">❤️</span> for small teams and agencies
           </h2>
-          <p className="text-muted-foreground max-w-2xl mx-auto text-sm sm:text-base md:text-lg">
-            Teams across industries use dvyb.ai to scale their creative output.
-          </p>
+          {onOpenOnboardingWithUrl && (
+            <div className="flex flex-col items-center gap-2 md:gap-3 mt-6">
+              <div className="flex flex-col md:flex-row gap-3 w-full max-w-xl mx-auto">
+                <Input
+                  type="url"
+                  placeholder="https://yourbrand.com"
+                  value={websiteUrl}
+                  onChange={(e) => {
+                    setWebsiteUrl(e.target.value);
+                    if (websiteError) setWebsiteError(null);
+                  }}
+                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleCtaClick())}
+                  className="h-12 md:h-14 text-base md:text-lg px-5 rounded-full border-2 border-foreground dark:border-cta bg-card/80 backdrop-blur-sm shadow-soft"
+                />
+                <button
+                  type="button"
+                  onClick={handleCtaClick}
+                  disabled={!websiteUrl.trim()}
+                  className="group relative h-12 md:h-14 px-8 md:px-10 bg-cta text-cta-foreground rounded-full font-semibold text-base md:text-lg transition-all duration-300 hover:scale-105 flex items-center justify-center gap-3 whitespace-nowrap disabled:opacity-60 disabled:hover:scale-100"
+                  style={{ boxShadow: "0 0 40px -10px hsl(25 100% 55% / 0.5)" }}
+                >
+                  <span className="relative flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500" />
+                  </span>
+                  Generate for free
+                </button>
+              </div>
+              {websiteError && (
+                <p className="text-xs text-red-500">{websiteError}</p>
+              )}
+              <p className="text-xs md:text-sm text-muted-foreground tracking-wide">
+                No credit card · Takes 3 minutes
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="relative flex items-center gap-2 sm:gap-4">

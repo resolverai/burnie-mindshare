@@ -7,7 +7,10 @@ import { Button } from "@/components/ui/button";
 import { NavigationLanding } from "@/components/landing/NavigationLanding";
 import { FooterLanding } from "@/components/landing/FooterLanding";
 import { useAuth } from "@/contexts/AuthContext";
+import { useTheme } from "next-themes";
+import { cn } from "@/lib/utils";
 import { trackStartNowClicked } from "@/lib/mixpanel";
+import { getOnboardingCopyForPage } from "@/lib/abCopy";
 
 interface PricingPlan {
   id: number;
@@ -35,7 +38,9 @@ const features = [
 function PricingPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { resolvedTheme } = useTheme();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const isCopyA = getOnboardingCopyForPage() === "A";
   const flowParam = searchParams.get("flow");
   const userFlow = (flowParam === "website_analysis" || flowParam === "product_photoshot")
     ? flowParam
@@ -131,8 +136,15 @@ function PricingPageContent() {
   const handleGetStarted = () => (window.location.href = "/");
 
   return (
-    <div className="min-h-screen bg-[hsl(var(--landing-hero-bg))]">
-      <NavigationLanding onGetStarted={handleGetStarted} hideExplore />
+    <div className={cn("min-h-screen bg-[hsl(var(--landing-hero-bg))]", isCopyA && "font-hind")}>
+      <NavigationLanding
+        variant={resolvedTheme === "dark" ? "dark" : "default"}
+        onGetStarted={handleGetStarted}
+        hideExplore
+        navStyle={isCopyA ? "wander" : "default"}
+        showSignIn={isCopyA}
+        showThemeToggle={isCopyA}
+      />
       <main className="pt-20 sm:pt-28 pb-20 px-4 sm:px-6">
         <div className="container mx-auto max-w-md mx-auto">
           <h1 className="sr-only">Pricing</h1>

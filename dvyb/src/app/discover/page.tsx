@@ -9,7 +9,7 @@ import { CreateAdFlowModal, type PreselectedInspiration } from "@/components/pag
 import { OnboardingPricingModal } from "@/components/OnboardingPricingModal";
 import { Loader2 } from "lucide-react";
 import { dvybApi } from "@/lib/api";
-import { trackLimitsReached } from "@/lib/mixpanel";
+import { trackLimitsReached, trackDiscoverScreenViewedFromOnboarding } from "@/lib/mixpanel";
 
 function DiscoverPageInner() {
   const [activeView] = useState("discover");
@@ -30,6 +30,22 @@ function DiscoverPageInner() {
       router.push("/");
     }
   }, [isAuthenticated, isLoading, router]);
+
+  // Track discover view from onboarding (Copy A/B funnel completion)
+  useEffect(() => {
+    if (!isAuthenticated || isLoading) return;
+    const fromOnboarding = searchParams.get("from_onboarding");
+    if (fromOnboarding === "1") {
+      const copy = localStorage.getItem("dvyb_onboarding_copy");
+      if (copy === "A" || copy === "B") {
+        trackDiscoverScreenViewedFromOnboarding(copy);
+      }
+      const newSearch = new URLSearchParams(searchParams.toString());
+      newSearch.delete("from_onboarding");
+      const qs = newSearch.toString();
+      window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : ""));
+    }
+  }, [isAuthenticated, isLoading, searchParams]);
 
   useEffect(() => {
     const fetchSubscription = async () => {

@@ -337,6 +337,24 @@ export const contextApi = {
   },
 
   /**
+   * Capture website screenshot for Copy A onboarding.
+   * Returns presigned URL for display.
+   */
+  async captureWebsiteScreenshot(url: string) {
+    return apiRequest<{
+      success: boolean;
+      data: { presignedUrl: string; s3Key: string } | null;
+      error?: string;
+    }>(
+      '/dvyb/context/capture-website-screenshot',
+      {
+        method: 'POST',
+        body: JSON.stringify({ url }),
+      }
+    );
+  },
+
+  /**
    * Save website analysis to authenticated account
    * Can pass pre-analyzed data from localStorage or trigger new analysis
    */

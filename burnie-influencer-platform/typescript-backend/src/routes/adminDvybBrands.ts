@@ -177,9 +177,12 @@ router.post('/', isAdmin, async (req: Request, res: Response) => {
     } else {
       brand.fetchStatus = 'pending';
       brand.fetchError = null;
-      // Refetch: use request countries when provided (including null/empty = "all"); persist so next refetch uses same.
+      // Refetch: persist countries and mediaType so next refetch uses same.
       if (Object.prototype.hasOwnProperty.call(req.body, 'countries')) {
         brand.countries = countriesArr;
+      }
+      if (Object.prototype.hasOwnProperty.call(req.body, 'media')) {
+        brand.mediaType = mediaType;
       }
       // Only update handle/pageId from body when NOT refetching (refetch uses stored values from DB).
       if (bodyBrandId == null || isNaN(Number(bodyBrandId))) {
