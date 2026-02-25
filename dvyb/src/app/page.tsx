@@ -122,19 +122,7 @@ function HomePageContent() {
         return;
       }
 
-      // PRIORITY 1: Logged-in user visiting landing directly → redirect to discover
-      // Exception: Copy A/B login-first return; or Copy A/B with website= param (so they can start analysis)
-      const stepParam = searchParams.get("step");
-      const websiteParam = searchParams.get("website");
-      const isCopyALoginFirstReturn = stepParam === "input";
-      const isCopyBLoginFirstReturn = openModalParam === "website";
-      const isCopyAWithWebsite = searchParams.get("copy") === "a" && websiteParam;
-      const isCopyBWithWebsite = searchParams.get("copy") === "b" && websiteParam;
-      if (isAuthenticated && (isCopyALoginFirstReturn || isCopyBLoginFirstReturn || isCopyAWithWebsite || isCopyBWithWebsite)) {
-        console.log("🎯 Showing landing (login-first return or website= param)");
-        setShouldShowLanding(true);
-        return;
-      }
+      // Logged-in user visiting landing → always redirect to discover (any copy, with or without website param)
       if (isAuthenticated) {
         console.log("✅ User already logged in - redirecting to /discover");
         localStorage.removeItem("dvyb_website_analysis");
@@ -197,7 +185,8 @@ function HomePageContent() {
   }
 
   const openModal = searchParams.get("openModal") === "website";
-  return <LandingPageNew onAnalysisComplete={handleAnalysisComplete} initialOpenWebsiteModal={openModal} />;
+  const hasWebsiteParam = !!searchParams.get("website");
+  return <LandingPageNew onAnalysisComplete={handleAnalysisComplete} initialOpenWebsiteModal={openModal || (copy === "B" && hasWebsiteParam)} />;
 }
 
 // Wrap in Suspense boundary for useSearchParams

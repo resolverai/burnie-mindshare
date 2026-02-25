@@ -556,6 +556,11 @@ export function OnboardingFlowModal({ open, onOpenChange, initialWebsiteUrl, cop
     setIsConnecting(true);
     try {
       localStorage.removeItem("dvyb_google_oauth_state");
+      const pendingUrl = typeof window !== "undefined" ? localStorage.getItem("dvyb_pending_website_url") : null;
+      const returnBase = "/?copy=b&openModal=website";
+      const returnUrl = pendingUrl ? `${returnBase}&website=${encodeURIComponent(pendingUrl)}` : returnBase;
+      localStorage.setItem("dvyb_oauth_return_url", returnUrl);
+      localStorage.setItem("dvyb_oauth_platform", "google");
       // Flag for callback: after OAuth, upload product, start generation, redirect to landing with content modal
       localStorage.setItem("dvyb_landing_onboarding_flow_pending", "true");
       const response = await authApi.getGoogleLoginUrl();

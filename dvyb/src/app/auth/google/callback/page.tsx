@@ -137,31 +137,52 @@ function DvybGoogleCallbackContent() {
           }
         }
         
-        // Check if this is a "connect" flow or landing login-first (Copy A/B return to input step or website modal)
-        const oauthReturnUrl = localStorage.getItem('dvyb_oauth_return_url')
-        const oauthPlatform = localStorage.getItem('dvyb_oauth_platform')
-        
-        if (oauthReturnUrl && oauthPlatform === 'google') {
-          // This is a "connect Google" flow from another page (e.g., Brand Kit)
-          console.log('🔗 Connect flow detected, returning to:', oauthReturnUrl)
-          
-          // Clean up
+        // If user just finished login after inspiration step (Copy A/B), run generation and show content modal.
+        // Do this BEFORE the connect-flow redirect so we don't send them back to website modal (which would restart analysis).
+        const landingOnboardingPending = localStorage.getItem('dvyb_landing_onboarding_flow_pending')
+        if (landingOnboardingPending === 'true') {
           localStorage.removeItem('dvyb_oauth_return_url')
           localStorage.removeItem('dvyb_oauth_platform')
-          
-          // Store success flag for the return page to show toast
-          localStorage.setItem('dvyb_oauth_success', JSON.stringify({
-            platform: 'google',
-            message: 'Google connected successfully',
-            timestamp: Date.now()
-          }))
-          
-          // Redirect back to the return URL
-          setTimeout(() => {
-            console.log('🚀 Navigating to:', oauthReturnUrl)
-            window.location.href = oauthReturnUrl
-          }, 800)
-          return
+          // Fall through to the landing onboarding block below – do not redirect to return URL here
+        } else {
+          // Check if this is a "connect" flow or landing login-first (Copy A/B return to input step or website modal)
+          const oauthReturnUrl = localStorage.getItem('dvyb_oauth_return_url')
+          const oauthPlatform = localStorage.getItem('dvyb_oauth_platform')
+
+          if (oauthReturnUrl && oauthPlatform === 'google') {
+            // This is a "connect Google" flow from another page (e.g., Brand Kit) or Copy A/B landing login
+            console.log('🔗 Connect flow detected, returning to:', oauthReturnUrl)
+
+            // Clean up
+            localStorage.removeItem('dvyb_oauth_return_url')
+            localStorage.removeItem('dvyb_oauth_platform')
+
+            // Copy A/B landing: if return URL has no website param, send user directly to discover
+            const isCopyALanding = oauthReturnUrl.includes('copy=a') && oauthReturnUrl.includes('step=input')
+            const isCopyBLanding = oauthReturnUrl.includes('copy=b') && oauthReturnUrl.includes('openModal=website')
+            const hasWebsiteParam = /[?&]website=/.test(oauthReturnUrl)
+            if ((isCopyALanding || isCopyBLanding) && !hasWebsiteParam) {
+              console.log('➡️ Copy A/B landing without website param – redirecting to /discover')
+              setTimeout(() => {
+                window.location.href = '/discover'
+              }, 800)
+              return
+            }
+
+            // Store success flag for the return page to show toast
+            localStorage.setItem('dvyb_oauth_success', JSON.stringify({
+              platform: 'google',
+              message: 'Google connected successfully',
+              timestamp: Date.now()
+            }))
+
+            // Redirect back to the return URL
+            setTimeout(() => {
+              console.log('🚀 Navigating to:', oauthReturnUrl)
+              window.location.href = oauthReturnUrl
+            }, 800)
+            return
+          }
         }
         
         // This is a sign-in flow - determine where to redirect based on user state
@@ -194,7 +215,6 @@ function DvybGoogleCallbackContent() {
         
         // NEW: Landing onboarding flow (website -> inspiration -> product -> login)
         // Upload product to S3, start adhoc generation, redirect to landing with content modal
-        const landingOnboardingPending = localStorage.getItem('dvyb_landing_onboarding_flow_pending')
         if (landingOnboardingPending === 'true') {
           console.log('🎯 Landing onboarding flow detected - upload product, start generation, redirect to /')
           localStorage.removeItem('dvyb_landing_onboarding_flow_pending')

@@ -198,10 +198,10 @@ export function LandingPageCopyA() {
   const { completeStep } = useOnboardingGuide();
   const { toast } = useToast();
 
-  // When arriving from pricing "Start now" (?step=input) or with ?website= (after login), skip to input or auto-start analysis
+  // When arriving from pricing "Start now" (?step=input) or with ?website= in URL, start at input so analysis can run without login
   const stepParam = searchParams.get("step");
   const websiteParamFromUrl = searchParams.get("website");
-  const initialStep: CopyAStep = stepParam === "input" ? "input" : "hero";
+  const initialStep: CopyAStep = stepParam === "input" || (!!websiteParamFromUrl?.trim()) ? "input" : "hero";
   const [step, setStep] = useState<CopyAStep>(initialStep);
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [analysisData, setAnalysisData] = useState<AnalysisData | null>(null);
@@ -354,12 +354,11 @@ export function LandingPageCopyA() {
     setStep("analyzing");
   }, [step, websiteParamFromUrl]);
 
-  // Redirect logged-in users (except OAuth return with content modal or login-first return to input step)
+  // Redirect logged-in users to discover (except when returning from OAuth with content generation modal)
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      const isOAuthReturn = searchParams.get("openModal") === "contentGeneration";
-      const isLoginFirstReturnToInput = searchParams.get("step") === "input";
-      if (isOAuthReturn || isLoginFirstReturnToInput) return;
+      const isOAuthReturnWithContentModal = searchParams.get("openModal") === "contentGeneration";
+      if (isOAuthReturnWithContentModal) return;
       const hasJob = !!localStorage.getItem("dvyb_onboarding_generation_job_id") || !!onboardingJobId;
       if (!hasJob) router.replace("/discover");
     }

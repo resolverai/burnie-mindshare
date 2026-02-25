@@ -24,7 +24,10 @@ export function CopyASignUpScreen({ onContinue, isDarkTheme = true }: CopyASignU
     trackSignInClicked("google", "landing_page", { copy: "A" });
     try {
       localStorage.removeItem("dvyb_google_oauth_state");
-      localStorage.setItem("dvyb_oauth_return_url", "/");
+      const pendingUrl = typeof window !== "undefined" ? localStorage.getItem("dvyb_pending_website_url") : null;
+      const returnBase = "/?copy=a&step=input";
+      const returnUrl = pendingUrl ? `${returnBase}&website=${encodeURIComponent(pendingUrl)}` : returnBase;
+      localStorage.setItem("dvyb_oauth_return_url", returnUrl);
       localStorage.setItem("dvyb_oauth_platform", "google");
       localStorage.setItem("dvyb_landing_onboarding_flow_pending", "true");
       const response = await authApi.getGoogleLoginUrl({ signInOnly: false });

@@ -52,20 +52,11 @@ export function LandingPageNew({ onAnalysisComplete, initialOpenWebsiteModal }: 
   }, [setTheme]);
 
   // Redirect logged-in users to discover (safety net in case page.tsx redirect didn't run)
-  // Skip redirect when user has onboarding generation job - they need to see their content modal
-  // Skip redirect when returning from OAuth with openModal=contentGeneration (Google callback sends this)
-  // Must check BOTH localStorage AND onboardingJobId state: we remove from localStorage when opening
-  // the dialog, so a later run (e.g. when auth loads) would otherwise redirect before dialog shows
+  // Skip redirect only when returning from OAuth with content generation modal (openModal=contentGeneration)
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
       const isOAuthReturnWithContentModal = searchParams.get("openModal") === "contentGeneration";
-      const isOAuthReturnWithWebsiteModal = searchParams.get("openModal") === "website";
-      if (isOAuthReturnWithContentModal) {
-        return; // User just returned from OAuth - show landing with GenerateContentDialog, don't redirect
-      }
-      if (isOAuthReturnWithWebsiteModal) {
-        return; // User returned after login-first: show landing with website modal, don't redirect
-      }
+      if (isOAuthReturnWithContentModal) return;
       const hasOnboardingJobInStorage = !!localStorage.getItem("dvyb_onboarding_generation_job_id");
       const hasOnboardingJobInState = !!onboardingJobId;
       if (!hasOnboardingJobInStorage && !hasOnboardingJobInState) {
