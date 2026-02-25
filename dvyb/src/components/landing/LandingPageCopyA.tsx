@@ -523,8 +523,9 @@ export function LandingPageCopyA() {
   );
 
   const handleDnaContinue = useCallback(() => {
-    if (selectedProduct) {
-      localStorage.setItem("dvyb_selected_products", JSON.stringify([selectedProduct]));
+    const productToSave = selectedProduct ?? (domainProducts.length > 0 ? domainProducts[Math.floor(Math.random() * domainProducts.length)] : null);
+    if (productToSave) {
+      localStorage.setItem("dvyb_selected_products", JSON.stringify([productToSave]));
     } else {
       localStorage.removeItem("dvyb_selected_products");
     }
@@ -540,7 +541,7 @@ export function LandingPageCopyA() {
       }
     }
     setStep("inspirations");
-  }, [selectedProduct, editedColors, editedFont]);
+  }, [selectedProduct, domainProducts, editedColors, editedFont]);
 
   const handleInspirationsContinue = useCallback(async () => {
     if (isAuthenticated) {
@@ -647,6 +648,28 @@ export function LandingPageCopyA() {
     }
     setStep("signup");
   }, [isAuthenticated, toast]);
+
+  const handleInspirationSkip = useCallback(async () => {
+    if (isAuthenticated) {
+      router.push("/discover");
+      return;
+    }
+    try {
+      localStorage.removeItem("dvyb_google_oauth_state");
+      localStorage.setItem("dvyb_oauth_return_url", "/discover");
+      localStorage.setItem("dvyb_oauth_platform", "google");
+      const response = await authApi.getGoogleLoginUrl({ signInOnly: false });
+      if (response.success && response.data?.oauth_url) {
+        if (response.data.state) localStorage.setItem("dvyb_google_oauth_state", response.data.state);
+        window.location.href = response.data.oauth_url;
+      } else {
+        throw new Error("Failed to get Google login URL");
+      }
+    } catch (err) {
+      console.error("Copy A inspiration skip login error:", err);
+      toast({ title: "Sign-in failed", description: "Could not start sign-in.", variant: "destructive" });
+    }
+  }, [isAuthenticated, router, toast]);
 
   const heroBgDark =
     "radial-gradient(ellipse 70% 40% at 50% 15%, hsl(50 30% 30% / 0.3) 0%, transparent 70%), radial-gradient(ellipse 80% 60% at 50% 50%, hsl(240 10% 8%) 0%, hsl(240 10% 4%) 100%)";
@@ -902,11 +925,12 @@ export function LandingPageCopyA() {
               editedFont={editedFont}
               onFontChange={setEditedFont}
               onContinue={handleDnaContinue}
+              canContinue={domainProducts.length > 0}
             />
           )}
 
           {step === "inspirations" && (
-            <CopyAInspirationSelectScreen key="inspirations" onContinue={handleInspirationsContinue} onSkip={() => router.push("/discover")} isDarkTheme={isDarkTheme} />
+            <CopyAInspirationSelectScreen key="inspirations" onContinue={handleInspirationsContinue} onSkip={handleInspirationSkip} isDarkTheme={isDarkTheme} />
           )}
 
           {step === "signup" && (

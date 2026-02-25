@@ -56,6 +56,8 @@ interface CopyABusinessDnaScreenProps {
   editedFont: string;
   onFontChange: (font: string) => void;
   onContinue: () => void;
+  /** When false, "Looks good" is disabled (no products from backend and none uploaded yet) */
+  canContinue?: boolean;
   isDarkTheme?: boolean;
 }
 
@@ -88,6 +90,7 @@ export function CopyABusinessDnaScreen({
   editedFont,
   onFontChange,
   onContinue,
+  canContinue = true,
   isDarkTheme = true,
 }: CopyABusinessDnaScreenProps) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -252,6 +255,7 @@ export function CopyABusinessDnaScreen({
           <div className="flex flex-col lg:overflow-y-auto lg:min-h-0 pl-0 lg:pl-2" style={{ scrollbarWidth: "thin", scrollbarColor: "hsl(0 0% 30%) transparent" }}>
             <Card className="flex-1" isDarkTheme={isDarkTheme}>
               <SectionTitle>Images</SectionTitle>
+              <p className="text-xs text-muted-foreground mb-3">Select one of your products</p>
               <div className="grid grid-cols-3 md:grid-cols-4 gap-3">
                 <button
                   type="button"
@@ -316,8 +320,9 @@ export function CopyABusinessDnaScreen({
         <button
           type="button"
           onClick={onContinue}
-          className="px-10 py-3.5 rounded-full text-base font-display font-semibold bg-cta text-cta-foreground hover:scale-105 transition-all duration-300 flex-shrink-0"
-          style={{ boxShadow: "0 0 30px -5px hsl(25 100% 55% / 0.5)" }}
+          disabled={!canContinue}
+          className="px-10 py-3.5 rounded-full text-base font-display font-semibold bg-cta text-cta-foreground hover:scale-105 transition-all duration-300 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+          style={{ boxShadow: canContinue ? "0 0 30px -5px hsl(25 100% 55% / 0.5)" : undefined }}
         >
           Looks good
         </button>
