@@ -90,6 +90,7 @@ export default function AffiliateLandingPage() {
       <NavigationLanding
         variant={resolvedTheme === "dark" ? "dark" : "default"}
         hideExplore
+        hidePricing
         onGetStarted={openAffiliateLogin}
         navStyle={isCopyA ? "wander" : "default"}
         showSignIn={isCopyA}
