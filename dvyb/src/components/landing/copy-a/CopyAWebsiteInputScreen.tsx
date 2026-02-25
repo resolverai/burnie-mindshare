@@ -12,11 +12,12 @@ const COPY_A_BG_DARK =
 
 interface CopyAWebsiteInputScreenProps {
   onContinue: (data: { url?: string; file?: File }) => void;
+  onSkip?: () => void;
   isDarkTheme?: boolean;
   isUploading?: boolean;
 }
 
-export function CopyAWebsiteInputScreen({ onContinue, isDarkTheme = true, isUploading = false }: CopyAWebsiteInputScreenProps) {
+export function CopyAWebsiteInputScreen({ onContinue, onSkip, isDarkTheme = true, isUploading = false }: CopyAWebsiteInputScreenProps) {
   const { toast } = useToast();
   const [url, setUrl] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -160,16 +161,27 @@ export function CopyAWebsiteInputScreen({ onContinue, isDarkTheme = true, isUplo
           </div>
         </div>
 
-        <div className="flex justify-center">
-          <button
-            type="button"
-            onClick={handleContinue}
-            disabled={!canContinue || isUploading}
-            className="px-12 py-4 rounded-full text-lg font-display font-semibold transition-all duration-300 disabled:opacity-30 disabled:cursor-not-allowed bg-cta text-cta-foreground hover:scale-105"
-            style={{ boxShadow: canContinue && !isUploading ? "0 0 30px -5px hsl(25 100% 55% / 0.5)" : "none" }}
-          >
-            {isUploading ? "Uploading…" : "Continue"}
-          </button>
+        <div className="flex flex-col items-center gap-4">
+          <div className="flex justify-center">
+            <button
+              type="button"
+              onClick={handleContinue}
+              disabled={!canContinue || isUploading}
+              className="px-12 py-4 rounded-full text-lg font-display font-semibold transition-all duration-300 disabled:opacity-30 disabled:cursor-not-allowed bg-cta text-cta-foreground hover:scale-105"
+              style={{ boxShadow: canContinue && !isUploading ? "0 0 30px -5px hsl(25 100% 55% / 0.5)" : "none" }}
+            >
+              {isUploading ? "Uploading…" : "Continue"}
+            </button>
+          </div>
+          {onSkip && (
+            <button
+              type="button"
+              onClick={onSkip}
+              className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+            >
+              No I will skip
+            </button>
+          )}
         </div>
       </motion.div>
     </motion.div>

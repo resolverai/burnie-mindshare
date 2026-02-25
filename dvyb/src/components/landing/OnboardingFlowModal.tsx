@@ -78,9 +78,15 @@ interface OnboardingFlowModalProps {
   initialWebsiteUrl?: string | null;
   /** Copy B for tracking (Copy A uses separate flow) */
   copy?: "B";
+  /** When provided, show "No I will explore myself" on website step; on click close modal and go to discover. */
+  onSkipToDiscover?: () => void;
+  /** When true, after inspiration selection we skip the login step and call onProceedToGeneration instead. */
+  isAuthenticated?: boolean;
+  /** When user is authenticated and clicks "Create Ads" after inspiration, call this to start generation and open content dialog. */
+  onProceedToGeneration?: () => void | Promise<void>;
 }
 
-export function OnboardingFlowModal({ open, onOpenChange, initialWebsiteUrl, copy = "B" }: OnboardingFlowModalProps) {
+export function OnboardingFlowModal({ open, onOpenChange, initialWebsiteUrl, copy = "B", onSkipToDiscover, isAuthenticated, onProceedToGeneration }: OnboardingFlowModalProps) {
   const { toast } = useToast();
   const [step, setStep] = useState<Step>("website");
 
@@ -322,6 +328,10 @@ export function OnboardingFlowModal({ open, onOpenChange, initialWebsiteUrl, cop
     } else if (customInspirationS3Url) {
       const customInspiration = [{ creativeImageUrl: customInspirationS3Url, image: customInspirationS3Url }];
       localStorage.setItem("dvyb_selected_inspirations", JSON.stringify(customInspiration));
+    }
+    if (isAuthenticated && onProceedToGeneration) {
+      onProceedToGeneration();
+      return;
     }
     setStep("login");
   };
@@ -628,6 +638,15 @@ export function OnboardingFlowModal({ open, onOpenChange, initialWebsiteUrl, cop
             </div>
             {websiteInputError && (
               <p className="mt-2 text-xs text-red-500 text-center w-full max-w-md">{websiteInputError}</p>
+            )}
+            {onSkipToDiscover && (
+              <button
+                type="button"
+                onClick={onSkipToDiscover}
+                className="mt-4 text-sm text-neutral-500 hover:text-neutral-900 underline underline-offset-2 transition-colors"
+              >
+                No I will explore myself
+              </button>
             )}
           </div>
         )}

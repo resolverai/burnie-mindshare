@@ -251,7 +251,7 @@ export const AppSidebar = ({ activeView, activeSubView, onViewChange, isMobileOp
               src={dvybLogo} 
               alt="Dvyb Logo" 
               className={cn(
-                "object-contain",
+                "object-contain dark:brightness-0 dark:invert",
                 collapsed ? "h-16 md:h-8 w-auto md:w-8" : "h-16 w-auto"
               )}
               priority 

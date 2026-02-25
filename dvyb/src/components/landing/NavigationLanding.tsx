@@ -29,6 +29,8 @@ interface NavigationLandingProps {
   showSignIn?: boolean;
   /** Hide Explore tab - used on new landing page */
   hideExplore?: boolean;
+  /** Hide Pricing link - used on Copy A and Copy B landing pages */
+  hidePricing?: boolean;
   /** Show theme toggle (dark/light) in header */
   showThemeToggle?: boolean;
   /** Nav style: "wander" = flat layout, active pill only, Sign In orange (matches wander-and-seek) */
@@ -42,7 +44,7 @@ const MOBILE_NAV_LINKS = [
   { name: "Affiliates", path: "/affiliates" },
 ];
 
-export function NavigationLanding({ variant = "default", onGetStarted, showSignIn = false, hideExplore = false, showThemeToggle = false, navStyle = "default" }: NavigationLandingProps) {
+export function NavigationLanding({ variant = "default", onGetStarted, showSignIn = false, hideExplore = false, hidePricing = false, showThemeToggle = false, navStyle = "default" }: NavigationLandingProps) {
   const pathname = usePathname();
   const isDark = variant === "dark";
   const { isAuthenticated, isLoading } = useAuth();
@@ -50,8 +52,12 @@ export function NavigationLanding({ variant = "default", onGetStarted, showSignI
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [signInChoiceOpen, setSignInChoiceOpen] = useState(false);
-  const navLinks = hideExplore ? navItems.filter((i) => i.path !== "/explore") : navItems;
-  const mobileLinks = hideExplore ? MOBILE_NAV_LINKS.filter((i) => i.path !== "/explore") : MOBILE_NAV_LINKS;
+  const navLinks = (hideExplore ? navItems.filter((i) => i.path !== "/explore") : navItems).filter(
+    (i) => !hidePricing || i.path !== "/pricing"
+  );
+  const mobileLinks = (hideExplore ? MOBILE_NAV_LINKS.filter((i) => i.path !== "/explore") : MOBILE_NAV_LINKS).filter(
+    (i) => !hidePricing || i.path !== "/pricing"
+  );
 
   const handleSignIn = async () => {
     if (isSigningIn) return;

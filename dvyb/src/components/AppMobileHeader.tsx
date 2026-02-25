@@ -63,7 +63,7 @@ export function AppMobileHeader({ planInfo, onUpgrade, onLogout, logoUrl }: AppM
             />
           ) : (
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center overflow-hidden flex-shrink-0">
-              <Image src={dvybLogo} alt="Dvyb" width={32} height={32} className="object-contain" />
+              <Image src={dvybLogo} alt="Dvyb" width={32} height={32} className="object-contain dark:brightness-0 dark:invert" />
             </div>
           )}
           <div className="min-w-0">
@@ -96,7 +96,7 @@ export function AppMobileHeader({ planInfo, onUpgrade, onLogout, logoUrl }: AppM
                     />
                   ) : (
                     <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
-                      <Image src={dvybLogo} alt="Dvyb" width={40} height={40} className="object-contain" />
+                      <Image src={dvybLogo} alt="Dvyb" width={40} height={40} className="object-contain dark:brightness-0 dark:invert" />
                     </div>
                   )}
                   <div className="flex-1 min-w-0">

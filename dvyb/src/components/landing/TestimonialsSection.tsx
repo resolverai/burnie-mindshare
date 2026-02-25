@@ -83,9 +83,12 @@ const StarsRating = () => (
 interface TestimonialsSectionProps {
   /** When provided, show URL input + Generate for free button (wander-connect style) */
   onOpenOnboardingWithUrl?: (url: string) => void;
+  /** Copy B login-first: hide URL input, show only centered "Generate for free" button. On click call this. */
+  loginFirstFlow?: boolean;
+  onPrimaryCtaClick?: () => void;
 }
 
-export function TestimonialsSection({ onOpenOnboardingWithUrl }: TestimonialsSectionProps) {
+export function TestimonialsSection({ onOpenOnboardingWithUrl, loginFirstFlow, onPrimaryCtaClick }: TestimonialsSectionProps) {
   const [api, setApi] = useState<CarouselApi>();
   const [current, setCurrent] = useState(0);
   const [websiteUrl, setWebsiteUrl] = useState("");
@@ -132,40 +135,54 @@ export function TestimonialsSection({ onOpenOnboardingWithUrl }: TestimonialsSec
           <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-display font-bold mb-4 sm:mb-6">
             Built with <span className="text-cta">❤️</span> for small teams and agencies
           </h2>
-          {onOpenOnboardingWithUrl && (
+          {(onOpenOnboardingWithUrl || (loginFirstFlow && onPrimaryCtaClick)) && (
             <div className="flex flex-col items-center gap-2 md:gap-3 mt-6">
-              <div className="flex flex-col md:flex-row gap-3 w-full max-w-xl mx-auto">
-                <Input
-                  type="url"
-                  placeholder="https://yourbrand.com"
-                  value={websiteUrl}
-                  onChange={(e) => {
-                    setWebsiteUrl(e.target.value);
-                    if (websiteError) setWebsiteError(null);
-                  }}
-                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleCtaClick())}
-                  className="h-12 md:h-14 text-base md:text-lg px-5 rounded-full border-2 border-foreground dark:border-cta bg-card/80 backdrop-blur-sm shadow-soft"
-                />
-                <button
-                  type="button"
-                  onClick={handleCtaClick}
-                  disabled={!websiteUrl.trim()}
-                  className="group relative h-12 md:h-14 px-8 md:px-10 bg-cta text-cta-foreground rounded-full font-semibold text-base md:text-lg transition-all duration-300 hover:scale-105 flex items-center justify-center gap-3 whitespace-nowrap disabled:opacity-60 disabled:hover:scale-100"
-                  style={{ boxShadow: "0 0 40px -10px hsl(25 100% 55% / 0.5)" }}
-                >
-                  <span className="relative flex h-3 w-3">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500" />
-                  </span>
-                  Generate for free
-                </button>
-              </div>
-              {websiteError && (
+              {loginFirstFlow && onPrimaryCtaClick ? (
+                <div className="flex flex-col items-center w-full">
+                  <button
+                    type="button"
+                    onClick={onPrimaryCtaClick}
+                    className="group relative h-12 md:h-14 px-8 md:px-10 bg-cta text-cta-foreground rounded-full font-semibold text-base md:text-lg transition-all duration-300 hover:scale-105 flex items-center justify-center gap-3 whitespace-nowrap"
+                    style={{ boxShadow: "0 0 40px -10px hsl(25 100% 55% / 0.5)" }}
+                  >
+                    <span className="relative flex h-3 w-3">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500" />
+                    </span>
+                    Absolutely Free
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col md:flex-row gap-3 w-full max-w-xl mx-auto">
+                  <Input
+                    type="url"
+                    placeholder="https://yourbrand.com"
+                    value={websiteUrl}
+                    onChange={(e) => {
+                      setWebsiteUrl(e.target.value);
+                      if (websiteError) setWebsiteError(null);
+                    }}
+                    onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleCtaClick())}
+                    className="h-12 md:h-14 text-base md:text-lg px-5 rounded-full border-2 border-foreground dark:border-cta bg-card/80 backdrop-blur-sm shadow-soft"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleCtaClick}
+                    disabled={!websiteUrl.trim()}
+                    className="group relative h-12 md:h-14 px-8 md:px-10 bg-cta text-cta-foreground rounded-full font-semibold text-base md:text-lg transition-all duration-300 hover:scale-105 flex items-center justify-center gap-3 whitespace-nowrap disabled:opacity-60 disabled:hover:scale-100"
+                    style={{ boxShadow: "0 0 40px -10px hsl(25 100% 55% / 0.5)" }}
+                  >
+                    <span className="relative flex h-3 w-3">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500" />
+                    </span>
+                    Absolutely Free
+                  </button>
+                </div>
+              )}
+              {websiteError && !loginFirstFlow && (
                 <p className="text-xs text-red-500">{websiteError}</p>
               )}
-              <p className="text-xs md:text-sm text-muted-foreground tracking-wide">
-                No credit card · Takes 3 minutes
-              </p>
             </div>
           )}
         </div>

@@ -14,12 +14,14 @@ import { CopyASignUpScreen } from "./copy-a/CopyASignUpScreen";
 import { GenerateContentDialog } from "@/components/onboarding/GenerateContentDialog";
 import { NotRegisteredModal } from "./NotRegisteredModal";
 import { useOnboardingGuide } from "@/hooks/useOnboardingGuide";
-import { contextApi } from "@/lib/api";
+import { contextApi, authApi, adhocGenerationApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import {
   trackWebsiteAnalysisStarted,
   trackWebsiteAnalysisCompleted,
   trackLandingPageViewed,
+  trackLandingTimeSpent,
+  trackLandingScrolled,
   trackOnboardingFlowStepViewed,
   trackOnboardingFlowCompleted,
 } from "@/lib/mixpanel";
@@ -196,8 +198,9 @@ export function LandingPageCopyA() {
   const { completeStep } = useOnboardingGuide();
   const { toast } = useToast();
 
-  // When arriving from pricing "Start now" (?step=input), skip to website input step
+  // When arriving from pricing "Start now" (?step=input) or with ?website= (after login), skip to input or auto-start analysis
   const stepParam = searchParams.get("step");
+  const websiteParamFromUrl = searchParams.get("website");
   const initialStep: CopyAStep = stepParam === "input" ? "input" : "hero";
   const [step, setStep] = useState<CopyAStep>(initialStep);
   const [websiteUrl, setWebsiteUrl] = useState("");
@@ -234,6 +237,31 @@ export function LandingPageCopyA() {
   useEffect(() => {
     trackOnboardingFlowStepViewed("A", step);
   }, [step]);
+
+  // Landing time spent (seconds) – send on unmount
+  const landingStartTimeRef = useRef<number>(Date.now());
+  useEffect(() => {
+    landingStartTimeRef.current = Date.now();
+    return () => {
+      const seconds = Math.round((Date.now() - landingStartTimeRef.current) / 1000);
+      if (seconds > 0) trackLandingTimeSpent(seconds, "A");
+    };
+  }, []);
+
+  // Landing scroll – fire once when user scrolls
+  useEffect(() => {
+    let sent = false;
+    const onScroll = () => {
+      if (sent) return;
+      if (typeof window !== "undefined" && window.scrollY > 0) {
+        sent = true;
+        trackLandingScrolled("A");
+        window.removeEventListener("scroll", onScroll);
+      }
+    };
+    window.addEventListener("scroll", onScroll);
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   // Stack → burst → done animation (wander-and-seek)
   useEffect(() => {
@@ -314,11 +342,24 @@ export function LandingPageCopyA() {
     if (typeof detected === "string" && detected) setEditedFont(detected);
   }, [step, analysisData]);
 
-  // Redirect logged-in users (except OAuth return with content modal)
+  // When returning from Google with ?step=input&website=..., auto-submit website and start analysis so user lands on DNA
+  const hasAutoStartedWithWebsite = useRef(false);
+  useEffect(() => {
+    if (step !== "input" || !websiteParamFromUrl?.trim() || hasAutoStartedWithWebsite.current) return;
+    if (!isValidWebsiteUrl(websiteParamFromUrl)) return;
+    hasAutoStartedWithWebsite.current = true;
+    const normalized = normalizeUrl(websiteParamFromUrl.trim());
+    setWebsiteUrl(normalized);
+    localStorage.setItem("dvyb_pending_website_url", normalized);
+    setStep("analyzing");
+  }, [step, websiteParamFromUrl]);
+
+  // Redirect logged-in users (except OAuth return with content modal or login-first return to input step)
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
       const isOAuthReturn = searchParams.get("openModal") === "contentGeneration";
-      if (isOAuthReturn) return;
+      const isLoginFirstReturnToInput = searchParams.get("step") === "input";
+      if (isOAuthReturn || isLoginFirstReturnToInput) return;
       const hasJob = !!localStorage.getItem("dvyb_onboarding_generation_job_id") || !!onboardingJobId;
       if (!hasJob) router.replace("/discover");
     }
@@ -502,16 +543,151 @@ export function LandingPageCopyA() {
     setStep("inspirations");
   }, [selectedProduct, editedColors, editedFont]);
 
-  const handleInspirationsContinue = useCallback(() => {
+  const handleInspirationsContinue = useCallback(async () => {
+    if (isAuthenticated) {
+      // Already logged in (login-first flow): start generation and open dialog
+      try {
+        const storedAnalysis = localStorage.getItem("dvyb_website_analysis");
+        const storedUrl = localStorage.getItem("dvyb_pending_website_url");
+        if (storedAnalysis && storedUrl) {
+          try {
+            const analysisData = JSON.parse(storedAnalysis) as Record<string, unknown>;
+            await contextApi.updateContext({
+              website: storedUrl,
+              accountName: (analysisData.base_name as string) || undefined,
+              industry: (analysisData.industry as string) || null,
+              suggestedFirstTopic: (analysisData.suggested_first_topic as { title?: string; description?: string } | null) || null,
+              businessOverview: (analysisData.business_overview_and_positioning as string) || undefined,
+              customerDemographics: (analysisData.customer_demographics_and_psychographics as string) || undefined,
+              popularProducts: analysisData.most_popular_products_and_services as string[] | undefined,
+              whyCustomersChoose: undefined,
+              brandStory: (analysisData.brand_story as string) || undefined,
+              colorPalette: analysisData.color_palette as unknown,
+              logoUrl: (analysisData.logo_s3_key as string) || null,
+            });
+          } catch {
+            /* ignore */
+          }
+        }
+        let productImageS3Key: string | undefined;
+        const selectedProductsStr = localStorage.getItem("dvyb_selected_products");
+        if (selectedProductsStr) {
+          try {
+            const products = JSON.parse(selectedProductsStr) as Array<{ s3Key?: string; image?: string }>;
+            const first = Array.isArray(products) ? products[0] : null;
+            if (first?.s3Key) productImageS3Key = first.s3Key;
+            else if (first?.image && typeof window !== "undefined") {
+              const imagePath = first.image.startsWith("/") ? first.image : `/${first.image}`;
+              const imageUrl = `${window.location.origin}${imagePath}`;
+              const res = await fetch(imageUrl);
+              const blob = await res.blob();
+              const ext = imagePath.split(".").pop() || "jpg";
+              const file = new File([blob], `product.${ext}`, { type: blob.type || "image/jpeg" });
+              const s3Url = await adhocGenerationApi.uploadImage(file);
+              productImageS3Key = adhocGenerationApi.extractS3Key(s3Url);
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+        let inspirationLinks: string[] = [];
+        const storedInspirations = localStorage.getItem("dvyb_selected_inspirations");
+        if (storedInspirations) {
+          try {
+            const inspirations = JSON.parse(storedInspirations) as Array<{ mediaUrl?: string; url?: string; creativeImageUrl?: string; creativeVideoUrl?: string }>;
+            if (Array.isArray(inspirations) && inspirations.length > 0) {
+              inspirationLinks = inspirations.flatMap((insp) =>
+                [insp.mediaUrl, insp.url, insp.creativeImageUrl, insp.creativeVideoUrl].filter(Boolean) as string[]
+              );
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+        const hasProductImage = !!productImageS3Key;
+        let contentTopic = "Product Launch";
+        let topicDescription = "Generate Product marketing post for this product";
+        if (hasProductImage) {
+          contentTopic = "Product Showcase";
+          topicDescription = "";
+        } else if (storedAnalysis) {
+          try {
+            const analysisData = JSON.parse(storedAnalysis) as { suggested_first_topic?: { title?: string; description?: string } };
+            if (analysisData.suggested_first_topic?.title) {
+              contentTopic = analysisData.suggested_first_topic.title;
+              topicDescription = analysisData.suggested_first_topic.description || topicDescription;
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+        const genResponse = await adhocGenerationApi.generateContent({
+          topic: contentTopic,
+          platforms: ["instagram"],
+          number_of_posts: 2,
+          number_of_images: 2,
+          number_of_videos: 0,
+          user_prompt: topicDescription || undefined,
+          user_images: hasProductImage && productImageS3Key ? [productImageS3Key] : undefined,
+          inspiration_links: inspirationLinks.length > 0 ? inspirationLinks : undefined,
+          is_onboarding_product_image: hasProductImage,
+          force_product_marketing: hasProductImage,
+        });
+        if (genResponse.success && (genResponse.job_id || genResponse.uuid)) {
+          const jobId = genResponse.job_id || genResponse.uuid;
+          setOnboardingJobId(jobId);
+          setShowGenerateDialog(true);
+        }
+        localStorage.removeItem("dvyb_selected_inspirations");
+        localStorage.removeItem("dvyb_selected_products");
+      } catch (err) {
+        console.error("Copy A onboarding generation error:", err);
+        toast({ title: "Something went wrong", description: "Could not start content generation.", variant: "destructive" });
+      }
+      return;
+    }
     setStep("signup");
-  }, []);
+  }, [isAuthenticated, toast]);
 
   const heroBgDark =
     "radial-gradient(ellipse 70% 40% at 50% 15%, hsl(50 30% 30% / 0.3) 0%, transparent 70%), radial-gradient(ellipse 80% 60% at 50% 50%, hsl(240 10% 8%) 0%, hsl(240 10% 4%) 100%)";
 
+  const handleGetStartedCopyA = useCallback(async () => {
+    const websiteParam = searchParams.get("website");
+    const returnBase = "/?copy=a&step=input";
+    const returnUrl = websiteParam ? `${returnBase}&website=${encodeURIComponent(websiteParam)}` : returnBase;
+
+    if (isAuthenticated) {
+      if (websiteParam?.trim() && isValidWebsiteUrl(websiteParam)) {
+        const normalized = normalizeUrl(websiteParam.trim());
+        setWebsiteUrl(normalized);
+        localStorage.setItem("dvyb_pending_website_url", normalized);
+        setStep("analyzing");
+      } else {
+        setStep("input");
+      }
+      return;
+    }
+    try {
+      localStorage.removeItem("dvyb_google_oauth_state");
+      localStorage.setItem("dvyb_oauth_return_url", returnUrl);
+      localStorage.setItem("dvyb_oauth_platform", "google");
+      const response = await authApi.getGoogleLoginUrl({ signInOnly: false });
+      if (response.success && response.data?.oauth_url) {
+        if (response.data.state) localStorage.setItem("dvyb_google_oauth_state", response.data.state);
+        window.location.href = response.data.oauth_url;
+      } else {
+        throw new Error("Failed to get Google login URL");
+      }
+    } catch (err) {
+      console.error("Copy A get started login error:", err);
+      toast({ title: "Sign-in failed", description: "Could not start sign-in.", variant: "destructive" });
+    }
+  }, [isAuthenticated, toast, searchParams]);
+
   return (
     <div className={cn("min-h-screen overflow-x-hidden font-hind", isDarkTheme ? "bg-[hsl(240_10%_4%)]" : "bg-background")}>
-      <NavigationLanding variant={isDarkTheme ? "dark" : "default"} showSignIn hideExplore showThemeToggle navStyle="wander" onGetStarted={() => setStep("welcome")} />
+      <NavigationLanding variant={isDarkTheme ? "dark" : "default"} hideExplore hidePricing showThemeToggle navStyle="wander" onGetStarted={handleGetStartedCopyA} />
       <main>
         <AnimatePresence mode="wait">
           {step === "hero" && (
@@ -617,12 +793,12 @@ export function LandingPageCopyA() {
               {phase !== "stack" && (
                 <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-6 text-center pt-32 sm:pt-36 pb-16">
                   <div className="flex flex-col items-center max-w-4xl">
-                    {/* Mobile: "Product images to scroll" / "stopping creatives" */}
+                    {/* Mobile: "AI photoshoots that convert" / "window shoppers to clients" */}
                     <div className="flex flex-col items-center md:hidden">
-                      {["Product images to scroll", "stopping creatives"].map((line, lineIdx) => (
+                      {["AI photoshoots that convert", "window shoppers to clients"].map((line, lineIdx) => (
                         <div key={lineIdx} className="flex flex-nowrap justify-center gap-x-4 whitespace-nowrap">
                           {line.split(" ").map((word, i) => {
-                            const globalIdx = lineIdx === 0 ? i : i + 4;
+                            const globalIdx = lineIdx === 0 ? i : i + 5;
                             return (
                               <motion.span
                                 key={`m-${globalIdx}`}
@@ -642,9 +818,9 @@ export function LandingPageCopyA() {
                         </div>
                       ))}
                     </div>
-                    {/* Desktop: "Product images to scroll stopping" / "creatives" */}
+                    {/* Desktop: "AI photoshoots that convert" / "window shoppers to clients" */}
                     <div className="hidden md:flex flex-col items-center">
-                      {["Product images to scroll stopping", "creatives"].map((line, lineIdx) => (
+                      {["AI photoshoots that convert", "window shoppers to clients"].map((line, lineIdx) => (
                         <div key={lineIdx} className="flex flex-nowrap justify-center gap-x-4 whitespace-nowrap">
                           {line.split(" ").map((word, i) => {
                             const globalIdx = lineIdx === 0 ? i : i + 5;
@@ -668,15 +844,23 @@ export function LandingPageCopyA() {
                       ))}
                     </div>
                   </div>
+                  <motion.p
+                    initial={hasPlayed ? false : { opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={hasPlayed ? { duration: 0 } : { duration: 0.5, delay: 1.9, ease: [0.16, 1, 0.3, 1] }}
+                    className="mt-6 text-base sm:text-lg text-muted-foreground max-w-xl mx-auto px-2"
+                  >
+                    Our AI identifies million $ photoshoots from large brands and recreates them for you. Better, cheaper and no migraines.
+                  </motion.p>
                   <motion.button
                     initial={hasPlayed ? false : { opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={hasPlayed ? { duration: 0 } : { duration: 0.6, delay: 2.3, ease: [0.16, 1, 0.3, 1] }}
-                    onClick={() => setStep("welcome")}
-                    className="mt-10 px-10 py-4 bg-cta text-cta-foreground rounded-full text-xl font-display font-semibold hover:scale-105 transition-all duration-300"
+                    onClick={handleGetStartedCopyA}
+                    className="mt-8 px-10 py-4 bg-cta text-cta-foreground rounded-full text-xl font-display font-semibold hover:scale-105 transition-all duration-300"
                     style={{ boxShadow: "0 0 30px -5px hsl(25 100% 55% / 0.5)" }}
                   >
-                    Get started for free
+                    Absolutely Free
                   </motion.button>
                 </div>
               )}
@@ -688,7 +872,7 @@ export function LandingPageCopyA() {
           )}
 
           {step === "input" && (
-            <CopyAWebsiteInputScreen key="input" onContinue={handleInputContinue} isDarkTheme={isDarkTheme} isUploading={isProductUploading} />
+            <CopyAWebsiteInputScreen key="input" onContinue={handleInputContinue} onSkip={() => router.push("/discover")} isDarkTheme={isDarkTheme} isUploading={isProductUploading} />
           )}
 
           {step === "analyzing" && (
@@ -723,7 +907,7 @@ export function LandingPageCopyA() {
           )}
 
           {step === "inspirations" && (
-            <CopyAInspirationSelectScreen key="inspirations" onContinue={handleInspirationsContinue} isDarkTheme={isDarkTheme} />
+            <CopyAInspirationSelectScreen key="inspirations" onContinue={handleInspirationsContinue} onSkip={() => router.push("/discover")} isDarkTheme={isDarkTheme} />
           )}
 
           {step === "signup" && (

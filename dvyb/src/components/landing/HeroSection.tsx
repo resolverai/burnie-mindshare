@@ -12,13 +12,13 @@ import { trackWebsiteAnalysisStarted, trackWebsiteAnalysisCompleted } from "@/li
 
 const rotatingWords = ["ad research", "ad agencies", "ad designers"];
 
-/** Fixed hero copy for Copy B (wander-connect style) – matches wander-discover-connect mock */
+/** Fixed hero copy for Copy B (wander-connect style) */
 const WANDER_HERO_COPY = {
-  mainPrefix: "Enter URL for ",
-  mainAccent: "scroll-stopping",
-  mainSuffix: " creatives.",
-  subText: "Change the way you create. Try for free.",
-  buttonText: "Generate for free",
+  mainPrefix: "Ship ads that will ",
+  mainAccent: "10x your ROAS",
+  mainSuffix: "",
+  subText: "Our AI identifies winning ads from your industry and uses those templates to create your ad - creative, caption - everything.",
+  buttonText: "Absolutely Free",
 } as const;
 
 /** Hero copy variants for A/B testing – one is chosen at random on load (used when NOT Copy B) */
@@ -104,6 +104,9 @@ interface HeroSectionProps {
   onWebsiteModalOpenChange?: (open: boolean) => void;
   /** Called once on mount with the main message copy that was selected (for Mixpanel). */
   onCopyShown?: (mainMessage: string) => void;
+  /** Copy B login-first: hide URL input, show only centered "Generate for free" button (enabled). On click call this. */
+  loginFirstFlow?: boolean;
+  onPrimaryCtaClick?: () => void;
 }
 
 export function HeroSection({
@@ -113,8 +116,11 @@ export function HeroSection({
   websiteModalOpen,
   onWebsiteModalOpenChange,
   onCopyShown,
+  loginFirstFlow,
+  onPrimaryCtaClick,
 }: HeroSectionProps) {
   const useHeroUrlFlow = !!onOpenOnboardingWithUrl;
+  const showLoginFirstCta = useHeroUrlFlow && loginFirstFlow && !!onPrimaryCtaClick;
   const [copyIndex] = useState(() => Math.floor(Math.random() * HERO_COPIES.length));
   const heroCopy = useHeroUrlFlow ? WANDER_HERO_COPY : HERO_COPIES[copyIndex];
 
@@ -292,7 +298,22 @@ export function HeroSection({
             </p>
 
             <div className="flex flex-col items-center gap-5 animate-fade-up" style={{ animationDelay: "0.2s" }}>
-              {useHeroUrlFlow ? (
+              {showLoginFirstCta ? (
+                <div className="flex flex-col items-center w-full">
+                  <button
+                    type="button"
+                    onClick={onPrimaryCtaClick}
+                    className="group relative h-12 sm:h-14 px-8 sm:px-10 bg-cta text-cta-foreground rounded-full font-semibold text-base sm:text-lg transition-all duration-300 hover:scale-105 flex items-center justify-center gap-3 whitespace-nowrap"
+                    style={{ boxShadow: "0 0 40px -10px hsl(25 100% 55% / 0.5)" }}
+                  >
+                    <span className="relative flex h-3 w-3">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500" />
+                    </span>
+                    {heroCopy.buttonText}
+                  </button>
+                </div>
+              ) : useHeroUrlFlow ? (
                 <form onSubmit={handleHeroSubmit} className="flex flex-col sm:flex-row gap-3 w-full max-w-xl">
                   <Input
                     id="hero-website-input"
@@ -332,12 +353,9 @@ export function HeroSection({
                   {heroCopy.buttonText}
                 </button>
               )}
-              {websiteError && useHeroUrlFlow && (
+              {websiteError && useHeroUrlFlow && !showLoginFirstCta && (
                 <p className="text-xs text-red-500 text-center -mt-2 w-full max-w-xl">{websiteError}</p>
               )}
-              <p className="text-sm text-muted-foreground tracking-wide">
-                No credit card · Takes 3 minutes
-              </p>
             </div>
           </div>
         </div>

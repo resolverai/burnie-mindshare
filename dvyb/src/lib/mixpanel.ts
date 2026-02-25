@@ -477,6 +477,14 @@ export const trackLandingPageViewed = (
   trackEvent('Landing Page Viewed', { isAuthenticated, ...extra });
 };
 
+export const trackLandingTimeSpent = (seconds: number, copy: OnboardingCopyType) => {
+  trackEvent('Landing Time Spent', { seconds, copy });
+};
+
+export const trackLandingScrolled = (copy: OnboardingCopyType) => {
+  trackEvent('Landing Scrolled', { copy });
+};
+
 // --- COPY A / B ONBOARDING FLOW ---
 export const trackOnboardingFlowStepViewed = (
   copy: OnboardingCopyType,

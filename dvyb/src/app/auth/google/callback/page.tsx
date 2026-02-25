@@ -121,24 +121,23 @@ function DvybGoogleCallbackContent() {
           }
 
           // IMPORTANT: If this is a NEW account (either first time or re-registration after deletion),
-          // reset all onboarding-related localStorage to ensure fresh onboarding experience
+          // reset onboarding-related localStorage but preserve oauth_return_url so Copy A/B login-first
+          // flows still redirect to landing input step (/?copy=a&step=input or /?copy=b&openModal=website)
           if (response.data.is_new_account) {
-            console.log('🆕 New account detected - resetting ALL onboarding/OAuth localStorage')
+            console.log('🆕 New account detected - resetting onboarding localStorage (keeping oauth return URL for landing flow)')
             localStorage.removeItem('dvyb_is_new_account')
             localStorage.removeItem('dvyb_onboarding_guide_progress')
             localStorage.removeItem('dvyb_onboarding_generation_job_id')
             localStorage.removeItem('dvyb_onboarding_dialog_pending')
-            // Clear any stale OAuth flow state from previous account
             localStorage.removeItem('dvyb_oauth_post_flow')
             localStorage.removeItem('dvyb_oauth_success')
-            localStorage.removeItem('dvyb_oauth_return_url')
-            localStorage.removeItem('dvyb_oauth_platform')
-            // Set flag to indicate this is a new account that needs onboarding
+            // Do NOT clear dvyb_oauth_return_url / dvyb_oauth_platform here so landing login-first
+            // (Copy A step=input, Copy B openModal=website) still redirects correctly
             localStorage.setItem('dvyb_is_new_account', 'true')
           }
         }
         
-        // Check if this is a "connect" flow (from Brand Kit or other pages) vs sign-in flow
+        // Check if this is a "connect" flow or landing login-first (Copy A/B return to input step or website modal)
         const oauthReturnUrl = localStorage.getItem('dvyb_oauth_return_url')
         const oauthPlatform = localStorage.getItem('dvyb_oauth_platform')
         

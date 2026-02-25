@@ -22,13 +22,15 @@ interface DiscoverAd {
 
 interface CopyAInspirationSelectScreenProps {
   onContinue: (selectedAds: DiscoverAd[]) => void;
+  /** When user clicks Skip (no inspirations selected), call this to go e.g. to discover. */
+  onSkip?: () => void;
   isDarkTheme?: boolean;
 }
 
 const COPY_A_BG_DARK =
   "radial-gradient(ellipse 70% 40% at 50% 15%, hsl(50 30% 30% / 0.3) 0%, transparent 70%), radial-gradient(ellipse 80% 60% at 50% 50%, hsl(240 10% 8%) 0%, hsl(240 10% 4%) 100%)";
 
-export function CopyAInspirationSelectScreen({ onContinue, isDarkTheme = true }: CopyAInspirationSelectScreenProps) {
+export function CopyAInspirationSelectScreen({ onContinue, onSkip, isDarkTheme = true }: CopyAInspirationSelectScreenProps) {
   const [discoverAds, setDiscoverAds] = useState<DiscoverAd[]>([]);
   const [adsLoading, setAdsLoading] = useState(true);
   const [selectedAdIds, setSelectedAdIds] = useState<Set<number>>(new Set());
@@ -172,6 +174,11 @@ export function CopyAInspirationSelectScreen({ onContinue, isDarkTheme = true }:
   };
 
   const handleContinue = () => {
+    const noSelection = selectedAdIds.size === 0 && !customInspirationS3Url;
+    if (noSelection && onSkip) {
+      onSkip();
+      return;
+    }
     if (customInspirationS3Url) {
       const customInspiration: DiscoverAd[] = [
         {
