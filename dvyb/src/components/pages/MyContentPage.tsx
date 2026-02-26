@@ -312,7 +312,7 @@ export function MyContentPage({
                     trackMyContentCreateNewClicked();
                     contentLibraryCreateNewRef.current?.openCreateNew();
                   }}
-                  className="flex items-center gap-2 bg-foreground text-background hover:bg-foreground/90 rounded-lg px-4 py-2 font-medium shrink-0"
+                  className="flex items-center gap-2 bg-neutral-900 text-white hover:bg-neutral-800 dark:bg-neutral-900 dark:text-white dark:hover:bg-neutral-800 rounded-lg px-4 py-2 font-medium shrink-0"
                 >
                   <Plus className="w-4 h-4" />
                   + Create
@@ -324,7 +324,7 @@ export function MyContentPage({
                     trackMyContentAddProductClicked();
                     handleAddProductClick();
                   }}
-                  className="bg-foreground text-background hover:bg-foreground/90 rounded-lg px-4 py-2 font-medium shrink-0"
+                  className="bg-neutral-900 text-white hover:bg-neutral-800 dark:bg-neutral-900 dark:text-white dark:hover:bg-neutral-800 rounded-lg px-4 py-2 font-medium shrink-0"
                 >
                   Add Product
                 </Button>
@@ -725,7 +725,7 @@ export function MyContentPage({
             <Button
               onClick={handleRenameSubmit}
               disabled={!renameProductDialog.name.trim() || isUpdatingProduct}
-              className="bg-foreground text-background hover:bg-foreground/90"
+              className="bg-neutral-900 text-white hover:bg-neutral-800 dark:bg-neutral-900 dark:text-white dark:hover:bg-neutral-800"
             >
               {isUpdatingProduct ? (
                 <>

@@ -2780,35 +2780,6 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                 }
               }
             };
-            const handleCardClick = async () => {
-              try {
-                const res = await accountApi.getUsage();
-                const u = res.success ? res.data : null;
-                const hasAccess = hasEditOrDownloadAccess(u);
-                if (hasAccess) {
-                  setSelectedPost(post);
-                  setOpenInEditDesignMode(false);
-                  setShowPostDetail(true);
-                  return;
-                }
-                if (adFlowMode) {
-                  const shouldBlock = u?.hasVisitedDiscover && (u?.freeTrialEditSaveCount ?? 0) >= 1;
-                  if (shouldBlock) {
-                    setShowDownloadPricingModal(true);
-                    return;
-                  }
-                } else {
-                  setShowDownloadPricingModal(true);
-                  return;
-                }
-                setSelectedPost(post);
-                setOpenInEditDesignMode(false);
-                setShowPostDetail(true);
-              } catch {
-                setShowDownloadPricingModal(true);
-              }
-            };
-
             const commonCardClasses = "relative rounded-lg overflow-hidden border border-neutral-200/80 bg-white shadow-sm flex flex-col min-h-0 group w-[min(100%,280px)] sm:w-[300px] shrink-0";
             const loadingPlaceholder = (
               <div className={`relative min-h-[200px] ${adPreviewTab === "ig_reel" ? "aspect-[9/16]" : adPreviewTab === "facebook" ? "aspect-video" : "aspect-[4/5]"}`}>
@@ -2840,8 +2811,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               return (
                 <div
                   key={post.id}
-                  className={`${commonCardClasses} w-[min(100%,260px)] sm:w-[280px] cursor-pointer hover:shadow-lg transition-shadow aspect-[9/16] max-h-[min(520px,60vh)] overflow-hidden`}
-                  onClick={handleCardClick}
+                  className={`${commonCardClasses} w-[min(100%,260px)] sm:w-[280px] cursor-default transition-shadow aspect-[9/16] max-h-[min(520px,60vh)] overflow-hidden`}
                 >
                   {/* Reel-style: full image with overlays on top (like real IG Reels) */}
                   <div className="relative w-full h-full flex flex-col">
@@ -2881,10 +2851,10 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                       </div>
                       {/* Hover overlay - Edit/Download */}
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3 gap-2 z-20">
-                        <Button size="sm" variant="secondary" className="w-full gap-2 !bg-white hover:!bg-gray-100" onClick={handleEdit}>
+                        <Button size="sm" variant="secondary" className="w-full gap-2 !bg-white hover:!bg-gray-100 !text-neutral-900 dark:!bg-white dark:!text-neutral-900 dark:hover:!bg-gray-100" onClick={handleEdit}>
                           <Pencil className="w-4 h-4" /> Edit
                         </Button>
-                        <Button size="sm" variant="outline" className="w-full gap-2 bg-background/80 backdrop-blur-sm hover:bg-accent hover:text-accent-foreground" onClick={handleDownload}>
+                        <Button size="sm" variant="outline" className="w-full gap-2 bg-white/90 backdrop-blur-sm text-neutral-900 hover:bg-gray-100 dark:!bg-neutral-700 dark:!text-white dark:hover:!bg-neutral-600" onClick={handleDownload}>
                           <Download className="w-4 h-4" /> Download
                         </Button>
                       </div>
@@ -2898,8 +2868,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               return (
                 <div
                   key={post.id}
-                  className={`${commonCardClasses} w-[min(100%,320px)] sm:w-[340px] cursor-pointer hover:shadow-lg transition-shadow`}
-                  onClick={handleCardClick}
+                  className={`${commonCardClasses} w-[min(100%,320px)] sm:w-[340px] cursor-default transition-shadow`}
                 >
                   <div className="w-full flex flex-col bg-white">
                     <div className="flex items-center gap-2 px-3 py-2.5 border-b border-neutral-100 shrink-0">
@@ -2920,10 +2889,10 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={post.image} alt={post.title} className="w-full h-auto block object-top rounded-none" />
                       <div className="absolute top-3 right-3 flex gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity z-10">
-                        <Button size="sm" variant="secondary" className="gap-1.5 shadow-sm !bg-white hover:!bg-gray-100" onClick={handleEdit}>
+                        <Button size="sm" variant="secondary" className="gap-1.5 shadow-sm !bg-white hover:!bg-gray-100 !text-neutral-900 dark:!bg-white dark:!text-neutral-900 dark:hover:!bg-gray-100" onClick={handleEdit}>
                           <Pencil className="w-3.5 h-3.5" /> Edit
                         </Button>
-                        <Button size="sm" variant="outline" className="gap-1.5 shadow-sm bg-background/80 backdrop-blur-sm" onClick={handleDownload}>
+                        <Button size="sm" variant="outline" className="gap-1.5 shadow-sm bg-white/90 backdrop-blur-sm text-neutral-900 hover:bg-gray-100 dark:!bg-neutral-700 dark:!text-white dark:hover:!bg-neutral-600" onClick={handleDownload}>
                           <Download className="w-3.5 h-3.5" /> Download
                         </Button>
                       </div>
@@ -2951,8 +2920,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
             return (
               <div
                 key={post.id}
-                className={`${commonCardClasses} cursor-pointer hover:shadow-lg transition-shadow`}
-                onClick={handleCardClick}
+                className={`${commonCardClasses} cursor-default transition-shadow`}
               >
                 <div className="w-full flex flex-col">
                   <div className="flex items-center gap-2 px-3 py-2.5 border-b border-neutral-100 shrink-0">
@@ -2966,10 +2934,10 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={post.image} alt={post.title} className="w-full h-auto block object-top" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3 gap-2">
-                      <Button size="sm" variant="secondary" className="w-full gap-2 !bg-white hover:!bg-gray-100" onClick={handleEdit}>
+                      <Button size="sm" variant="secondary" className="w-full gap-2 !bg-white hover:!bg-gray-100 !text-neutral-900 dark:!bg-white dark:!text-neutral-900 dark:hover:!bg-gray-100" onClick={handleEdit}>
                         <Pencil className="w-4 h-4" /> Edit
                       </Button>
-                      <Button size="sm" variant="outline" className="w-full gap-2 bg-background/80 backdrop-blur-sm hover:bg-accent hover:text-accent-foreground" onClick={handleDownload}>
+                      <Button size="sm" variant="outline" className="w-full gap-2 bg-white/90 backdrop-blur-sm text-neutral-900 hover:bg-gray-100 dark:!bg-neutral-700 dark:!text-white dark:hover:!bg-neutral-600" onClick={handleDownload}>
                         <Download className="w-4 h-4" /> Download
                       </Button>
                     </div>

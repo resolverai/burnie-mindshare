@@ -435,6 +435,22 @@ All colors MUST be HSL.
     color: hsl(var(--foreground)) !important;
   }
 
+  /* Dark theme: buttons with dark background must have light text for readability */
+  .dark button.bg-background,
+  .dark a.bg-background {
+    color: hsl(var(--foreground)) !important;
+  }
+}
+
+/* Modal/dialog primary CTA: ensure dark buttons always have white text (works in both light and dark app theme) */
+[data-state="open"] button.bg-foreground.text-background,
+[data-state="open"] button.bg-neutral-900,
+.dark [data-state="open"] button.bg-foreground.text-background {
+  color: hsl(0 0% 100%) !important;
+}
+.dark [data-state="open"] button.bg-foreground.text-background {
+  background: hsl(var(--background)) !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 /* Settings screen: focus ring/border matches Discover pill filters (#e88d44) */

@@ -576,11 +576,11 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
                           if (file) processProductFile(file);
                         }}
                         disabled={isProductUploading}
-                        className={`text-left rounded-xl overflow-hidden cursor-pointer shrink-0 flex flex-col border-2 border-dashed bg-secondary/50 transition-colors group ${
-                          isProductDraggingOver ? "border-primary bg-primary/5" : "border-border hover:border-primary hover:bg-primary/5"
+                        className={`text-left rounded-xl overflow-hidden cursor-pointer shrink-0 flex flex-col border-2 border-dashed transition-colors group ${
+                          isProductDraggingOver ? "border-primary bg-primary/5" : "border-neutral-300 border-dashed bg-neutral-100 hover:border-primary hover:bg-primary/5"
                         } ${isProductUploading ? "pointer-events-none opacity-70" : ""}`}
                       >
-                        <div className="aspect-square flex flex-col items-center justify-center gap-2 text-muted-foreground group-hover:text-primary">
+                        <div className="aspect-square flex flex-col items-center justify-center gap-2 text-neutral-700 group-hover:text-primary">
                           <Plus className="w-8 h-8" />
                           <span className="text-sm font-medium">Add Product</span>
                         </div>
@@ -623,7 +623,7 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
                   type="button"
                   onClick={() => productFileInputRef.current?.click()}
                   disabled={isProductUploading}
-                  className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                  className="inline-flex items-center gap-2 text-sm font-medium text-neutral-800 hover:text-neutral-900 transition-colors disabled:opacity-50"
                 >
                   {isProductUploading ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -639,7 +639,7 @@ export function CreateAdFlowModal({ open, onOpenChange, onCreateAd, preselectedI
                   <Button
                     onClick={handleProductContinue}
                     disabled={!selectedProductId}
-                    className="bg-foreground text-background hover:bg-foreground/90"
+                    className="bg-neutral-900 text-white hover:bg-neutral-800 dark:bg-neutral-900 dark:text-white dark:hover:bg-neutral-800"
                   >
                     Continue
                   </Button>

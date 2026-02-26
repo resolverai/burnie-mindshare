@@ -1174,7 +1174,7 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
       <div className="fixed bottom-6 right-6 z-50 md:hidden">
         <Button
           onClick={handleCreateNewClick}
-          className="bg-foreground text-background hover:bg-foreground/90 rounded-full h-14 w-14 p-0"
+          className="bg-neutral-900 text-white hover:bg-neutral-800 dark:bg-neutral-900 dark:text-white dark:hover:bg-neutral-800 rounded-full h-14 w-14 p-0"
           size="icon"
         >
           <Sparkles className="w-6 h-6" />

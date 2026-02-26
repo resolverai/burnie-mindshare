@@ -1518,11 +1518,11 @@ Analyze the provided image(s) to extract EVERY SINGLE VISUAL ELEMENT and creativ
    - Captured moments (pouring, eating, jumping, reaching, etc.)
    - Dynamic elements vs static elements
 
-10. **REPLICATION TIPS**:
-    - Specific, actionable advice on how to recreate this EXACT aesthetic for {brand_name}
-    - What elements are CRITICAL to capture the same feel?
-    - What would work well for brand content?
-    - Technical tips (lighting setup, camera settings, styling choices)
+10. **REPLICATION TIPS** (STYLE REFERENCE ONLY — for use in prompts that feature the brand's product as hero, NOT for copying this image):
+    - Specific, actionable advice on how to match this aesthetic in a NEW ad that features {brand_name}'s product as the main subject
+    - What style elements (mood, colors, composition type) are CRITICAL to capture the same feel without copying the image?
+    - What would work well for brand content while ensuring the output does NOT look like a copycat?
+    - Technical tips (lighting style, composition approach, styling vibe) — as reference only
 
 ⚠️ RESPOND ONLY WITH VALID JSON in this exact format (BE EXHAUSTIVE IN YOUR DESCRIPTIONS):
 {{
@@ -1591,7 +1591,7 @@ Analyze the provided image(s) to extract EVERY SINGLE VISUAL ELEMENT and creativ
     "description": "Description of any action, movement, or captured moments"
   }},
   "creative_elements": ["ALL creative elements that make this engaging"],
-  "replication_tips": "DETAILED, ACTIONABLE tips to replicate this EXACT aesthetic for {brand_name}, including technical setup"
+  "replication_tips": "DETAILED, ACTIONABLE tips to match this aesthetic in a NEW ad that features {brand_name}'s product as the main subject (style reference only — do not copy the image; output must not look like a copycat)"
 }}"""
 
     # Build user prompt
@@ -4538,8 +4538,11 @@ async def analyze_inspiration_links(links: List[str], context: dict = None, acco
                         
                         video_inspirations.append(video_inspiration)
                     elif "image_inspiration" in existing_analysis:
-                        image_inspirations.append(existing_analysis["image_inspiration"])
-                        print(f"  ✅ Using existing image inspiration analysis from database")
+                        # Skip cached image inspiration for now - run fresh analysis so structure matches (style reference, no copycat)
+                        print(f"  ⏭️  Skipping cached image inspiration analysis - running fresh Grok analysis...")
+                        image_analysis = await process_image_inspiration_link(link, context, account_id)
+                        if image_analysis:
+                            image_inspirations.append(image_analysis)
                     else:
                         # If existing analysis doesn't have video/image structure, try processing
                         print(f"  ⚠️  Existing analysis found but doesn't match expected format, processing with Grok...")
@@ -4612,8 +4615,11 @@ async def analyze_inspiration_links(links: List[str], context: dict = None, acco
                         
                         direct_video_inspirations.append(video_inspiration)
                     elif "image_inspiration" in existing_analysis:
-                        direct_image_inspirations.append(existing_analysis["image_inspiration"])
-                        print(f"  ✅ Using existing image inspiration analysis from database for: {link[:80]}...")
+                        # Skip cached image inspiration for now - run fresh analysis so structure matches (style reference, no copycat)
+                        print(f"  ⏭️  Skipping cached image inspiration - running fresh Grok analysis for: {link[:80]}...")
+                        image_analysis = await process_image_inspiration_link(link, context, account_id)
+                        if image_analysis:
+                            direct_image_inspirations.append(image_analysis)
                     else:
                         # If existing analysis doesn't have expected structure, try processing
                         print(f"  ⚠️  Existing analysis found but doesn't match expected format, processing with Grok...")
@@ -5240,8 +5246,8 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
                 styling = insp.get('styling_aesthetics', {})
                 
                 inspiration_sections.append(f"""
-🖼️ INSPIRATION {idx} ANALYSIS (for image_{idx}) - EXACT STYLE FUSION REQUIRED:
-⚠️ This inspiration image will be passed to the model. Generate prompt for EXACT replication with product fusion.
+🖼️ INSPIRATION {idx} ANALYSIS (for image_{idx}) - STYLE REFERENCE ONLY (DO NOT COPYCAT):
+⚠️ This inspiration image is passed to the model as STYLE REFERENCE only. Your prompt MUST make the USER'S product the MAIN SUBJECT and use inspiration only for visual style, composition structure, mood, and typography—never copy the inspiration's product or produce a near-copycat image.
 
 📸 VISUAL AESTHETICS:
 - Color Palette: {', '.join(visual_aesthetics.get('color_palette', []))}
@@ -5272,7 +5278,7 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
 
 💡 REPLICATION TIPS: {insp.get('replication_tips', 'N/A')}
 
-🎯 PROMPT REQUIREMENT FOR IMAGE {idx}: "Exactly replicate inspiration image {idx} style/layout. Keep all design elements identical. Replace only the products with reference product. Change/adapt text content to align with reference product while keeping identical typography style. Maintain: {visual_aesthetics.get('mood_atmosphere', 'aesthetic')}, {visual_aesthetics.get('lighting_style', 'lighting')}, {styling.get('overall_style', 'styling')}, {composition.get('shot_type', 'composition')}."
+🎯 PROMPT REQUIREMENT FOR IMAGE {idx}: Generate a prompt in the STRUCTURED FORMAT (TEXT RENDERING, CRITICAL INSTRUCTION, PRODUCT INFORMATION, STYLE REFERENCE, GENERATION RULES, OUTPUT). The reference is for STYLE only—user's product must be the CENTRAL, DOMINANT subject. Do NOT instruct the model to copy the inspiration's product or layout literally; instruct it to match style/mood/colors/composition while featuring the user's product prominently so the result does NOT look like a copycat.
 """)
             
             image_inspiration_str = "\n".join(inspiration_sections)
@@ -5293,8 +5299,8 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
             action = image_inspiration.get('action_movement', {})
             
             image_inspiration_str = f"""
-🖼️ IMAGE INSPIRATION ANALYSIS (EXACT STYLE FUSION REQUIRED):
-⚠️ This inspiration image will be passed DIRECTLY to the model. Generate prompt for EXACT replication with product fusion.
+🖼️ IMAGE INSPIRATION ANALYSIS (STYLE REFERENCE ONLY - DO NOT COPYCAT):
+⚠️ This inspiration image is passed to the model as STYLE REFERENCE only. Your prompt MUST make the USER'S product the MAIN SUBJECT. Use inspiration only for visual style, color palette, composition structure, typography style, and mood—never copy the inspiration's product or produce a near-copycat image.
 
 📸 VISUAL AESTHETICS:
 - Color Palette: {', '.join(visual_aesthetics.get('color_palette', []))}
@@ -5362,7 +5368,7 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
 
 💡 REPLICATION TIPS: {image_inspiration.get('replication_tips', 'N/A')}
 
-🎯 PROMPT REQUIREMENT: Your image prompt MUST instruct the model to "Exactly replicate the inspiration image style/layout. Keep all design elements identical: [specific elements from above]. Replace/fuse only the products with reference product (from inventory). Change/adapt any text content to align with reference product while keeping identical typography style and placement. Maintain identical: {visual_aesthetics.get('color_palette', ['color scheme'])[0] if visual_aesthetics.get('color_palette') else 'color scheme'}, {visual_aesthetics.get('lighting_style', 'lighting')}, {visual_aesthetics.get('mood_atmosphere', 'mood')}, {composition.get('shot_type', 'composition')}, {styling.get('overall_style', 'aesthetic')}."
+🎯 PROMPT REQUIREMENT: Generate your image prompt in the STRUCTURED FORMAT (TEXT RENDERING, CRITICAL INSTRUCTION, PRODUCT INFORMATION, STYLE REFERENCE, GENERATION RULES, OUTPUT). The inspiration is for STYLE only—the user's product from inventory must be the CENTRAL, DOMINANT subject. Do NOT instruct the model to exactly replicate or copy the inspiration's product/layout; instruct it to match style, mood, colors, and composition while featuring the user's product prominently so the result does NOT look like a copycat.
 """
             print(f"\n🖼️ IMAGE INSPIRATION DETECTED!")
             print(f"   Color Palette: {visual_aesthetics.get('color_palette', [])}...")
@@ -6591,10 +6597,15 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
         video_prompts_instruction = ""
         
     # Build JSON example with new structure
-    # Image-only posts (not videos) - already calculated above
+    # When image inspiration is provided, image_prompt_X must be the FULL structured prompt (=== sections); otherwise short description
+    image_prompt_example_value = (
+        '"=== TEXT RENDERING ===\\nOnly include text if reference has text.\\n=== CRITICAL INSTRUCTION ===\\nUSER\'S PRODUCT is MAIN SUBJECT.\\n=== PRODUCT INFORMATION ===\\n[from inventory]\\n=== STYLE REFERENCE ===\\n[from inspiration - style only, do not copy]\\n=== GENERATION RULES ===\\nMUST DO: ... MUST NOT DO: ...\\n=== OUTPUT ===\\nHigh-converting ad with product prominent, 1:1 aspect ratio..."'
+        if has_image_inspiration
+        else f'"Detailed visual description with {color_str}, 1:1 aspect ratio for social media..."'
+    )
     image_prompt_examples = []
     for i in image_only_indices:
-        image_prompt_examples.append(f'"image_prompt_{i}": "Detailed visual description with {color_str}, 1:1 aspect ratio for social media..."')
+        image_prompt_examples.append(f'"image_prompt_{i}": {image_prompt_example_value}')
         image_prompt_examples.append(f'"image_{i}_product_mapping": "image_1" (REQUIRED if products exist in inventory - map ALL images to product)')
         image_prompt_examples.append(f'"image_{i}_logo_needed": true')
     
@@ -6912,71 +6923,65 @@ If `INSPIRATION LINKS ANALYSIS` or `VIDEO INSPIRATION ANALYSIS` or `IMAGE INSPIR
 - Match the mood/atmosphere and product showcase style
 - Use the visual subjects (humans, objects, settings) as reference for your shots
 
-🚨🚨🚨 **EXACT STYLE FUSION FOR IMAGE INSPIRATION** (CRITICAL - MANDATORY WHEN PROVIDED) 🚨🚨🚨
+🚨🚨🚨 **IMAGE INSPIRATION = STYLE REFERENCE ONLY (NO COPYCAT)** (CRITICAL - MANDATORY WHEN PROVIDED) 🚨🚨🚨
 
-When IMAGE INSPIRATION is provided, you must generate prompts for **EXACT STYLE REPLICATION with Product Fusion**:
+When IMAGE INSPIRATION is provided, the inspiration image and the user's product image are BOTH passed to the model (nano-banana-pro edit / gpt-1.5 edit). Your generated prompt MUST produce an ad that:
+1. **Features the USER'S product as the MAIN, CENTRAL, DOMINANT subject** — not the product from the inspiration
+2. **Uses the inspiration ONLY for style** — visual style, color palette, composition structure, typography style, mood, energy
+3. **Does NOT look like a copycat** — the output must be clearly different from the inspiration while matching its aesthetic
 
-**THE CONCEPT**: The inspiration image will be passed DIRECTLY to the image generation model along with the reference product. Your prompt must instruct the model to:
-1. **EXACTLY REPLICATE** the inspiration image's visual design, layout, and composition
-2. **FUSE/REPLACE** only the products shown in inspiration with the reference product
-3. **PRESERVE EVERYTHING ELSE**: text overlays, backgrounds, lighting, props, styling
+**REQUIRED PROMPT STRUCTURE** (generate prompts in this format so the model produces non-copycat, product-hero ads):
 
-**PROMPT STRUCTURE FOR STYLE FUSION**:
-Your image prompts MUST follow this exact format when inspiration is provided:
+=== TEXT RENDERING ===
+Only include text in the image if the reference/inspiration ad contains text. If the reference ad is purely visual with no text overlays, do NOT add any text to the generated image.
+If text IS needed (because the reference ad has text), follow these rules:
+- Spell every word exactly as provided — no typos, no abbreviations, no paraphrasing.
+- The product name is: "[Product Name from inventory]".
+- Use clean, bold, legible sans-serif typography.
+- Keep text minimal — prefer strong visuals over text-heavy designs.
 
-"Exactly replicate the inspiration image style and layout. Keep all design elements identical: [list specific elements from analysis - text overlays, background, lighting, props, composition]. Replace/fuse the products shown in the inspiration with the reference product (product description from inventory). The reference product must appear naturally in the same positions and arrangements as the original products. Maintain identical: color scheme, lighting style, typography/text overlays if present, background design, overall aesthetic and mood."
+=== CRITICAL INSTRUCTION ===
+Generate an advertisement image where the USER'S PRODUCT is the MAIN SUBJECT.
 
-**KEY ELEMENTS TO PRESERVE FROM INSPIRATION** (always mention these in your prompts):
-→ Text overlays/typography: "Keep identical text styling and placement"
-→ Background design: "Same background color, patterns, or environment"
-→ Lighting setup: "Match the exact lighting style"
-→ Composition/layout: "Replicate the exact positioning and framing"
-→ Color palette: "Use identical color scheme"
-→ Props and supporting elements: "Keep same supporting props arrangement"
-→ Mood/atmosphere: "Maintain the same visual mood"
+=== PRODUCT INFORMATION (THIS IS WHAT TO FEATURE) ===
+Product Name: [from inventory_analysis product_images]
+Product Description: [from inventory_analysis — category, features, showcases]
+Target Audience: [from inventory_analysis — target_audience or styling]
 
-**EXAMPLE PROMPTS FOR EXACT STYLE FUSION**:
+=== STYLE REFERENCE (INSPIRATION ONLY - DO NOT COPY THE PRODUCT) ===
+The reference image is provided ONLY to show:
+- Visual style and aesthetic
+- Color palette and mood
+- Composition and layout structure
+- Typography style and text placement (if any)
+- Overall energy and tone
 
-Example 1 - Fashion accessories ad with text overlay:
-Inspiration shows: Black elegant ad with "3 favorite trends" text, bags and shoes arranged artistically
-Reference product: Luxury perfume bottle
-→ Your prompt: "Exactly replicate the inspiration image style. Black elegant background with same typography styling and placement. Replace the bags and shoes with the reference product (luxury amber perfume bottle with gold cap) arranged in similar artistic positions. Change text content to align with perfume product (e.g., 'Luxury Fragrances', 'Warm Scents', 'New Arrivals') while keeping identical font style and text placement. Maintain identical: dramatic dark background, elegant typography styling, premium luxury aesthetic, sophisticated composition."
+=== GENERATION RULES ===
+MUST DO:
+1. Feature [user's product name] as the CENTRAL, DOMINANT element of the image
+2. Show the actual product from the product images provided
+3. Match the STYLE of the reference ad (colors, composition, mood)
+4. Create a professional advertisement that sells THIS specific product
+5. Make the product clearly visible and prominent
 
-Example 2 - Product hero shot with lifestyle background:
-Inspiration shows: Perfume on terracotta tiles with olive branches, golden hour Mediterranean setting
-Reference product: User's perfume
-→ Your prompt: "Exactly replicate the inspiration image style. Same Mediterranean terracotta tile surface, olive branch foliage framing from left side, warm golden hour backlighting creating glow effect. Place reference product (user's perfume bottle) in center position matching the exact composition. Maintain identical: warm amber color tones, soft bokeh background with architecture silhouette, premium luxury fragrance photography aesthetic."
+MUST NOT DO:
+1. DO NOT feature the product from the reference/inspiration image
+2. DO NOT just copy the reference ad with minor changes
+3. DO NOT make the product small or secondary in the composition
+4. DO NOT ignore the product images provided
 
-Example 3 - With USER INSTRUCTIONS for specific text:
-User instruction: "Replace 'Our new collection' with 'Summer 2025'"
-Inspiration shows: Fashion ad with text overlays
-→ Your prompt: "...Replace 'Our new collection' text with 'Summer 2025' as user specified. Adapt other text content to align with reference product while keeping identical typography style and placement..."
+=== OUTPUT ===
+Create a high-converting ad image that:
+- Showcases [product name] prominently
+- Appeals to [target audience from inventory]
+- Uses the visual style from the reference image
+- Looks like a professional advertisement
 
-**WHAT TO CHANGE VS KEEP**:
-✅ CHANGE: Products/items shown → Replace with reference product
-✅ CHANGE: Text content → Align/adapt to match the reference product (e.g., "Gold Accessories" → "Luxury Fragrances" for perfume)
-❌ KEEP: Overall layout and composition
-❌ KEEP: Typography STYLE (font, size, placement) - only change the TEXT CONTENT to align with product
-❌ KEEP: Background design and color scheme
-❌ KEEP: Lighting style and mood
-❌ KEEP: All props and supporting elements not being replaced
-❌ KEEP: Visual quality and aesthetic style
+**KEY PRINCIPLE**: The inspiration is a STYLE MOODBOARD, not a template to clone. Your prompt should instruct the model to create a NEW ad that could sit alongside the inspiration—same vibe, same quality, but clearly featuring the user's product as the hero so it does NOT look like a copycat.
 
-📝 **TEXT ALIGNMENT INSTRUCTION** (ALWAYS INCLUDE IN YOUR PROMPTS):
-Your prompts MUST include: "Change/adapt any text content in the inspiration to align with the reference product while keeping identical typography styling and placement."
-
-If USER INSTRUCTIONS specify particular text changes (e.g., "replace 'New Arrivals' with 'Summer Collection'"), you MUST incorporate those EXACT changes in your prompt. User instructions take priority!
-
-**EXAMPLE WITH DEFAULT TEXT ALIGNMENT**:
-Inspiration: Fashion ad with "3 favorite trends" - "Gold Accessories", "Over Sized Sunglasses", "Our new collection"
-Reference product: Luxury perfume
-→ Prompt includes: "...Change text content to align with perfume product (e.g., 'Luxury Fragrances', 'Warm Scents', 'New Arrivals') while keeping identical typography style and placement..."
-
-**EXAMPLE WITH USER INSTRUCTIONS**:
-User instruction: "Change 'New Arrivals' to 'Limited Edition'"
-→ Prompt includes: "...Change 'New Arrivals' text to 'Limited Edition' as specified. Adapt other text to align with product..."
-
-🚨 **CRITICAL**: When inspiration is provided, your prompts are NOT about creative freedom - they're about EXACT REPLICATION with product substitution and text alignment. The inspiration image IS the design template!
+🚨 **OUTPUT FORMAT WHEN IMAGE INSPIRATION IS PROVIDED**: The value of each "image_prompt_0", "image_prompt_1", etc. in your JSON MUST be the COMPLETE structured prompt text including ALL section headers and content, not a single paragraph. Use newlines (\\n in JSON) to separate sections. Example structure for the string value:
+"=== TEXT RENDERING ===\\nOnly include text if the reference ad contains text. If text IS needed: spell exactly, product name is [X], clean sans-serif, minimal.\\n=== CRITICAL INSTRUCTION ===\\nGenerate an advertisement image where the USER'S PRODUCT is the MAIN SUBJECT.\\n=== PRODUCT INFORMATION ===\\nProduct Name: [from inventory]\\nProduct Description: [from inventory]\\nTarget Audience: [from inventory]\\n=== STYLE REFERENCE ===\\nThe reference image is provided ONLY for: visual style, color palette, composition structure, typography style, overall energy. DO NOT copy the product from the reference.\\n=== GENERATION RULES ===\\nMUST DO: Feature [product] as CENTRAL element; show actual product from product images; match STYLE of reference; make product clearly visible.\\nMUST NOT DO: Do NOT feature the reference's product; do NOT just copy the reference with minor changes; do NOT make product small or secondary.\\n=== OUTPUT ===\\nCreate a high-converting ad that showcases [product] prominently, appeals to [target audience], uses visual style from reference, looks professional."
+You MUST output image prompts in this full structured format when inspiration is provided—so the image model receives clear MUST DO / MUST NOT DO instructions and does not produce a copycat.
 
 🎯 REALISTIC PRODUCT USAGE (CRITICAL - Use world knowledge):
 
