@@ -8955,7 +8955,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                     model_usage["videoClipGeneration"].append({
                         "post_index": video_idx,
                         "clip_number": 1,
-                        "model": "fal-ai/kling-video/o3/pro/video-to-video/edit",
+                        "model": "fal-ai/kling-video/o3/pro/video-to-video/reference",
                         "model_name": "kling_o3_v2v",
                         "duration": "full",
                         "aspect_ratio": "9:16",

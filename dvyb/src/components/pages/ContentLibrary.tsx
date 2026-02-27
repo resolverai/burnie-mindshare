@@ -8,6 +8,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { Search, Eye, Heart, MessageCircle, Share2, Loader2, Play, Sparkles, Grid3X3, List, Pencil, Download } from "lucide-react";
 import { PostDetailDialog } from "@/components/calendar/PostDetailDialog";
+import { VideoEditorModal } from "@/components/video-editor/VideoEditorModal";
 import { GenerateContentDialog } from "@/components/onboarding/GenerateContentDialog";
 import { CreateAdFlowModal } from "@/components/pages/CreateAdFlowModal";
 import { PricingModal } from "@/components/PricingModal";
@@ -127,6 +128,7 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [selectedPost, setSelectedPost] = useState<ContentItem | null>(null);
   const [showPostDetail, setShowPostDetail] = useState(false);
+  const [showVideoEditor, setShowVideoEditor] = useState(false);
   const [openInEditDesignMode, setOpenInEditDesignMode] = useState(false);
   const [showAnalyticsDialog, setShowAnalyticsDialog] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -167,6 +169,10 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
   
   // Ref for infinite scroll observer
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  // Ref map for video elements (for play-on-click)
+  const videoRefsMap = useRef<Record<string, HTMLVideoElement | null>>({});
+  // Track which video is playing (to hide play overlay)
+  const [playingVideoId, setPlayingVideoId] = useState<string | null>(null);
   
   // PRIORITY CHECK: Onboarding generation job (auto-open dialog for new users)
   // Skip for Flow 2 users who already saw their content on ProductShotGeneration screen
@@ -828,8 +834,11 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
                     trackContentItemClicked(item.contentId, isVideo ? 'video' : 'image', isPosted ? 'posted' : 'scheduled');
                     setSelectedPost(item);
                     if (isPosted) setShowAnalyticsDialog(true);
-                    else {
-                      setOpenInEditDesignMode(!isVideo);
+                    else if (isVideo) {
+                      onEditDesignModeChange?.(true);
+                      setShowVideoEditor(true);
+                    } else {
+                      setOpenInEditDesignMode(true);
                       setShowPostDetail(true);
                     }
                     return;
@@ -846,8 +855,11 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
                 trackContentItemClicked(item.contentId, isVideo ? 'video' : 'image', isPosted ? 'posted' : 'scheduled');
                 setSelectedPost(item);
                 if (isPosted) setShowAnalyticsDialog(true);
-                else {
-                  setOpenInEditDesignMode(!isVideo);
+                else if (isVideo) {
+                  onEditDesignModeChange?.(true);
+                  setShowVideoEditor(true);
+                } else {
+                  setOpenInEditDesignMode(true);
                   setShowPostDetail(true);
                 }
               };
@@ -860,13 +872,40 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
                       {item.image && (item.image.includes('video') || item.image.includes('.mp4')) ? (
                         <>
                           <video
+                            ref={(el) => { if (el) videoRefsMap.current[item.id] = el; }}
                             src={item.image}
                             className="w-full h-full object-cover"
-                            muted
+                            playsInline
+                            onClick={(e) => e.stopPropagation()}
+                            onPlay={() => setPlayingVideoId(item.id)}
+                            onPause={() => setPlayingVideoId((prev) => (prev === item.id ? null : prev))}
+                            onEnded={() => setPlayingVideoId((prev) => (prev === item.id ? null : prev))}
                           />
-                          <div className="absolute inset-0 flex items-center justify-center bg-black/20 pointer-events-none">
-                            <Play className="h-12 w-12 text-white" fill="white" />
-                          </div>
+                          {playingVideoId !== item.id ? (
+                            <button
+                              type="button"
+                              className="absolute inset-0 flex items-center justify-center bg-black/20 hover:bg-black/30 transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 z-10"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const vid = videoRefsMap.current[item.id];
+                                if (vid) vid.play().catch(() => {});
+                              }}
+                              aria-label="Play video"
+                            >
+                              <Play className="h-12 w-12 text-white drop-shadow-lg" fill="white" />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="absolute inset-0 z-10 focus:outline-none"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const vid = videoRefsMap.current[item.id];
+                                if (vid) vid.pause();
+                              }}
+                              aria-label="Pause video"
+                            />
+                          )}
                         </>
                       ) : (
                       <img
@@ -887,7 +926,7 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
                         </Badge>
                       )}
                       {/* Hover overlay with Edit/Download buttons (like wander-discover-connect) - always visible on touch devices */}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3 gap-2">
+                      <div className="absolute inset-0 z-20 pointer-events-none bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3 gap-2 [&>button]:pointer-events-auto">
                         <Button
                           size="sm"
                           variant="secondary"
@@ -1022,6 +1061,32 @@ const ContentLibraryInner = forwardRef<ContentLibraryRef, ContentLibraryProps>((
         }}
         onShowUpgradeModal={handleShowUpgradeModalForEdit}
       />
+
+      {/* Video Editor Modal - open directly when Edit is clicked on video (skip PostDetailDialog) */}
+      {showVideoEditor && selectedPost && (selectedPost.image?.includes('.mp4') || selectedPost.image?.includes('video')) && (
+        <VideoEditorModal
+          open={showVideoEditor}
+          onOpenChange={(open) => {
+            setShowVideoEditor(open);
+            if (!open) {
+              setSelectedPost(null);
+              onEditDesignModeChange?.(false);
+            }
+          }}
+          videoData={{
+            generatedContentId: selectedPost.contentId,
+            postIndex: selectedPost.postIndex,
+            videoUrl: selectedPost.image,
+            duration: 30,
+            clips: [{ url: selectedPost.image, duration: 30, startTime: 0 }],
+          }}
+          onSave={() => {
+            handleRefreshAfterSchedule();
+            setShowVideoEditor(false);
+            onEditDesignModeChange?.(false);
+          }}
+        />
+      )}
 
       {/* Analytics Dialog */}
       <Dialog open={showAnalyticsDialog} onOpenChange={setShowAnalyticsDialog}>

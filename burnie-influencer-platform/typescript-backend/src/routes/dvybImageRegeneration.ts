@@ -12,6 +12,7 @@ import { DvybGeneratedContent } from '../models/DvybGeneratedContent';
 import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddleware';
 import { logger } from '../config/logger';
 import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
+import { DvybContextService } from '../services/DvybContextService';
 import axios from 'axios';
 
 const router = Router();
@@ -26,6 +27,7 @@ interface RegenerateRequest {
   postIndex: number;
   prompt: string;
   sourceImageS3Key: string;
+  addBrandLogo?: boolean;
 }
 
 /**
@@ -43,7 +45,30 @@ router.post('/regenerate', dvybAuthMiddleware, async (req: DvybAuthRequest, res:
     
     logger.info(`🎨 Image regeneration request for account ${accountId}, content ${body.generatedContentId}, post ${body.postIndex}`);
     logger.info(`📝 Prompt: ${body.prompt.substring(0, 50)}...`);
-    
+    if (body.addBrandLogo) {
+      logger.info(`🏷️ Add Brand Logo requested - will fetch logo from dvyb_context`);
+    }
+
+    // Fetch brand logo presigned URL if Add Brand Logo requested
+    let brandLogoPresignedUrl: string | null = null;
+    if (body.addBrandLogo) {
+      try {
+        const context = await DvybContextService.getContext(accountId);
+        if (context?.logoUrl) {
+          brandLogoPresignedUrl = await s3Service.generatePresignedUrl(context.logoUrl, 3600, true);
+          if (brandLogoPresignedUrl) {
+            logger.info(`✅ Brand logo presigned URL obtained from dvyb_context`);
+          } else {
+            logger.warn(`⚠️ Failed to generate presigned URL for brand logo: ${context.logoUrl}`);
+          }
+        } else {
+          logger.warn(`⚠️ No logo found in dvyb_context for account ${accountId}`);
+        }
+      } catch (contextErr: any) {
+        logger.error(`❌ Error fetching brand logo from context: ${contextErr?.message}`);
+      }
+    }
+
     const regenerationRepo = AppDataSource.getRepository(DvybImageRegeneration);
     
     // Create pending regeneration record
@@ -76,6 +101,7 @@ router.post('/regenerate', dvybAuthMiddleware, async (req: DvybAuthRequest, res:
           postIndex: body.postIndex,
           prompt: body.prompt,
           sourceImageS3Key: body.sourceImageS3Key,
+          brandLogoPresignedUrl: brandLogoPresignedUrl || undefined,
           callbackUrl,
           regenerationId: regeneration.id,
         },

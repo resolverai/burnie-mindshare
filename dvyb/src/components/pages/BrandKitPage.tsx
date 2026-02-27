@@ -22,6 +22,9 @@ import { AdditionalLogosDropzone } from "@/components/ui/AdditionalLogosDropzone
 import { TikTokIcon } from "@/components/icons/TikTokIcon";
 import { GoogleIcon } from "@/components/icons/GoogleIcon";
 import { trackBrandKitViewed, trackBrandKitTabViewed, trackBrandKitTabSwitched, trackBrandKitSaved, trackBrandKitSaveAllClicked } from "@/lib/mixpanel";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
 
 // Helper function to format text with line breaks and bold sections
 const FormattedText = ({ text }: { text: string }) => {
@@ -96,6 +99,35 @@ const getFileFormatFromUrl = (urlOrKey: string): string => {
   return formatMap[ext] || ext.toUpperCase();
 };
 
+// Helper: normalize URL for display/API
+function normalizeUrl(url: string): string {
+  let normalized = url.trim();
+  if (!normalized) return "";
+  if (!normalized.match(/^https?:\/\//i)) {
+    normalized = "https://" + normalized;
+  }
+  return normalized;
+}
+
+// Helper: validate website URL
+function isValidWebsiteUrl(input: string): boolean {
+  const value = input.trim();
+  if (!value) return false;
+  const withScheme = !/^https?:\/\//i.test(value) ? "https://" + value : value;
+  try {
+    const parsed = new URL(withScheme);
+    const host = parsed.hostname;
+    if (!host || host.includes(" ")) return false;
+    const parts = host.split(".");
+    if (parts.length < 2) return false;
+    const tld = parts[parts.length - 1];
+    if (tld.length < 2) return false;
+    return /^[a-zA-Z]{2,}$/.test(tld);
+  } catch {
+    return false;
+  }
+}
+
 // Types
 interface LinkData {
   url: string;
@@ -157,6 +189,10 @@ export const BrandKitPage = ({ activeTab: controlledTab, onTabChange }: BrandKit
   const [links, setLinks] = useState<LinkData[]>([]);
   const [documentFiles, setDocumentFiles] = useState<File[]>([]);
   const [uploadedDocuments, setUploadedDocuments] = useState<DocumentData[]>([]);
+  const [addLinkDialogOpen, setAddLinkDialogOpen] = useState(false);
+  const [addLinkUrl, setAddLinkUrl] = useState("");
+  const [addLinkType, setAddLinkType] = useState<"website" | "link">("website");
+  const [addLinkAnalyzing, setAddLinkAnalyzing] = useState(false);
   
   // Images & Video states
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
@@ -468,6 +504,81 @@ export const BrandKitPage = ({ activeTab: controlledTab, onTabChange }: BrandKit
       // This would require new endpoints to get connection details
     } catch (error) {
       console.error("Failed to fetch connections:", error);
+    }
+  };
+
+  const handleAddLinkSubmit = async () => {
+    const trimmed = addLinkUrl.trim();
+    if (!trimmed) return;
+    if (!isValidWebsiteUrl(trimmed)) {
+      toast({
+        title: "Invalid URL",
+        description: "Please enter a valid website URL (e.g. yourwebsite.com or https://yourwebsite.com)",
+        variant: "destructive",
+      });
+      return;
+    }
+    const normalized = normalizeUrl(trimmed);
+
+    if (addLinkType === "website") {
+      // Run fast website analysis and update dvyb_context (create or update)
+      try {
+        setAddLinkAnalyzing(true);
+        const response = await contextApi.saveWebsiteAnalysis(normalized, undefined);
+        if (response.success && response.data?.context) {
+          setContextData(response.data.context);
+          // Refresh context to reload links (website + linksJson)
+          await fetchContextData();
+          setAddLinkDialogOpen(false);
+          setAddLinkUrl("");
+          setAddLinkType("website");
+          toast({
+            title: "Website analyzed",
+            description: "Your website has been analyzed and Brand Kit has been updated.",
+          });
+        } else {
+          throw new Error((response as any).error || "Website analysis failed");
+        }
+      } catch (error: any) {
+        console.error("Website analysis failed:", error);
+        toast({
+          title: "Analysis failed",
+          description: error.message || "Failed to analyze website. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setAddLinkAnalyzing(false);
+      }
+    } else {
+      // Just a link - add to links (will be saved to linksJson via Save Changes)
+      const websiteUrl = contextData?.website?.toLowerCase()?.trim();
+      if (websiteUrl && normalized.toLowerCase() === websiteUrl) {
+        toast({
+          title: "Already your website",
+          description: "This URL is already set as your main website. Use \"This is my actual website\" to update it.",
+          variant: "destructive",
+        });
+        return;
+      }
+      const exists = links.some((l) => l.url?.toLowerCase() === normalized.toLowerCase());
+      if (exists) {
+        toast({
+          title: "Link exists",
+          description: "This URL is already in your list.",
+          variant: "destructive",
+        });
+        return;
+      }
+      const newLink: LinkData = { url: normalized, timestamp: new Date().toISOString() };
+      setLinks((prev) => [...prev, newLink]);
+      setHasUnsavedChanges(true);
+      setAddLinkDialogOpen(false);
+      setAddLinkUrl("");
+      setAddLinkType("website");
+      toast({
+        title: "Link added",
+        description: "Click Save Changes to save your updates.",
+      });
     }
   };
 
@@ -1238,8 +1349,9 @@ export const BrandKitPage = ({ activeTab: controlledTab, onTabChange }: BrandKit
                     type="button"
                     variant="link"
                     onClick={() => {
-                      setLinks([...links, { url: '', timestamp: new Date().toISOString() }]);
-                      setHasUnsavedChanges(true);
+                      setAddLinkUrl("");
+                      setAddLinkType("website");
+                      setAddLinkDialogOpen(true);
                     }}
                     className="text-neutral-900 hover:text-neutral-900 gap-2"
                   >
@@ -1248,6 +1360,77 @@ export const BrandKitPage = ({ activeTab: controlledTab, onTabChange }: BrandKit
                   </Button>
                 </div>
               </Card>
+
+              {/* Add Link Dialog - choose website vs just a link */}
+              <Dialog open={addLinkDialogOpen} onOpenChange={setAddLinkDialogOpen}>
+                <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Add Webpage</DialogTitle>
+                    <DialogDescription>
+                      Add a webpage URL for context and inspiration. Is this your main website or just a reference link?
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="add-link-url">URL</Label>
+                      <Input
+                        id="add-link-url"
+                        placeholder="https://yourwebsite.com or yourwebsite.com"
+                        value={addLinkUrl}
+                        onChange={(e) => setAddLinkUrl(e.target.value)}
+                        disabled={addLinkAnalyzing}
+                        className="font-mono text-sm"
+                      />
+                    </div>
+                    <div className="space-y-3">
+                      <Label>Link type</Label>
+                      <RadioGroup
+                        value={addLinkType}
+                        onValueChange={(v) => setAddLinkType(v as "website" | "link")}
+                        className="space-y-2"
+                        disabled={addLinkAnalyzing}
+                      >
+                        <div className="flex items-start space-x-3 rounded-lg border p-3 hover:bg-muted/50">
+                          <RadioGroupItem value="website" id="add-type-website" />
+                          <Label htmlFor="add-type-website" className="flex-1 cursor-pointer space-y-0.5">
+                            <span className="font-medium">This is my actual website</span>
+                            <p className="text-xs text-muted-foreground">
+                              Run website analysis to update your Brand Kit (logo, colors, brand profile). Use this to set or change your main website.
+                            </p>
+                          </Label>
+                        </div>
+                        <div className="flex items-start space-x-3 rounded-lg border p-3 hover:bg-muted/50">
+                          <RadioGroupItem value="link" id="add-type-link" />
+                          <Label htmlFor="add-type-link" className="flex-1 cursor-pointer space-y-0.5">
+                            <span className="font-medium">It&apos;s just a link</span>
+                            <p className="text-xs text-muted-foreground">
+                              Add as a reference link for context and inspiration. No analysis is run.
+                            </p>
+                          </Label>
+                        </div>
+                      </RadioGroup>
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setAddLinkDialogOpen(false)} disabled={addLinkAnalyzing}>
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleAddLinkSubmit}
+                      disabled={!addLinkUrl.trim() || addLinkAnalyzing}
+                    >
+                      {addLinkAnalyzing ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Analyzing...
+                        </>
+                      ) : (
+                        "Add"
+                      )}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
 
               {/* Integrations Section */}
               <Card className="p-4 md:p-6">

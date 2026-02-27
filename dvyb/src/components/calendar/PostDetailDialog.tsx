@@ -151,6 +151,7 @@ export const PostDetailDialog = ({
   const [pollingRegenId, setPollingRegenId] = useState<number | null>(null); // ID of regeneration being polled
   const [caption, setCaption] = useState(post?.description || "");
   const [aiPrompt, setAiPrompt] = useState("");
+  const [addBrandLogoRequested, setAddBrandLogoRequested] = useState(false); // Set when user clicks "Add Brand Logo" suggestion
   const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'assistant', content: string }>>([]);
   const [showScheduleDialog, setShowScheduleDialog] = useState(false);
   const [editedCaptions, setEditedCaptions] = useState<Record<string, string>>({}); // User-edited captions
@@ -1613,9 +1614,11 @@ export const PostDetailDialog = ({
         postIndex: post.postIndex,
         prompt,
         sourceImageS3Key,
+        addBrandLogo: addBrandLogoRequested,
       });
       
       if (result.success && result.data) {
+        setAddBrandLogoRequested(false); // Clear after successful send
         // Start polling for the result
         setPollingRegenId(result.data.id);
         
@@ -1645,8 +1648,9 @@ export const PostDetailDialog = ({
     }
   };
 
-  const handleExamplePrompt = (prompt: string) => {
+  const handleExamplePrompt = (prompt: string, isAddBrandLogo?: boolean) => {
     setAiPrompt(prompt);
+    setAddBrandLogoRequested(!!isAddBrandLogo);
   };
   
   // Handle clicking on a regenerated image thumbnail
@@ -2434,7 +2438,7 @@ export const PostDetailDialog = ({
                             variant="outline" 
                             size="sm" 
                             className="w-full justify-start text-xs h-auto py-2"
-                            onClick={() => handleExamplePrompt("Add brand logo to this image")}
+                            onClick={() => handleExamplePrompt("Add brand logo to this image", true)}
                           >
                             🏷️ Add Brand Logo
                           </Button>
@@ -2497,7 +2501,10 @@ export const PostDetailDialog = ({
                     <textarea
                       placeholder="Ask Dvyb to change something..."
                       value={aiPrompt}
-                      onChange={(e) => setAiPrompt(e.target.value)}
+                      onChange={(e) => {
+                        setAiPrompt(e.target.value);
+                        setAddBrandLogoRequested(false); // Clear when user edits
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault();
@@ -3156,7 +3163,10 @@ export const PostDetailDialog = ({
                         <div className="space-y-2">
                           <p className="text-xs text-muted-foreground">Try asking Dvyb to:</p>
                           <div className="flex flex-wrap gap-2">
-                            {["Make green", "Change text style", "Add logo"].map((prompt) => (
+                            <Button variant="outline" size="sm" className="text-xs h-7" onClick={() => handleExamplePrompt("Add brand logo to this image", true)}>
+                              Add Brand Logo
+                            </Button>
+                            {["Make green", "Change text style"].map((prompt) => (
                               <Button 
                                 key={prompt}
                                 variant="outline" 
@@ -3190,7 +3200,10 @@ export const PostDetailDialog = ({
                       <Input
                         placeholder="Ask Dvyb..."
                         value={aiPrompt}
-                        onChange={(e) => setAiPrompt(e.target.value)}
+                        onChange={(e) => {
+                          setAiPrompt(e.target.value);
+                          setAddBrandLogoRequested(false);
+                        }}
                         onKeyDown={(e) => e.key === 'Enter' && handleSendPrompt()}
                         className="text-sm h-9"
                       />

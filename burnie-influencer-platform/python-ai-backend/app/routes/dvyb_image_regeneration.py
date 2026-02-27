@@ -27,6 +27,8 @@ class RegenerateImageRequest(BaseModel):
     postIndex: int
     prompt: str  # User's prompt describing desired changes
     sourceImageS3Key: str  # S3 key of the source image to edit
+    # Presigned URL of brand logo from dvyb_context (when Add Brand Logo clicked)
+    brandLogoPresignedUrl: Optional[str] = None
     # Callback URL to notify TypeScript backend when processing is complete
     callbackUrl: Optional[str] = None
     # Optional: regeneration record ID for callback updates
@@ -59,11 +61,22 @@ async def process_regeneration_and_callback(request: RegenerateImageRequest):
         logger.info(f"✅ Generated presigned URL for source image")
         
         # Prepare reference images for nano-banana-pro edit
+        # When brand logo is provided (Add Brand Logo), include it as second image
         image_urls = [presigned_source_url]
+        prompt_to_use = request.prompt
+        if request.brandLogoPresignedUrl and request.brandLogoPresignedUrl.strip():
+            image_urls.append(request.brandLogoPresignedUrl.strip())
+            prompt_to_use = (
+                "Place the brand logo from the second reference image at the bottom right corner of the image. "
+                "Use the logo exactly as provided. " + request.prompt
+            )
+            logger.info(f"🏷️ Brand logo included - reference images (2): source + brand logo")
+            logger.info(f"📝 Enhanced prompt: {prompt_to_use[:120]}...")
         
         # Log what we're sending to nano-banana-pro
-        logger.info(f"📸 [NANO-BANANA-PRO-EDIT] Regeneration - Reference images (1):")
-        logger.info(f"   1. {presigned_source_url[:80]}...")
+        logger.info(f"📸 [NANO-BANANA-PRO-EDIT] Regeneration - Reference images ({len(image_urls)}):")
+        for i, url in enumerate(image_urls):
+            logger.info(f"   {i + 1}. {url[:80]}...")
         
         def on_queue_update(update):
             if isinstance(update, fal_client.InProgress):
@@ -76,7 +89,7 @@ async def process_regeneration_and_callback(request: RegenerateImageRequest):
         result = fal_client.subscribe(
             "fal-ai/nano-banana-pro/edit",
             arguments={
-                "prompt": request.prompt,
+                "prompt": prompt_to_use,
                 "num_images": 1,
                 "output_format": "png",
                 "aspect_ratio": "9:16",

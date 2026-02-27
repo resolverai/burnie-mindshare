@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { X, Plus, Upload, Link, Loader2, Twitter, Instagram, Linkedin, Heart, XCircle, Briefcase, Pencil, MessageCircle, Send, Bookmark, Download, Lock, Facebook } from "lucide-react";
 import { PostDetailDialog } from "@/components/calendar/PostDetailDialog";
+import { VideoEditorModal } from "@/components/video-editor/VideoEditorModal";
 import { ScheduleDialog } from "@/components/calendar/ScheduleDialog";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { adhocGenerationApi, postingApi, oauth1Api, authApi, socialConnectionsApi, contentLibraryApi, contentStrategyApi, StrategyPreferences, inspirationsApi, InspirationItem, accountApi, hasEditOrDownloadAccess } from "@/lib/api";
@@ -285,6 +286,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
   const [generatedPosts, setGeneratedPosts] = useState<any[]>([]);
   const [selectedPost, setSelectedPost] = useState<any>(null);
   const [showPostDetail, setShowPostDetail] = useState(false);
+  const [showVideoEditor, setShowVideoEditor] = useState(false);
   const [showScheduleDialog, setShowScheduleDialog] = useState(false);
   const [showPostingDialog, setShowPostingDialog] = useState(false);
   const [showPostNowOverlap, setShowPostNowOverlap] = useState(false);
@@ -2700,7 +2702,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
             const caption = post.platformTexts?.instagram || post.description || sampleCaptions[index % sampleCaptions.length];
             const contentId = post.generatedContentId || generatedContentId;
             const postIdx = post.postIndex !== undefined ? post.postIndex : parseInt(post.id) - 1;
-            const isVideo = post.image && (post.image.includes('.mp4') || post.image.includes('video'));
+            const isVideo = post.type === "Video" || (post.image && (post.image.includes('.mp4') || post.image.includes('video')));
             const handleEdit = async (e: React.MouseEvent) => {
               e.stopPropagation();
               trackContentEditClicked({
@@ -2715,8 +2717,12 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                 const hasAccess = hasEditOrDownloadAccess(u);
                 if (hasAccess) {
                   setSelectedPost(post);
-                  setOpenInEditDesignMode(!isVideo);
-                  setShowPostDetail(true);
+                  if (isVideo) {
+                    setShowVideoEditor(true);
+                  } else {
+                    setOpenInEditDesignMode(true);
+                    setShowPostDetail(true);
+                  }
                   return;
                 }
                 if (adFlowMode) {
@@ -2730,8 +2736,12 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                   return;
                 }
                 setSelectedPost(post);
-                setOpenInEditDesignMode(!isVideo);
-                setShowPostDetail(true);
+                if (isVideo) {
+                  setShowVideoEditor(true);
+                } else {
+                  setOpenInEditDesignMode(true);
+                  setShowPostDetail(true);
+                }
               } catch {
                 setShowDownloadPricingModal(true);
               }
@@ -2815,10 +2825,21 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                 >
                   {/* Reel-style: full image with overlays on top (like real IG Reels) */}
                   <div className="relative w-full h-full flex flex-col">
-                    {/* Full image - fills card, object-cover prevents white padding */}
+                    {/* Full image/video - fills card, object-cover prevents white padding */}
                     <div className="relative w-full h-full min-h-0 flex-1 overflow-hidden">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={post.image} alt={post.title} className="w-full h-full object-cover object-top" />
+                      {isVideo ? (
+                        <video
+                          src={post.image}
+                          className="w-full h-full object-cover object-top"
+                          controls
+                          autoPlay
+                          playsInline
+                          loop
+                        />
+                      ) : (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img src={post.image} alt={post.title} className="w-full h-full object-cover object-top" />
+                      )}
                       {/* Profile overlay - top left */}
                       <div className="absolute top-2 left-2 right-2 flex items-center gap-2 z-10">
                         <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 flex-shrink-0 ring-2 ring-white/80" />
@@ -2886,8 +2907,19 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                       </p>
                     </div>
                     <div className="relative w-full bg-neutral-100 shrink-0 overflow-visible">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={post.image} alt={post.title} className="w-full h-auto block object-top rounded-none" />
+                      {isVideo ? (
+                        <video
+                          src={post.image}
+                          className="w-full h-auto block object-top rounded-none"
+                          controls
+                          autoPlay
+                          playsInline
+                          loop
+                        />
+                      ) : (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img src={post.image} alt={post.title} className="w-full h-auto block object-top rounded-none" />
+                      )}
                       <div className="absolute top-3 right-3 flex gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity z-10">
                         <Button size="sm" variant="secondary" className="gap-1.5 shadow-sm !bg-white hover:!bg-gray-100 !text-neutral-900 dark:!bg-white dark:!text-neutral-900 dark:hover:!bg-gray-100" onClick={handleEdit}>
                           <Pencil className="w-3.5 h-3.5" /> Edit
@@ -2931,8 +2963,19 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                     </div>
                   </div>
                   <div className="relative w-full bg-neutral-900 shrink-0 overflow-hidden">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={post.image} alt={post.title} className="w-full h-auto block object-top" />
+                    {isVideo ? (
+                      <video
+                        src={post.image}
+                        className="w-full h-auto block object-top"
+                        controls
+                        autoPlay
+                        playsInline
+                        loop
+                      />
+                    ) : (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img src={post.image} alt={post.title} className="w-full h-auto block object-top" />
+                    )}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3 gap-2">
                       <Button size="sm" variant="secondary" className="w-full gap-2 !bg-white hover:!bg-gray-100 !text-neutral-900 dark:!bg-white dark:!text-neutral-900 dark:hover:!bg-gray-100" onClick={handleEdit}>
                         <Pencil className="w-4 h-4" /> Edit
@@ -3157,7 +3200,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                             <video
                               src={animatingOutPost.image}
                               className="w-full h-full object-contain"
-                              muted
+                              controls
+                              playsInline
                             />
                           </div>
                         ) : (
@@ -3232,7 +3276,6 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                               src={currentPost.image}
                               controls
                               playsInline
-                              muted
                               className="w-full h-full object-contain"
                               onError={(e) => {
                                 console.error("Video load error:", e);
@@ -3358,7 +3401,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
   return (
     <>
       {/* Modal - landing style (centered, same as OnboardingFlowModal) or full-screen */}
-      {open && !showPostDetail && !showScheduleDialog && (
+      {open && !showPostDetail && !showScheduleDialog && !showVideoEditor && (
         <>
           {/* Backdrop */}
           <div 
@@ -3427,6 +3470,31 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
             </div>
           )}
         </>
+      )}
+
+      {/* Video Editor Modal - open directly when Edit is clicked on video (like My Ads) */}
+      {showVideoEditor && selectedPost && (selectedPost.image?.includes('.mp4') || selectedPost.image?.includes('video')) && (
+        <VideoEditorModal
+          open={showVideoEditor}
+          onOpenChange={(open) => {
+            setShowVideoEditor(open);
+            if (!open) {
+              setSelectedPost(null);
+            }
+          }}
+          videoData={{
+            generatedContentId: selectedPost.generatedContentId || generatedContentId,
+            postIndex: selectedPost.postIndex ?? 0,
+            videoUrl: selectedPost.image,
+            duration: 30,
+            clips: [{ url: selectedPost.image, duration: 30, startTime: 0 }],
+          }}
+          onSave={() => {
+            onDesignSaved?.();
+            setShowVideoEditor(false);
+            setSelectedPost(null);
+          }}
+        />
       )}
 
       <PostDetailDialog

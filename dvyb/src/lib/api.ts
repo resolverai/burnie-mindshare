@@ -1458,6 +1458,7 @@ export const imageRegenerationApi = {
     postIndex: number;
     prompt: string;
     sourceImageS3Key: string;
+    addBrandLogo?: boolean;
   }) {
     return apiRequest<{
       success: boolean;

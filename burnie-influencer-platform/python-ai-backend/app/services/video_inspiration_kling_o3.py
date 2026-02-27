@@ -329,12 +329,19 @@ RULES:
     return _parse_json(chat.sample().content.strip())
 
 
+# Kling O3 v2v reference: max video input 10.05s (FAL limit). Trim to 9.5s for safety buffer
+# (ffmpeg -t 10 can produce ~10.02-10.06s due to keyframe rounding; 9.5s stays under 10.05)
+KLING_O3_MAX_DURATION_SEC = 9.5
+
+
 def run_kling_o3_v2v_edit(
     video_url: str,
     prompt: str,
     elements: list,
     image_urls: list | None = None,
     keep_audio: bool = True,
+    aspect_ratio: str = "9:16",
+    duration_sec: float | None = None,
 ) -> dict | None:
     """Call FAL Kling O3 v2v edit. Returns result dict with video URL or None."""
     import fal_client
@@ -345,7 +352,13 @@ def run_kling_o3_v2v_edit(
         "elements": elements,
         "keep_audio": keep_audio,
         "shot_type": "customize",
+        "aspect_ratio": aspect_ratio,
     }
+    if duration_sec is not None and duration_sec > 0:
+        # FAL expects duration as string "5", "9", "10" etc. (3-15 seconds)
+        dur_int = min(int(round(duration_sec)), 10)  # cap at 10 for FAL output duration
+        dur_int = max(3, dur_int)  # minimum 3
+        args["duration"] = str(dur_int)
     if image_urls:
         args["image_urls"] = image_urls
 
@@ -356,7 +369,7 @@ def run_kling_o3_v2v_edit(
 
     try:
         result = fal_client.subscribe(
-            "fal-ai/kling-video/o3/pro/video-to-video/edit",
+            "fal-ai/kling-video/o3/pro/video-to-video/reference",
             arguments=args,
             with_logs=True,
             on_queue_update=on_log,
@@ -484,7 +497,7 @@ def generate_video_via_kling_o3_v2v(
         if not ok or not video_path:
             return None
         dur = get_video_duration_sec(video_path)
-        print(f"  Video duration: {dur:.1f}s (Kling O3 v2v has no duration limit)")
+        print(f"  Video duration: {dur:.1f}s")
 
         # 2. Demucs
         print("\n  🎵 Step 2: Demucs (remove vocals)")
@@ -530,9 +543,10 @@ def generate_video_via_kling_o3_v2v(
             print("\n  📦 Step 5: Grok inventory")
             inventory = analyze_product_inventory_with_grok(product_url, xai_key)
 
-        # 7. Grok Kling O3 prompts
+        # 7. Grok Kling O3 prompts - use duration of video we'll pass to FAL (min(dur, 10))
+        kling_video_duration_sec = min(dur, KLING_O3_MAX_DURATION_SEC)
         print("\n  ✍️ Step 6: Grok Kling O3 prompts")
-        kling_prompts = generate_kling_o3_prompts_with_grok(inventory, inspiration, topic, dur, xai_key)
+        kling_prompts = generate_kling_o3_prompts_with_grok(inventory, inspiration, topic, kling_video_duration_sec, xai_key)
         print("\n  --- GROK KLING O3 PROMPTS ---")
         print(json.dumps(kling_prompts, indent=2))
         print("  --- END GROK PROMPTS OUTPUT ---\n")
@@ -549,19 +563,21 @@ def generate_video_via_kling_o3_v2v(
         # Style images disabled — only @Element1 (product replacement) is used
         image_urls_list = []
 
-        # 7b. Trim video to 10s max for Kling O3 (API limit: 10.05s)
+        # 7b. Trim video to 9.5s max for Kling O3 (FAL limit: 10.05s; trim <10s for safety)
         kling_video_path = music_only_path
-        if dur > 10.0:
+        kling_video_duration_sec = min(dur, KLING_O3_MAX_DURATION_SEC)  # Duration of video passed to FAL
+        if dur > KLING_O3_MAX_DURATION_SEC:
             trimmed_path = os.path.join(work_dir, "inspiration_trimmed.mp4")
-            print(f"  ✂️ Video is {dur:.1f}s — trimming to 10s for Kling O3 (max 10.05s)")
+            print(f"  ✂️ Video is {dur:.1f}s — trimming to {KLING_O3_MAX_DURATION_SEC}s for Kling O3 (max {KLING_O3_MAX_DURATION_SEC}s)")
             try:
                 video_codec = "h264_videotoolbox" if sys.platform == "darwin" else "libx264"
-                trim_cmd = ["ffmpeg", "-y", "-i", music_only_path, "-t", "10",
+                trim_cmd = ["ffmpeg", "-y", "-i", music_only_path, "-t", str(KLING_O3_MAX_DURATION_SEC),
                             "-c:v", video_codec, "-c:a", "aac", trimmed_path]
                 trim_result = subprocess.run(trim_cmd, capture_output=True, text=True, timeout=120)
                 if trim_result.returncode == 0:
                     kling_video_path = trimmed_path
-                    print(f"  ✅ Trimmed to 10s")
+                    kling_video_duration_sec = KLING_O3_MAX_DURATION_SEC
+                    print(f"  ✅ Trimmed to {KLING_O3_MAX_DURATION_SEC}s")
                 else:
                     print(f"  ⚠️ Trim failed, using full video: {(trim_result.stderr or '')[-300:]}")
             except Exception as e:
@@ -606,6 +622,8 @@ def generate_video_via_kling_o3_v2v(
             elements=elements,
             image_urls=image_urls_list or None,
             keep_audio=True,
+            aspect_ratio="9:16",
+            duration_sec=kling_video_duration_sec,
         )
         if not result or "video" not in result:
             return None

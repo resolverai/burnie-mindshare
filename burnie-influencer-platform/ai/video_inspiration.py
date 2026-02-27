@@ -48,7 +48,7 @@ s3_bucket_name = os.getenv("S3_BUCKET_NAME")
 aws_region = os.getenv("AWS_REGION", "us-east-1")
 
 DOWNLOADS_DIR = Path("/Users/taran/Downloads")
-KLING_MAX_VIDEO_DURATION = 10  # API limit 3-10s
+KLING_MAX_VIDEO_DURATION = 9.5  # FAL Kling O3 v2v: max 10.05s; trim to 9.5s for safety buffer
 MAX_INSPIRATION_DURATION = 20  # Exit if video >20s
 
 if gemini_api_key:
@@ -391,7 +391,7 @@ def run_kling_o3_v2v_edit(
 
     try:
         result = fal_client.subscribe(
-            "fal-ai/kling-video/o3/pro/video-to-video/edit",
+            "fal-ai/kling-video/o3/pro/video-to-video/reference",
             arguments=args,
             with_logs=True,
             on_queue_update=on_log,
