@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { logger } from '../config/logger';
 import { DvybAuthService } from '../services/DvybAuthService';
 import { DvybGoogleAuthService } from '../services/DvybGoogleAuthService';
+import { addLeadToSignupsCampaign } from '../services/InstantlyService';
 import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddleware';
 
 const router = Router();
@@ -230,6 +231,19 @@ router.post('/google/callback', async (req: Request, res: Response) => {
     }
     
     logger.info(`✅ Google callback handled - Account ID: ${account.id}, isNew: ${isNewAccount}`);
+
+    // First-time login only: add lead to Instantly Signups campaign (fire-and-forget)
+    if (isNewAccount && account.primaryEmail) {
+      const name = (account.accountName || '').trim();
+      const space = name.indexOf(' ');
+      const firstName = space > 0 ? name.slice(0, space) : name || undefined;
+      const lastName = space > 0 ? name.slice(space + 1).trim() || undefined : undefined;
+      addLeadToSignupsCampaign({
+        email: account.primaryEmail,
+        firstName: firstName ?? null,
+        lastName: lastName ?? null,
+      }).catch((err) => logger.warn('Instantly add lead (first-time signup):', err));
+    }
 
     // Set authentication cookie
     const cookieOptions = {

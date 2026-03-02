@@ -157,6 +157,11 @@ const envSchema = Joi.object({
   // DVYB Onboarding - API key for unauthenticated discover ads (onboarding modal)
   DVYB_ONBOARDING_API_KEY: Joi.string().allow('').default(''),
 
+  // Instantly - add first-time signups as leads and assign to campaign (Bearer token)
+  INSTANTLY_API_KEY: Joi.string().allow('').default(''),
+  // Optional: campaign UUID (e.g. Signups). If empty, service will resolve by name "Signups" via GET /api/v2/campaigns
+  INSTANTLY_SIGNUPS_CAMPAIGN_ID: Joi.string().allow('').default(''),
+
   // DVYB Brands - Meta Ads fetch (for Discover screen)
   // Tokens (GEMINI_API_KEY, META_AD_LIBRARY_ACCESS_TOKEN, APIFY_TOKEN) live in python-ai-backend .env
   TYPESCRIPT_BACKEND_URL: Joi.string().uri().allow('').default('http://localhost:3001'),
@@ -365,6 +370,12 @@ export const env = {
     },
     frontendUrl: envVars.DVYB_FRONTEND_URL,
     onboardingApiKey: envVars.DVYB_ONBOARDING_API_KEY,
+  },
+
+  // Instantly - first-time signup leads
+  instantly: {
+    apiKey: envVars.INSTANTLY_API_KEY,
+    signupsCampaignId: envVars.INSTANTLY_SIGNUPS_CAMPAIGN_ID || undefined,
   },
 
   // DVYB Brands - Meta Ads fetch (tokens in python-ai-backend .env)
