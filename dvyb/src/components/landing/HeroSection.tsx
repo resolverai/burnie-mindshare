@@ -14,10 +14,10 @@ const rotatingWords = ["ad research", "ad agencies", "ad designers"];
 
 /** Fixed hero copy for Copy B (wander-connect style) */
 const WANDER_HERO_COPY = {
-  mainPrefix: "Ship ads that will ",
-  mainAccent: "10x your ROAS",
+  mainPrefix: "Ship ads that ",
+  mainAccent: "perform",
   mainSuffix: "",
-  subText: "Our AI identifies winning ads from your industry and uses those templates to create your ad - creative, caption - everything.",
+  subText: "#1 FREE ad-spy and AI creation tool. Pay to run ads, not to make them",
   buttonText: "Absolutely Free",
 } as const;
 

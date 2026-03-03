@@ -16,12 +16,12 @@ export function FooterLanding() {
             <Link href="/pricing" className="hover:text-foreground transition-colors">
               Pricing
             </Link>
-            <a href="#" className="hover:text-foreground transition-colors">
+            <Link href="/privacy" className="hover:text-foreground transition-colors">
               Privacy
-            </a>
-            <a href="#" className="hover:text-foreground transition-colors">
+            </Link>
+            <Link href="/terms" className="hover:text-foreground transition-colors">
               Terms
-            </a>
+            </Link>
           </div>
           <p className="text-xs sm:text-sm text-muted-foreground order-last md:order-none flex items-center justify-center md:justify-start gap-1.5">
             © {new Date().getFullYear()}{" "}

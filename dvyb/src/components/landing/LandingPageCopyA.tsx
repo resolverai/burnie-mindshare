@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useAuth } from "@/contexts/AuthContext";
 import { NavigationLanding } from "./NavigationLanding";
+import { FooterLanding } from "./FooterLanding";
 import { CopyAWelcomeScreen } from "./copy-a/CopyAWelcomeScreen";
 import { CopyAWebsiteInputScreen } from "./copy-a/CopyAWebsiteInputScreen";
 import { CopyAAnalyzingScreen } from "./copy-a/CopyAAnalyzingScreen";
@@ -815,9 +816,9 @@ export function LandingPageCopyA() {
               {phase !== "stack" && (
                 <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-6 text-center pt-32 sm:pt-36 pb-16">
                   <div className="flex flex-col items-center max-w-4xl">
-                    {/* Mobile: "AI photoshoots that convert" / "window shoppers to clients" */}
+                    {/* Mobile: Hero message */}
                     <div className="flex flex-col items-center md:hidden">
-                      {["AI photoshoots that convert", "window shoppers to clients"].map((line, lineIdx) => (
+                      {["Ship ads that perform"].map((line, lineIdx) => (
                         <div key={lineIdx} className="flex flex-nowrap justify-center gap-x-4 whitespace-nowrap">
                           {line.split(" ").map((word, i) => {
                             const globalIdx = lineIdx === 0 ? i : i + 5;
@@ -840,9 +841,9 @@ export function LandingPageCopyA() {
                         </div>
                       ))}
                     </div>
-                    {/* Desktop: "AI photoshoots that convert" / "window shoppers to clients" */}
+                    {/* Desktop: Hero message */}
                     <div className="hidden md:flex flex-col items-center">
-                      {["AI photoshoots that convert", "window shoppers to clients"].map((line, lineIdx) => (
+                      {["Ship ads that perform"].map((line, lineIdx) => (
                         <div key={lineIdx} className="flex flex-nowrap justify-center gap-x-4 whitespace-nowrap">
                           {line.split(" ").map((word, i) => {
                             const globalIdx = lineIdx === 0 ? i : i + 5;
@@ -872,7 +873,7 @@ export function LandingPageCopyA() {
                     transition={hasPlayed ? { duration: 0 } : { duration: 0.5, delay: 1.9, ease: [0.16, 1, 0.3, 1] }}
                     className="mt-6 text-base sm:text-lg text-muted-foreground max-w-xl mx-auto px-2"
                   >
-                    Our AI identifies million $ photoshoots from large brands and recreates them for you. Better, cheaper and no migraines.
+                    #1 FREE ad-spy and AI creation tool. Pay to run ads, not to make them
                   </motion.p>
                   <motion.button
                     initial={hasPlayed ? false : { opacity: 0, y: 20 }}
@@ -964,6 +965,7 @@ export function LandingPageCopyA() {
           router.push("/discover?from_onboarding=1");
         }}
       />
+      <FooterLanding />
     </div>
   );
 }
