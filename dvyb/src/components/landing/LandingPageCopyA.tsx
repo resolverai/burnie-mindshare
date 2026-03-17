@@ -479,32 +479,51 @@ export function LandingPageCopyA() {
     if (analysisDone) setStep("dna");
   }, [analysisDone]);
 
-  // Poll domain products when on dna step
+  // Poll domain products when on dna step; stop after 5 min so dna step stays visible and user can upload
   const domain = extractDomain(websiteUrl);
+  const PRODUCT_FETCH_TIMEOUT_MS = 5 * 60 * 1000;
+  const DNA_POLL_INTERVAL_MS = 3000;
+  const hasAutoAdvancedFromDnaRef = useRef(false);
   useEffect(() => {
     if (step !== "dna" || !domain) return;
+    hasAutoAdvancedFromDnaRef.current = false;
     let cancelled = false;
-    let pollCount = 0;
-    const maxPolls = 15;
+    const startTime = Date.now();
+    let nextPollId: ReturnType<typeof setTimeout> | null = null;
     const poll = async () => {
-      if (cancelled || pollCount >= maxPolls) return;
+      if (cancelled) return;
+      const elapsed = Date.now() - startTime;
+      if (elapsed >= PRODUCT_FETCH_TIMEOUT_MS) return;
       try {
         const res = await contextApi.getDomainProductImages(domain);
         if (cancelled) return;
         if (res.success && res.data?.images?.length) {
           setDomainProducts(res.data.images);
         }
-        pollCount += 1;
-        if (pollCount < maxPolls) setTimeout(poll, 3000);
+        if (Date.now() - startTime < PRODUCT_FETCH_TIMEOUT_MS) {
+          nextPollId = setTimeout(poll, DNA_POLL_INTERVAL_MS);
+        }
       } catch {
-        if (pollCount < maxPolls) setTimeout(poll, 3000);
+        if (Date.now() - startTime < PRODUCT_FETCH_TIMEOUT_MS) {
+          nextPollId = setTimeout(poll, DNA_POLL_INTERVAL_MS);
+        }
       }
     };
     poll();
     return () => {
       cancelled = true;
+      if (nextPollId) clearTimeout(nextPollId);
     };
   }, [step, domain]);
+
+  // Auto-skip dna (product selection) when products were fetched: pick one random and go to inspirations
+  useEffect(() => {
+    if (step !== "dna" || domainProducts.length === 0 || hasAutoAdvancedFromDnaRef.current) return;
+    hasAutoAdvancedFromDnaRef.current = true;
+    const picked = domainProducts[Math.floor(Math.random() * domainProducts.length)];
+    localStorage.setItem("dvyb_selected_products", JSON.stringify([picked]));
+    setStep("inspirations");
+  }, [step, domainProducts]);
 
   const handleProductUpload = useCallback(
     async (file: File) => {

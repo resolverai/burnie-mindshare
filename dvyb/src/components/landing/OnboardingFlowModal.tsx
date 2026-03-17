@@ -289,6 +289,18 @@ export function OnboardingFlowModal({ open, onOpenChange, initialWebsiteUrl, cop
             ...(ads.length === 0 && websiteUrl && { websiteUrl }),
           });
           trackInspirationPageViewed({ industry: "discover", inspirationCount: ads.length });
+          // Auto-skip inspiration step: pick one random inspiration and go to login (or generation if authenticated)
+          if (ads.length > 0) {
+            const picked = ads[Math.floor(Math.random() * ads.length)];
+            trackOnboardingInspirationSelected({ adIds: [picked.id], count: 1 });
+            trackInspirationSelected({ inspirationId: picked.id, platform: "discover", category: picked.category || "" });
+            localStorage.setItem("dvyb_selected_inspirations", JSON.stringify([picked]));
+            if (isAuthenticated && onProceedToGeneration) {
+              onProceedToGeneration();
+            } else {
+              setStep("login");
+            }
+          }
         }
       } catch (e) {
         console.error("Failed to load ads:", e);
@@ -482,9 +494,9 @@ export function OnboardingFlowModal({ open, onOpenChange, initialWebsiteUrl, cop
     if (file) processCustomInspirationFile(file);
   };
 
-  // Fetch domain product images when entering product step - poll every 4s; show all images saved in DB
+  // Fetch domain product images when entering product step - poll every 4s; stop after 5 min
   const POLL_INTERVAL_MS = 4000;
-  const MAX_POLLS = 120; // ~8 min total (images can take time with Apify download)
+  const PRODUCT_FETCH_TIMEOUT_MS = 5 * 60 * 1000;
 
   useEffect(() => {
     if (!open || step !== "product") return;
@@ -507,42 +519,59 @@ export function OnboardingFlowModal({ open, onOpenChange, initialWebsiteUrl, cop
       setDomainProductsDone(true);
       return;
     }
+    const startTime = Date.now();
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    let pollCount = 0;
+    let nextPollId: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
+
+    const stopAndShowProductStep = () => {
+      if (cancelled) return;
+      setDomainProductsDone(true);
+      setDomainProductsLoading(false);
+    };
+
+    // Single 5-min timeout: when it fires, show product step so user can upload
+    timeoutId = setTimeout(stopAndShowProductStep, PRODUCT_FETCH_TIMEOUT_MS);
 
     const poll = async () => {
       if (cancelled) return;
-      pollCount += 1;
       try {
         const res = await contextApi.getDomainProductImages(url);
         if (cancelled) return;
         if (res.success && res.data?.images?.length > 0) {
-          // Use all images returned by the API (backend returns up to 20)
+          if (timeoutId) clearTimeout(timeoutId);
+          timeoutId = null;
           const images = res.data.images;
           setDomainProducts(images);
           setDomainProductsLoading(false);
+          setDomainProductsDone(true);
           trackOnboardingProductsFetched({ productCount: images.length, source: "domain" });
-          // Stop polling once we have the max the backend returns (20)
-          if (images.length >= 20) {
-            setDomainProductsDone(true);
-            return;
-          }
+          const picked = images[Math.floor(Math.random() * images.length)];
+          trackOnboardingProductChosen({ productIds: [picked.id], count: 1 });
+          localStorage.setItem(
+            "dvyb_selected_products",
+            JSON.stringify([{ id: picked.id, s3Key: picked.s3Key, image: picked.image }])
+          );
+          setStep("inspiration");
+          return;
         }
       } catch {
         // ignore, continue polling
       }
-      if (pollCount >= MAX_POLLS) {
-        setDomainProductsLoading(false);
-        setDomainProductsDone(true);
+      if (cancelled) return;
+      const elapsed = Date.now() - startTime;
+      if (elapsed >= PRODUCT_FETCH_TIMEOUT_MS) {
+        if (timeoutId) clearTimeout(timeoutId);
+        stopAndShowProductStep();
         return;
       }
-      timeoutId = setTimeout(poll, POLL_INTERVAL_MS);
+      nextPollId = setTimeout(poll, POLL_INTERVAL_MS);
     };
     poll();
     return () => {
       cancelled = true;
       if (timeoutId) clearTimeout(timeoutId);
+      if (nextPollId) clearTimeout(nextPollId);
     };
   }, [open, step]);
 

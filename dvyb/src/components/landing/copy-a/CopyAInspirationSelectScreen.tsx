@@ -143,6 +143,12 @@ export function CopyAInspirationSelectScreen({ onContinue, onSkip, isDarkTheme =
           creativeVideoUrl: (ad.creativeVideoUrl as string) ?? null,
         }));
         setDiscoverAds(ads);
+        // Auto-skip inspiration step when matching inspirations found: pick one random and continue
+        if (ads.length > 0) {
+          const picked = ads[Math.floor(Math.random() * ads.length)];
+          localStorage.setItem("dvyb_selected_inspirations", JSON.stringify([picked]));
+          onContinue([picked]);
+        }
       }
     } catch (e) {
       console.error("Failed to load ads:", e);
@@ -150,7 +156,7 @@ export function CopyAInspirationSelectScreen({ onContinue, onSkip, isDarkTheme =
     } finally {
       setAdsLoading(false);
     }
-  }, [toast]);
+  }, [toast, onContinue]);
 
   useEffect(() => {
     loadAds();
