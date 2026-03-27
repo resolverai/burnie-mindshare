@@ -3,7 +3,9 @@
 import { useRef, useEffect, useState } from "react";
 import { Volume2 } from "lucide-react";
 
-const LANDING_VIDEO_URL = "https://burnie-videos.s3.us-east-1.amazonaws.com/dvyb_landing_video.mp4";
+const LANDING_VIDEO_URL =
+  process.env.NEXT_PUBLIC_LANDING_VIDEO_URL ||
+  "https://burnie-videos.s3.us-east-1.amazonaws.com/dvyb_landing_video.mp4";
 
 function scrollToHeroAndFocusInput() {
   document.getElementById("hero")?.scrollIntoView({ behavior: "smooth" });

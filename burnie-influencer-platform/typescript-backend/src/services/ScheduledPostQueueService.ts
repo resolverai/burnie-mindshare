@@ -63,31 +63,30 @@ export const scheduledPostQueue = new Queue(QUEUE_NAME, {
   },
 });
 
-// Helper function to extract S3 key from URL or S3 URI
-// This matches the logic in projectTwitterPosting.ts
+// Helper function to extract storage key from URL or S3 URI (supports AWS S3 and GCS)
 function extractS3KeyFromUrl(url: string): string | null {
   try {
-    // Handle S3 URI format: s3://key/path/to/file
-    // The bucket name is stored in S3_BUCKET_NAME environment variable
-    // Everything after s3:// is the S3 key
     if (url.startsWith('s3://')) {
-      const s3Key = url.substring(5); // Remove 's3://' prefix, everything after is the key
-      const bucketName = env.aws.s3BucketName;
-      logger.info(`🔑 Extracted S3 key from URI: ${s3Key} (using bucket from env: ${bucketName})`);
+      const s3Key = url.substring(5);
+      logger.info(`Extracted key from s3:// URI: ${s3Key}`);
       return s3Key;
     }
     
-    // Handle HTTPS S3 URL format: https://bucket.s3.amazonaws.com/key
-    if (url.includes('s3.amazonaws.com')) {
+    // Handle both AWS S3 and GCS URLs
+    if (url.includes('s3.amazonaws.com') || url.includes('storage.googleapis.com')) {
       const urlObj = new URL(url);
-      const path = urlObj.pathname;
-      const s3Key = path.substring(1).split('?')[0];
-      return s3Key && s3Key.length > 0 ? s3Key : null;
+      let path = urlObj.pathname.substring(1).split('?')[0];
+      // GCS path-style: /bucket/key — strip bucket prefix
+      if (url.includes('storage.googleapis.com')) {
+        const slashIdx = path.indexOf('/');
+        if (slashIdx !== -1) path = path.substring(slashIdx + 1);
+      }
+      return path && path.length > 0 ? path : null;
     }
     
     return null;
   } catch (error) {
-    logger.error('Error extracting S3 key from URL:', error);
+    logger.error('Error extracting storage key from URL:', error);
     return null;
   }
 }
@@ -108,7 +107,7 @@ async function uploadVideoToTwitterInternal(
     // Generate fresh presigned URL if it's from S3
     // Handle both S3 URI format (s3://bucket/key) and HTTPS S3 URLs
     let freshVideoUrl = videoUrl;
-    if (videoUrl.startsWith('s3://') || videoUrl.includes('s3.amazonaws.com')) {
+    if (videoUrl.startsWith('s3://') || videoUrl.includes('s3.amazonaws.com') || videoUrl.includes('storage.googleapis.com')) {
       logger.info(`🔍 Detected S3 URL/URI for video, extracting S3 key: ${videoUrl.substring(0, 100)}...`);
       const s3Key = extractS3KeyFromUrl(videoUrl);
       if (s3Key) {

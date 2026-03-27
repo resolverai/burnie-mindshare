@@ -4,17 +4,12 @@ import { Campaign } from '../models/Campaign';
 import { ContentMarketplace } from '../models/ContentMarketplace';
 import { AppDataSource } from '../config/database';
 import { logger } from '../config/logger';
-import AWS from 'aws-sdk';
 import { UrlCacheService } from '../services/UrlCacheService';
+import { createS3ClientV2, getDefaultBucket } from '../services/StorageConfig';
 
 const router = express.Router();
 
-// Configure AWS S3 (same as campaigns route)
-const s3 = new AWS.S3({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-  region: process.env.AWS_REGION || 'us-east-1'
-});
+const s3 = createS3ClientV2();
 
 interface CarouselSlide {
   id: string;
@@ -29,14 +24,13 @@ interface CarouselSlide {
 async function generatePresignedUrlLocal(s3Key: string): Promise<string | null> {
   try {
     logger.info(`🔗 Requesting presigned URL for S3 key using local backend: ${s3Key}`);
-    logger.info(`🔗 Using bucket: ${process.env.S3_BUCKET_NAME || 'burnie-storage'}`);
-    logger.info(`🔗 AWS Region: ${process.env.AWS_REGION || 'us-east-1'}`);
+    logger.info(`🔗 Using bucket: ${getDefaultBucket()}`);
     
     // Generate presigned URL directly (same as campaigns route)
     const presignedUrl = s3.getSignedUrl('getObject', {
-      Bucket: process.env.S3_BUCKET_NAME || 'burnie-storage',
+      Bucket: getDefaultBucket(),
       Key: s3Key,
-      Expires: 3600 // URL expires in 1 hour
+      Expires: 3600
     });
 
     logger.info(`✅ Generated presigned URL locally for S3 key: ${s3Key}`);

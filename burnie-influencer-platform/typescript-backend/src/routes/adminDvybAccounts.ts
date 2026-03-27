@@ -30,11 +30,12 @@ import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
 import { UrlCacheService } from '../services/UrlCacheService';
 import { IsNull } from 'typeorm';
 import multer from 'multer';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
 import crypto from 'crypto';
 import path from 'path';
 import sharp from 'sharp';
 import axios from 'axios';
+import { createS3ClientV3, getDefaultBucket, getPublicUrl, extractStorageKey } from '../services/StorageConfig';
 
 const router = Router();
 const s3Service = new S3PresignedUrlService();
@@ -48,15 +49,9 @@ const upload = multer({
 });
 
 // Configure S3 client
-const s3Client = new S3Client({
-  region: process.env.AWS_REGION || 'us-east-1',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-  },
-});
+const s3Client = createS3ClientV3();
 
-const S3_BUCKET = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content-staging';
+const S3_BUCKET = getDefaultBucket();
 
 /**
  * GET /api/admin/dvyb-accounts
@@ -156,26 +151,11 @@ router.get('/', async (req: Request, res: Response) => {
         // Generate presigned URL for logo if it exists
         if (context?.logoUrl) {
           try {
-            // Helper function to extract S3 key from URL
-            const extractS3Key = (url: string): string => {
-              // Handle https://bucket.s3.region.amazonaws.com/key format
-              if (url.includes('.s3.') && url.includes('.amazonaws.com/')) {
-                const keyStart = url.indexOf('.amazonaws.com/') + '.amazonaws.com/'.length;
-                const key = url.substring(keyStart).split('?')[0]; // Remove query params if presigned
-                return key || url;
-              }
-              // Already an S3 key
-              return url;
-            };
-            
-            // If logoUrl is already just an S3 key (doesn't start with http), use it directly
-            // Otherwise, extract the key from the full URL
             let logoS3Key: string | null = null;
             
             if (context.logoUrl.startsWith('http://') || context.logoUrl.startsWith('https://')) {
-              logoS3Key = extractS3Key(context.logoUrl);
+              logoS3Key = extractStorageKey(context.logoUrl);
             } else {
-              // Already an S3 key
               logoS3Key = context.logoUrl;
             }
 
@@ -1382,7 +1362,7 @@ router.post('/:id/upload/documents', upload.array('documents', 10), async (req: 
         ContentType: file.mimetype,
       }));
 
-      const fullS3Url = `https://${S3_BUCKET}.s3.amazonaws.com/${uniqueFilename}`;
+      const fullS3Url = getPublicUrl(S3_BUCKET, uniqueFilename);
 
       // Extract text for PDF/DOCX
       let extractedText = '';

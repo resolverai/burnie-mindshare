@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import multer from 'multer';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
 import crypto from 'crypto';
 import path from 'path';
 import sharp from 'sharp';
@@ -12,6 +12,7 @@ import { DvybDomainProductImage } from '../models/DvybDomainProductImage';
 import { DvybAccountHiddenDomainProduct } from '../models/DvybAccountHiddenDomainProduct';
 import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddleware';
 import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
+import { createS3ClientV3, getDefaultBucket } from '../services/StorageConfig';
 
 function normalizeDomain(url: string): string {
   const u = (url || '').trim();
@@ -35,15 +36,9 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
 });
 
-const s3Client = new S3Client({
-  region: process.env.AWS_REGION || 'us-east-1',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-  },
-});
+const s3Client = createS3ClientV3();
 
-const S3_BUCKET = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content-staging';
+const S3_BUCKET = getDefaultBucket();
 
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
 

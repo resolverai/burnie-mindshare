@@ -5,9 +5,9 @@ import time
 from datetime import datetime
 from pathlib import Path
 import fal_client
-import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 from dotenv import load_dotenv
+from app.services.storage_config import create_s3_client, get_default_bucket, sanitize_extra_args
 from PIL import Image
 from xai_sdk import Client
 from xai_sdk.chat import user, system, image
@@ -27,21 +27,12 @@ else:
 class IntegratedAvatarFusion:
     def __init__(self):
         """Initialize the integrated avatar fusion system."""
-        # Initialize S3 client
-        self.aws_access_key_id = os.getenv("AWS_ACCESS_KEY_ID")
-        self.aws_secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY")
-        self.aws_region = os.getenv("AWS_REGION", "us-east-1")
-        self.bucket_name = os.getenv("S3_BUCKET_NAME")
+        self.bucket_name = get_default_bucket()
         
-        if not all([self.aws_access_key_id, self.aws_secret_access_key, self.bucket_name]):
-            raise ValueError("Missing required S3 configuration. Please set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and S3_BUCKET_NAME in python-ai-backend/.env file.")
+        if not self.bucket_name:
+            raise ValueError("Missing required S3 configuration. Please set S3_BUCKET_NAME in python-ai-backend/.env file.")
         
-        self.s3_client = boto3.client(
-            's3',
-            aws_access_key_id=self.aws_access_key_id,
-            aws_secret_access_key=self.aws_secret_access_key,
-            region_name=self.aws_region
-        )
+        self.s3_client = create_s3_client()
         
         # Initialize Grok client
         xai_api_key = os.getenv("XAI_API_KEY")
@@ -72,12 +63,12 @@ class IntegratedAvatarFusion:
                     file_obj,
                     self.bucket_name,
                     s3_key,
-                    ExtraArgs={
+                    ExtraArgs=sanitize_extra_args({
                         'ContentType': 'image/jpeg',
                         'ContentDisposition': f'attachment; filename="{os.path.basename(file_path)}"',
                         'CacheControl': 'max-age=31536000',
                         'ServerSideEncryption': 'AES256'
-                    }
+                    })
                 )
             
             # Generate pre-signed URL

@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import multer from 'multer';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { logger } from '../config/logger';
 import { AppDataSource } from '../config/database';
@@ -8,6 +8,7 @@ import { DvybAccount } from '../models/DvybAccount';
 import { DvybContext } from '../models/DvybContext';
 import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddleware';
 import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
+import { createS3ClientV3, getDefaultBucket, getPublicUrl } from '../services/StorageConfig';
 import crypto from 'crypto';
 import path from 'path';
 import sharp from 'sharp';
@@ -24,15 +25,9 @@ const upload = multer({
 });
 
 // Configure S3 client
-const s3Client = new S3Client({
-  region: process.env.AWS_REGION || 'us-east-1',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-  },
-});
+const s3Client = createS3ClientV3();
 
-const S3_BUCKET = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content-staging';
+const S3_BUCKET = getDefaultBucket();
 
 /**
  * POST /api/dvyb/upload/logo
@@ -107,7 +102,7 @@ router.post('/logo', dvybAuthMiddleware, upload.single('logo'), async (req: Dvyb
       success: true,
       data: {
         s3_key: uniqueFilename,
-        presignedUrl: presignedUrl || `https://${S3_BUCKET}.s3.amazonaws.com/${uniqueFilename}`,
+        presignedUrl: presignedUrl || getPublicUrl(S3_BUCKET, uniqueFilename),
       },
       message: 'Logo uploaded successfully',
       timestamp: new Date().toISOString(),
@@ -176,7 +171,7 @@ router.post('/additional-logos', dvybAuthMiddleware, upload.array('logos', 10), 
 
       uploadedLogos.push({
         url: uniqueFilename, // S3 key
-        presignedUrl: presignedUrl || `https://${S3_BUCKET}.s3.amazonaws.com/${uniqueFilename}`,
+        presignedUrl: presignedUrl || getPublicUrl(S3_BUCKET, uniqueFilename),
         timestamp: new Date().toISOString(),
       });
     }
@@ -256,7 +251,7 @@ router.post('/brand-images', dvybAuthMiddleware, upload.array('images', 10), asy
 
       await s3Client.send(uploadCommand);
 
-      const imageUrl = `https://${S3_BUCKET}.s3.amazonaws.com/${uniqueFilename}`;
+      const imageUrl = getPublicUrl(S3_BUCKET, uniqueFilename);
       uploadedUrls.push(imageUrl);
     }
 
@@ -325,7 +320,7 @@ router.post('/document', dvybAuthMiddleware, upload.single('document'), async (r
 
     await s3Client.send(uploadCommand);
 
-    const documentUrl = `https://${S3_BUCKET}.s3.amazonaws.com/${uniqueFilename}`;
+    const documentUrl = getPublicUrl(S3_BUCKET, uniqueFilename);
 
     logger.info(`✅ Uploaded document for DVYB account ${accountId}: ${uniqueFilename}`);
 
@@ -388,7 +383,7 @@ router.post('/documents', dvybAuthMiddleware, upload.array('documents', 10), asy
 
       await s3Client.send(uploadCommand);
 
-      const fullS3Url = `https://${S3_BUCKET}.s3.amazonaws.com/${uniqueFilename}`;
+      const fullS3Url = getPublicUrl(S3_BUCKET, uniqueFilename);
       documentUrls.push(uniqueFilename); // Store S3 key, not full URL
 
       logger.info(`✅ Uploaded ${file.originalname} to S3: ${uniqueFilename}`);
@@ -488,7 +483,7 @@ router.post('/presigned-url', dvybAuthMiddleware, async (req: DvybAuthRequest, r
     });
 
     const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
-    const publicUrl = `https://${S3_BUCKET}.s3.amazonaws.com/${uniqueFilename}`;
+    const publicUrl = getPublicUrl(S3_BUCKET, uniqueFilename);
 
     logger.info(`✅ Generated presigned URL for DVYB account ${accountId}`);
 
@@ -616,13 +611,13 @@ router.post('/media', dvybAuthMiddleware, upload.array('media', 50), async (req:
       if (isImage) {
         images.push({
           url: uniqueFilename,
-          presignedUrl: presignedUrl || `https://${S3_BUCKET}.s3.amazonaws.com/${uniqueFilename}`,
+          presignedUrl: presignedUrl || getPublicUrl(S3_BUCKET, uniqueFilename),
           timestamp,
         });
       } else {
         videos.push({
           url: uniqueFilename,
-          presignedUrl: presignedUrl || `https://${S3_BUCKET}.s3.amazonaws.com/${uniqueFilename}`,
+          presignedUrl: presignedUrl || getPublicUrl(S3_BUCKET, uniqueFilename),
           timestamp,
         });
       }

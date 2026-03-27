@@ -45,15 +45,23 @@ export const CalendarView = () => {
     return todayIndex >= 0 ? todayIndex : 0;
   });
 
-  // Extract S3 key from URL (handles both presigned URLs and direct S3 keys)
+  // Extract storage key from URL (handles AWS S3, GCS, and direct keys)
   const extractS3Key = (url: string): string => {
     if (!url) return '';
     
     try {
+      // GCS S3-interop: https://storage.googleapis.com/bucket/key?...
+      if (url.includes('storage.googleapis.com/')) {
+        const base = url.split('?')[0];
+        const idx = base.indexOf('storage.googleapis.com/') + 'storage.googleapis.com/'.length;
+        const remainder = base.substring(idx);
+        const slashIdx = remainder.indexOf('/');
+        return slashIdx !== -1 ? decodeURIComponent(remainder.substring(slashIdx + 1)) : remainder;
+      }
+
       // If it contains query parameters, extract the path before them
       if (url.includes('?')) {
         const urlObj = new URL(url);
-        // Remove leading slash and decode
         return decodeURIComponent(urlObj.pathname.substring(1));
       }
       
@@ -63,10 +71,9 @@ export const CalendarView = () => {
         return decodeURIComponent(urlObj.pathname.substring(1));
       }
       
-      // Otherwise, assume it's already an S3 key
+      // Otherwise, assume it's already a storage key
       return url;
     } catch {
-      // If URL parsing fails, return as-is
       return url;
     }
   };

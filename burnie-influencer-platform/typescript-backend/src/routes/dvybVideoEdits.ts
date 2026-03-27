@@ -12,7 +12,7 @@ import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddl
 import { logger } from '../config/logger';
 import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
 import axios from 'axios';
-import AWS from 'aws-sdk';
+import { createS3ClientV2, getDefaultBucket } from '../services/StorageConfig';
 
 const router = Router();
 const s3Service = new S3PresignedUrlService();
@@ -21,14 +21,9 @@ const s3Service = new S3PresignedUrlService();
 const PYTHON_AI_BACKEND_URL = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
 const TYPESCRIPT_BACKEND_URL = process.env.TYPESCRIPT_BACKEND_URL || process.env.BACKEND_URL || 'http://localhost:3001';
 
-// Configure AWS S3
-const s3 = new AWS.S3({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? '',
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? '',
-  region: process.env.AWS_REGION || 'us-east-1',
-});
+const s3 = createS3ClientV2();
 
-const S3_BUCKET_NAME = (process.env.S3_BUCKET_NAME || 'burnie-mindshare-content-staging') as string;
+const S3_BUCKET_NAME = getDefaultBucket();
 
 interface SaveVideoEditRequest {
   generatedContentId: number;

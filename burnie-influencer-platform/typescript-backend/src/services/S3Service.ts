@@ -1,25 +1,21 @@
-import AWS from 'aws-sdk';
 import { logger } from '../config/logger';
+import {
+  createS3ClientV2,
+  getDefaultBucket,
+  sanitizeUploadParams,
+  extractStorageKey,
+} from './StorageConfig';
+import AWS from 'aws-sdk';
 
 export class S3Service {
   private s3: AWS.S3;
   private bucketName: string;
 
   constructor() {
-    // Configure AWS
-    AWS.config.update({
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-      region: process.env.AWS_REGION || 'us-east-1'
-    });
-
-    this.s3 = new AWS.S3();
-    this.bucketName = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content';
+    this.s3 = createS3ClientV2();
+    this.bucketName = getDefaultBucket();
   }
 
-  /**
-   * Upload file directly to S3 and return the S3 URL
-   */
   async uploadFile(
     fileBuffer: Buffer,
     fileName: string,
@@ -31,42 +27,37 @@ export class S3Service {
     try {
       let s3Key: string;
       
-      // Use the same folder structure as Python AI backend if campaignId and snapshotDate are provided
       if (campaignId && snapshotDate) {
-        const dateStr = snapshotDate.toISOString().split('T')[0]; // YYYY-MM-DD format
+        const dateStr = snapshotDate.toISOString().split('T')[0];
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         s3Key = `daily-snapshots/${dateStr}/${campaignId}/${timestamp}_${fileName}`;
       } else {
-        // Fallback to simple structure
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         s3Key = `${folder}/${timestamp}_${fileName}`;
       }
 
-      const uploadParams = {
+      const uploadParams = sanitizeUploadParams({
         Bucket: this.bucketName,
         Key: s3Key,
         Body: fileBuffer,
         ContentType: contentType,
-        ACL: 'private' // Keep files private, use presigned URLs for access
-      };
+        ACL: 'private',
+      });
 
       const result = await this.s3.upload(uploadParams).promise();
       
-      logger.info(`✅ File uploaded to S3: ${s3Key}`);
+      logger.info(`File uploaded to storage: ${s3Key}`);
       
       return {
         s3Url: result.Location,
         s3Key: s3Key
       };
     } catch (error) {
-      logger.error(`❌ S3 upload failed: ${error}`);
-      throw new Error(`S3 upload failed: ${error}`);
+      logger.error(`Storage upload failed: ${error}`);
+      throw new Error(`Storage upload failed: ${error}`);
     }
   }
 
-  /**
-   * Generate a presigned URL for temporary access to a file
-   */
   async generatePresignedUrl(s3Key: string, expirationSeconds: number = 3600): Promise<string> {
     try {
       const params = {
@@ -76,18 +67,15 @@ export class S3Service {
       };
 
       const presignedUrl = await this.s3.getSignedUrlPromise('getObject', params);
-      logger.info(`🔗 Generated presigned URL for ${s3Key} (expires in ${expirationSeconds}s)`);
+      logger.info(`Generated presigned URL for ${s3Key} (expires in ${expirationSeconds}s)`);
       
       return presignedUrl;
     } catch (error) {
-      logger.error(`❌ Failed to generate presigned URL for ${s3Key}: ${error}`);
+      logger.error(`Failed to generate presigned URL for ${s3Key}: ${error}`);
       throw new Error(`Failed to generate presigned URL: ${error}`);
     }
   }
 
-  /**
-   * Generate presigned URLs for multiple files
-   */
   async generatePresignedUrls(s3Keys: string[], expirationSeconds: number = 3600): Promise<{ [key: string]: string }> {
     const presignedUrls: { [key: string]: string } = {};
     
@@ -95,17 +83,13 @@ export class S3Service {
       try {
         presignedUrls[s3Key] = await this.generatePresignedUrl(s3Key, expirationSeconds);
       } catch (error) {
-        logger.error(`❌ Failed to generate presigned URL for ${s3Key}: ${error}`);
-        // Continue with other files even if one fails
+        logger.error(`Failed to generate presigned URL for ${s3Key}: ${error}`);
       }
     }
     
     return presignedUrls;
   }
 
-  /**
-   * Delete a file from S3
-   */
   async deleteFile(s3Key: string): Promise<void> {
     try {
       const params = {
@@ -114,16 +98,13 @@ export class S3Service {
       };
 
       await this.s3.deleteObject(params).promise();
-      logger.info(`🗑️ Deleted file from S3: ${s3Key}`);
+      logger.info(`Deleted file from storage: ${s3Key}`);
     } catch (error) {
-      logger.error(`❌ Failed to delete file ${s3Key} from S3: ${error}`);
-      throw new Error(`Failed to delete file from S3: ${error}`);
+      logger.error(`Failed to delete file ${s3Key}: ${error}`);
+      throw new Error(`Failed to delete file: ${error}`);
     }
   }
 
-  /**
-   * Check if a file exists in S3
-   */
   async fileExists(s3Key: string): Promise<boolean> {
     try {
       const params = {
@@ -141,9 +122,6 @@ export class S3Service {
     }
   }
 
-  /**
-   * Get file metadata from S3
-   */
   async getFileMetadata(s3Key: string): Promise<AWS.S3.HeadObjectOutput | null> {
     try {
       const params = {
@@ -161,10 +139,6 @@ export class S3Service {
     }
   }
 
-  /**
-   * Upload file for Context Management with organized folder structure
-   * Structure: web2/accounts/{accountId}/context/{tab}/{filename}
-   */
   async uploadContextFile(
     fileBuffer: Buffer,
     fileName: string,
@@ -184,31 +158,28 @@ export class S3Service {
         s3Key = `web2/accounts/${accountId}/context/${tab}/${timestamp}_${safeName}`;
       }
 
-      const uploadParams = {
+      const uploadParams = sanitizeUploadParams({
         Bucket: this.bucketName,
         Key: s3Key,
         Body: fileBuffer,
         ContentType: contentType,
-        ACL: 'private'
-      };
+        ACL: 'private',
+      });
 
       const result = await this.s3.upload(uploadParams).promise();
       
-      logger.info(`✅ Context file uploaded to S3: ${s3Key}`);
+      logger.info(`Context file uploaded: ${s3Key}`);
       
       return {
         s3Url: result.Location,
         s3Key: s3Key
       };
     } catch (error) {
-      logger.error(`❌ Context file S3 upload failed: ${error}`);
-      throw new Error(`Context file S3 upload failed: ${error}`);
+      logger.error(`Context file upload failed: ${error}`);
+      throw new Error(`Context file upload failed: ${error}`);
     }
   }
 
-  /**
-   * List all files in a specific context tab folder
-   */
   async listContextFiles(
     accountId: number,
     tab: 'brand_assets' | 'visual_references' | 'text_content' | 'platform_handles',
@@ -227,14 +198,11 @@ export class S3Service {
       const result = await this.s3.listObjectsV2(params).promise();
       return result.Contents?.map(obj => obj.Key!) || [];
     } catch (error) {
-      logger.error(`❌ Failed to list context files: ${error}`);
+      logger.error(`Failed to list context files: ${error}`);
       return [];
     }
   }
 
-  /**
-   * Download file from S3 to buffer (for text extraction)
-   */
   async downloadFile(s3Key: string): Promise<Buffer> {
     try {
       const params = {
@@ -245,39 +213,14 @@ export class S3Service {
       const result = await this.s3.getObject(params).promise();
       return result.Body as Buffer;
     } catch (error) {
-      logger.error(`❌ Failed to download file ${s3Key}: ${error}`);
+      logger.error(`Failed to download file ${s3Key}: ${error}`);
       throw new Error(`Failed to download file: ${error}`);
     }
   }
 
-  /**
-   * Extract S3 key from S3 URL or presigned URL
-   */
   extractS3Key(url: string): string {
-    // Handle s3://bucket/key format
-    if (url.startsWith('s3://')) {
-      const parts = url.replace('s3://', '').split('/');
-      return parts.slice(1).join('/');
-    }
-    
-    // Handle https://bucket.s3.region.amazonaws.com/key format
-    if (url.includes('.s3.') && url.includes('.amazonaws.com/')) {
-      const keyStart = url.indexOf('.amazonaws.com/') + '.amazonaws.com/'.length;
-      const key = url.substring(keyStart).split('?')[0]; // Remove query params if presigned
-      return key || '';
-    }
-    
-    // Handle direct S3 URL format
-    if (url.includes('s3.amazonaws.com/')) {
-      const keyStart = url.indexOf('s3.amazonaws.com/') + 's3.amazonaws.com/'.length;
-      const key = url.substring(keyStart).split('?')[0];
-      return key || '';
-    }
-    
-    // Assume it's already a key
-    return url;
+    return extractStorageKey(url, this.bucketName);
   }
 }
 
-// Export singleton instance
 export const s3Service = new S3Service();

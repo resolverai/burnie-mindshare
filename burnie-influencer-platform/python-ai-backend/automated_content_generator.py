@@ -305,17 +305,15 @@ class AutomatedContentGenerator:
         s3_presigned_indicators = [
             "s3.amazonaws.com",
             "amazonaws.com",
+            "storage.googleapis.com",
             "s3.",
             "https://",
             ".jpg", ".jpeg", ".png", ".webp"
         ]
         
-        # S3 presigned URL must have query parameters (AWSAccessKeyId, Signature, Expires)
-        presigned_required_params = [
-            "AWSAccessKeyId",
-            "Signature", 
-            "Expires"
-        ]
+        # Presigned URL auth params (AWS uses AWSAccessKeyId/Signature, GCS via S3-interop uses X-Amz-*)
+        presigned_required_params_aws = ["AWSAccessKeyId", "Signature", "Expires"]
+        presigned_required_params_v4 = ["X-Amz-Algorithm", "X-Amz-Credential", "X-Amz-Signature"]
         
         for image_url in content_images:
             if not isinstance(image_url, str):
@@ -329,12 +327,14 @@ class AutomatedContentGenerator:
                 logger.warning(f"⚠️ Image URL doesn't appear to be S3: {image_url}")
                 return False
             
-            # Check if URL has presigned authentication parameters
-            has_presigned_params = all(param in image_url for param in presigned_required_params)
+            # Check if URL has presigned authentication parameters (v2 or v4 signing)
+            has_presigned_params = (
+                all(param in image_url for param in presigned_required_params_aws) or
+                all(param in image_url for param in presigned_required_params_v4)
+            )
             
             if not has_presigned_params:
-                logger.warning(f"⚠️ Image URL is S3 but not presigned (missing auth params): {image_url}")
-                logger.warning(f"⚠️ Required params: {presigned_required_params}")
+                logger.warning(f"⚠️ Image URL appears to be storage but not presigned (missing auth params): {image_url}")
                 return False
         
         logger.info(f"✅ All {len(content_images)} images are valid S3 presigned URLs")

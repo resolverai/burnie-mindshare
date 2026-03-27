@@ -6,27 +6,14 @@ import { User } from '../models/User';
 import { logger } from '../config/logger';
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
-import AWS from 'aws-sdk';
 import multer from 'multer';
+import { createS3ClientV2, getDefaultBucket, getPublicUrl } from '../services/StorageConfig';
 
 const router = Router();
 
-// Configure AWS S3
-const awsConfig: AWS.S3.ClientConfiguration = {
-  region: process.env.AWS_REGION || 'us-east-1',
-};
+const s3 = createS3ClientV2();
 
-if (process.env.AWS_ACCESS_KEY_ID) {
-  awsConfig.accessKeyId = process.env.AWS_ACCESS_KEY_ID;
-}
-
-if (process.env.AWS_SECRET_ACCESS_KEY) {
-  awsConfig.secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
-}
-
-const s3 = new AWS.S3(awsConfig);
-
-const S3_BUCKET = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content-staging';
+const S3_BUCKET = getDefaultBucket();
 const AI_BACKEND_URL = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
 
 // Configure multer for memory storage
@@ -439,7 +426,7 @@ router.post('/presigned-url', async (req: Request, res: Response) => {
     const uploadUrl = await s3.getSignedUrlPromise('putObject', params);
 
     // Generate the final S3 URL
-    const fileUrl = `https://${S3_BUCKET}.s3.${process.env.AWS_REGION || 'us-east-1'}.amazonaws.com/${key}`;
+    const fileUrl = getPublicUrl(S3_BUCKET, key);
 
     logger.info(`✅ Generated presigned upload URL for: ${fileName}`);
     return res.json({

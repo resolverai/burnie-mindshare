@@ -4,8 +4,8 @@ from typing import Optional
 import tempfile
 import os
 import requests
-import boto3
 from botocore.exceptions import ClientError
+from app.services.storage_config import create_s3_client, get_public_url
 import subprocess
 import logging
 from pathlib import Path
@@ -15,13 +15,8 @@ router = APIRouter()
 # Setup logging
 logger = logging.getLogger(__name__)
 
-# AWS S3 configuration
-s3_client = boto3.client(
-    's3',
-    aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
-    region_name=os.getenv('AWS_REGION', 'us-east-1')
-)
+# S3 client via centralized config
+s3_client = create_s3_client()
 
 class VideoWatermarkRequest(BaseModel):
     video_url: str
@@ -132,7 +127,7 @@ def process_video_watermark_background(
                 logger.info(f"✅ Watermarked video uploaded with presigned URL: {watermark_video_url[:100]}...")
             else:
                 # Fallback to direct S3 URL if presigned generation fails
-                watermark_video_url = f"https://{s3_bucket}.s3.amazonaws.com/{watermarked_s3_key}"
+                watermark_video_url = get_public_url(s3_bucket, watermarked_s3_key)
                 logger.warning(f"⚠️ Failed to generate presigned URL, using direct S3 URL: {presigned_result.get('error')}")
             
             logger.info(f"✅ Background: Video watermarking completed for content ID: {content_id}")

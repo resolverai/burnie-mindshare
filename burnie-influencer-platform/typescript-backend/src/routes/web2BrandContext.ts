@@ -6,17 +6,13 @@ import { AccountClient } from '../models/AccountClient';
 import { logger } from '../config/logger';
 import { IsNull } from 'typeorm';
 import multer from 'multer';
-import AWS from 'aws-sdk';
 import path from 'path';
+import { createS3ClientV2, getDefaultBucket, sanitizeUploadParams } from '../services/StorageConfig';
 
 const router = Router();
 
-// Configure AWS S3
-const s3 = new AWS.S3({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-  region: process.env.AWS_REGION || 'us-east-1'
-});
+// Configure S3 client
+const s3 = createS3ClientV2();
 
 // Configure multer for file uploads
 const upload = multer({
@@ -69,30 +65,19 @@ router.post('/upload-logo', upload.single('logo'), async (req: Request, res: Res
     // Use proper S3 structure: web2/accounts/{account_id}/logos/{filename}
     const s3Key = `web2/accounts/${account_id}/logos/${fileName}`;
 
-    // Get bucket name from environment
-    const bucketName = process.env.S3_BUCKET_NAME;
-    
-    if (!bucketName) {
-      res.status(500).json({
-        success: false,
-        error: 'S3 bucket not configured'
-      });
-      return;
-    }
+    const bucketName = getDefaultBucket();
 
     // Upload to S3
-    const uploadParams = {
+    const uploadParams = sanitizeUploadParams({
       Bucket: bucketName,
       Key: s3Key,
       Body: file.buffer,
       ContentType: file.mimetype,
       ServerSideEncryption: 'AES256'
-    };
+    });
 
     const uploadResult = await s3.upload(uploadParams).promise();
 
-    // Return the S3 key (non-presigned URL format)
-    // Store this in database, and generate presigned URLs when needed
     const s3Url = `s3://${bucketName}/${s3Key}`;
 
     logger.info(`✅ Logo uploaded to S3 for account ${account_id}: ${s3Key}`);

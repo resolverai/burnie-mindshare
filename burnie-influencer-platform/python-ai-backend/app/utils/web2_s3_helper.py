@@ -3,10 +3,9 @@ Web2 S3 Helper Utilities
 Handles S3 operations for Web2 content generation (logos, images, videos)
 """
 import os
-import boto3
 from botocore.exceptions import ClientError
-from urllib.parse import urlparse
 from app.config.settings import settings
+from app.services.storage_config import create_s3_client, extract_storage_key
 from app.services.redis_url_cache_service import redis_url_cache_service
 import logging
 
@@ -17,12 +16,7 @@ class Web2S3Helper:
     
     def __init__(self):
         """Initialize S3 client"""
-        self.s3_client = boto3.client(
-            's3',
-            aws_access_key_id=settings.aws_access_key_id,
-            aws_secret_access_key=settings.aws_secret_access_key,
-            region_name=settings.aws_region
-        )
+        self.s3_client = create_s3_client()
         self.bucket_name = settings.s3_bucket_name
         logger.info(f"✅ Web2S3Helper initialized for bucket: {self.bucket_name}")
     
@@ -199,32 +193,9 @@ class Web2S3Helper:
             S3 object key (path)
         """
         try:
-            # Handle s3:// format (stored in database)
-            if s3_url.startswith('s3://'):
-                # Format: s3://bucket-name/key/path
-                parts = s3_url[5:].split('/', 1)  # Remove 's3://' and split
-                key = parts[1] if len(parts) > 1 else ''
-                logger.info(f"🔍 Extracted S3 key from s3:// format: {key}")
-                return key
-            
-            # Handle HTTPS URLs
-            parsed = urlparse(s3_url)
-            
-            # Handle different S3 URL formats
-            if '.s3.amazonaws.com' in parsed.netloc:
-                # Format: https://bucket-name.s3.amazonaws.com/key/path
-                key = parsed.path[1:]  # Remove leading slash
-            elif 's3.amazonaws.com' in parsed.netloc:
-                # Format: https://s3.amazonaws.com/bucket-name/key/path
-                path_parts = parsed.path[1:].split('/', 1)  # Remove leading slash and split
-                key = path_parts[1] if len(path_parts) > 1 else ''
-            else:
-                # Assume the path is the key
-                key = parsed.path[1:] if parsed.path.startswith('/') else parsed.path
-            
+            key = extract_storage_key(s3_url, self.bucket_name)
             logger.info(f"🔍 Extracted S3 key: {key}")
             return key
-            
         except Exception as e:
             logger.error(f"❌ Failed to extract S3 key from URL: {e}")
             return None

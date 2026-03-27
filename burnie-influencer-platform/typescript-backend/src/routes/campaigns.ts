@@ -8,17 +8,12 @@ import { ContentMarketplace } from '../models/ContentMarketplace';
 import { Repository } from 'typeorm';
 import { env } from '../config/env';
 import multer from 'multer';
-import AWS from 'aws-sdk';
 import path from 'path';
+import { createS3ClientV2, getDefaultBucket, sanitizeUploadParams } from '../services/StorageConfig';
 
 const router = Router();
 
-// Configure AWS S3
-const s3 = new AWS.S3({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-  region: process.env.AWS_REGION || 'us-east-1'
-});
+const s3 = createS3ClientV2();
 
 // Configure multer for file uploads
 const upload = multer({
@@ -57,16 +52,16 @@ router.post('/upload-logo', upload.single('logo'), async (req: Request, res: Res
 
     // Upload to S3
     const uploadParams = {
-      Bucket: process.env.S3_BUCKET_NAME || 'burnie-storage',
+      Bucket: getDefaultBucket(),
       Key: s3Key,
       Body: file.buffer,
       ContentType: file.mimetype,
-      ContentDisposition: `attachment; filename="${fileName}"`, // Force download
-      CacheControl: 'max-age=31536000', // 1 year cache
-      ServerSideEncryption: 'AES256'
+      ContentDisposition: `attachment; filename="${fileName}"`,
+      CacheControl: 'max-age=31536000',
+      ServerSideEncryption: 'AES256',
     };
 
-    const uploadResult = await s3.upload(uploadParams).promise();
+    const uploadResult = await s3.upload(sanitizeUploadParams(uploadParams)).promise();
     
     logger.info(`✅ Logo uploaded successfully: ${uploadResult.Location}`);
 
@@ -110,16 +105,16 @@ router.post('/upload-banner', upload.single('banner'), async (req: Request, res:
 
     // Upload to S3
     const uploadParams = {
-      Bucket: process.env.S3_BUCKET_NAME || 'burnie-storage',
+      Bucket: getDefaultBucket(),
       Key: s3Key,
       Body: file.buffer,
       ContentType: file.mimetype,
-      ContentDisposition: `attachment; filename="${fileName}"`, // Force download
-      CacheControl: 'max-age=31536000', // 1 year cache
-      ServerSideEncryption: 'AES256'
+      ContentDisposition: `attachment; filename="${fileName}"`,
+      CacheControl: 'max-age=31536000',
+      ServerSideEncryption: 'AES256',
     };
 
-    const uploadResult = await s3.upload(uploadParams).promise();
+    const uploadResult = await s3.upload(sanitizeUploadParams(uploadParams)).promise();
     
     logger.info(`✅ Campaign banner uploaded successfully: ${uploadResult.Location}`);
 
@@ -1253,7 +1248,7 @@ router.get('/logo-presigned-url/:s3Key(*)', async (req: Request, res: Response) 
     logger.info(`🔗 Presigned URL request received for S3 key: ${s3Key}`);
     logger.info(`🔗 Raw S3 key from params: ${rawS3Key}`);
 
-    const bucketName = process.env.S3_BUCKET_NAME || 'burnie-storage';
+    const bucketName = getDefaultBucket();
     logger.info(`🔗 Using bucket: ${bucketName}, key: ${s3Key}`);
 
     // Generate pre-signed URL for GET operation (viewing the image)
@@ -1306,7 +1301,7 @@ router.get('/download-image/:s3Key(*)', async (req: Request, res: Response): Pro
     
     // Get object from S3
     const getObjectParams = {
-      Bucket: process.env.S3_BUCKET_NAME || 'burnie-storage',
+      Bucket: getDefaultBucket(),
       Key: s3Key
     };
 

@@ -13,7 +13,6 @@ import asyncio
 import json
 import logging
 import pickle
-import boto3
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from fastapi import APIRouter, HTTPException, BackgroundTasks
@@ -24,6 +23,7 @@ from app.services.advanced_ml_models import CategoryIntelligenceModel, TwitterEn
 from app.services.enhanced_feature_extractor import EnhancedFeatureExtractor
 from app.utils.mindshare_ml_trainer import MindshareMLTrainer
 from app.config.settings import settings
+from app.services.storage_config import create_s3_client
 
 logger = logging.getLogger(__name__)
 
@@ -77,14 +77,8 @@ class EnhancedS3ModelStorage:
         self.platform = platform
         self.bucket_name = settings.s3_bucket_name or "burnie-ai-models"
         
-        # Initialize S3 client if credentials available
         try:
-            self.s3_client = boto3.client(
-                's3',
-                aws_access_key_id=settings.aws_access_key_id,
-                aws_secret_access_key=settings.aws_secret_access_key,
-                region_name=settings.aws_region or 'us-east-1'
-            )
+            self.s3_client = create_s3_client()
             self.s3_available = True
         except Exception as e:
             logger.warning(f"⚠️ S3 not available: {e}")

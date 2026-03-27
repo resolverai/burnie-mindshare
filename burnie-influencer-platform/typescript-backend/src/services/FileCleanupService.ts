@@ -5,6 +5,7 @@ import { AppDataSource } from '../config/database';
 import { PlatformSnapshot, ProcessingStatus } from '../models/PlatformSnapshot';
 import { logger } from '../config/logger';
 import { env } from '../config/env';
+import { createS3ClientV2, getDefaultBucket } from './StorageConfig';
 
 export class FileCleanupService {
   private s3: AWS.S3;
@@ -12,19 +13,11 @@ export class FileCleanupService {
   private uploadPath: string;
 
   constructor() {
-    // Configure AWS S3
-    this.s3 = new AWS.S3({
-      accessKeyId: env.aws.accessKeyId,
-      secretAccessKey: env.aws.secretAccessKey,
-      region: env.aws.region,
-      signatureVersion: 'v4',
-    });
-    
-    this.bucketName = env.aws.s3BucketName;
+    this.s3 = createS3ClientV2();
+    this.bucketName = getDefaultBucket();
     this.uploadPath = path.resolve(env.storage.uploadPath);
     
-    logger.info(`🗄️ FileCleanupService initialized with bucket: ${this.bucketName}`);
-    logger.info(`🔑 Using AWS region: ${env.aws.region}, access key: ${env.aws.accessKeyId?.substring(0, 8)}...`);
+    logger.info(`FileCleanupService initialized with bucket: ${this.bucketName}`);
   }
 
   /**

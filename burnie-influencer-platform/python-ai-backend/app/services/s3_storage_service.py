@@ -7,7 +7,6 @@ from temporary URLs to permanent S3 storage.
 """
 
 import os
-import boto3
 import requests
 import logging
 from typing import Optional, Dict, Any
@@ -19,6 +18,7 @@ from botocore.exceptions import ClientError, NoCredentialsError
 
 # Import settings
 from app.config.settings import settings
+from app.services.storage_config import create_s3_client, get_public_url, sanitize_extra_args
 
 logger = logging.getLogger(__name__)
 
@@ -39,13 +39,8 @@ class S3StorageService:
             if not all([self.aws_access_key_id, self.aws_secret_access_key, self.bucket_name]):
                 raise ValueError("Missing required S3 configuration. Please set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and S3_BUCKET_NAME in environment variables.")
             
-            # Initialize S3 client
-            self.s3_client = boto3.client(
-                's3',
-                aws_access_key_id=self.aws_access_key_id,
-                aws_secret_access_key=self.aws_secret_access_key,
-                region_name=self.aws_region
-            )
+            # Initialize S3 client via centralized storage config
+            self.s3_client = create_s3_client()
             
             logger.info(f"✅ S3 Storage Service initialized for bucket: {self.bucket_name}")
             
@@ -307,7 +302,7 @@ class S3StorageService:
             return f"{self.s3_base_url.rstrip('/')}/{s3_key}"
         else:
             # Construct standard S3 URL
-            return f"https://{self.bucket_name}.s3.{self.aws_region}.amazonaws.com/{s3_key}"
+            return get_public_url(self.bucket_name, s3_key)
 
     def generate_presigned_url(self, s3_key: str, expiration: int = 3600) -> Dict[str, Any]:
         """
@@ -417,12 +412,12 @@ class S3StorageService:
                     file_obj,
                     self.bucket_name,
                     s3_key,
-                    ExtraArgs={
+                    ExtraArgs=sanitize_extra_args({
                         'ContentType': mime_type,
-                        'ContentDisposition': f'attachment; filename="{filename}"',  # Force download
-                        'CacheControl': 'max-age=31536000',  # 1 year cache
+                        'ContentDisposition': f'attachment; filename="{filename}"',
+                        'CacheControl': 'max-age=31536000',
                         'ServerSideEncryption': 'AES256'
-                    }
+                    })
                 )
             
             # Generate pre-signed URL for secure access
@@ -446,7 +441,7 @@ class S3StorageService:
                 return result
             else:
                 # Fallback to public URL if pre-signed URL generation fails
-                public_url = f"https://{self.bucket_name}.s3.{self.aws_region}.amazonaws.com/{s3_key}"
+                public_url = get_public_url(self.bucket_name, s3_key)
                 logger.warning(f"⚠️ Pre-signed URL generation failed, using public URL: {public_url}")
                 
                 return {
@@ -546,12 +541,12 @@ class S3StorageService:
                     file_obj,
                     self.bucket_name,
                     s3_key,
-                    ExtraArgs={
+                    ExtraArgs=sanitize_extra_args({
                         'ContentType': mime_type,
                         'ContentDisposition': f'inline; filename="{filename}"',
                         'CacheControl': 'max-age=31536000',
                         'ServerSideEncryption': 'AES256'
-                    }
+                    })
                 )
             
             logger.info(f"✅ Uploaded successfully: {s3_key} ({file_size} bytes)")

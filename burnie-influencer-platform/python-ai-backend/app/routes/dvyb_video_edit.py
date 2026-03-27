@@ -13,8 +13,8 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 import httpx
 import requests
-import boto3
 from botocore.exceptions import ClientError
+from app.services.storage_config import create_s3_client, get_default_bucket, get_videos_bucket, get_public_url
 from moviepy.editor import (
     VideoFileClip, AudioFileClip, ImageClip, TextClip,
     concatenate_videoclips, concatenate_audioclips,
@@ -27,16 +27,10 @@ import numpy as np
 
 router = APIRouter()
 
-# Initialize S3 client
-s3_client = boto3.client(
-    's3',
-    aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
-    region_name=os.getenv('AWS_REGION', 'us-east-1')
-)
-S3_BUCKET = os.getenv('S3_BUCKET_NAME', 'burnie-mindshare-content-staging')
-# Public bucket for admin assets (dvyb-assets)
-BURNIE_VIDEOS_BUCKET = 'burnie-videos'
+# Initialize S3 client via centralized config
+s3_client = create_s3_client()
+S3_BUCKET = get_default_bucket()
+BURNIE_VIDEOS_BUCKET = get_videos_bucket()
 
 
 class VideoClip(BaseModel):
@@ -261,7 +255,7 @@ def download_from_s3(s3_key_or_url: str, local_path: str) -> bool:
         if is_dvyb_asset:
             print(f"📎 Detected dvyb-assets file, using burnie-videos bucket (public)")
             # For public assets, use public URL directly (no presigned URL needed)
-            public_url = f"https://{BURNIE_VIDEOS_BUCKET}.s3.amazonaws.com/{s3_key}"
+            public_url = get_public_url(BURNIE_VIDEOS_BUCKET, s3_key)
             print(f"📥 Downloading from public URL: {public_url[:100]}...")
             return download_from_url(public_url, local_path)
         

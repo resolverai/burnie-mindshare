@@ -12,8 +12,9 @@ import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddl
 import { isAdmin } from '../middleware/adminAuth';
 import { logger } from '../config/logger';
 import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { createS3ClientV3, getDefaultBucket, getVideosBucket, getPublicUrl } from '../services/StorageConfig';
 import { v4 as uuidv4 } from 'uuid';
 import multer from 'multer';
 import crypto from 'crypto';
@@ -24,15 +25,9 @@ const s3Service = new S3PresignedUrlService();
 
 // Admin routes use Express Request (admin set by isAdmin middleware via global augmentation)
 // Initialize S3 client
-const s3Client = new S3Client({
-  region: process.env.AWS_REGION || 'us-east-1',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-  },
-});
+const s3Client = createS3ClientV3();
 
-const S3_BUCKET = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content-staging';
+const S3_BUCKET = getDefaultBucket();
 
 // Setup multer for file uploads
 const upload = multer({
@@ -51,15 +46,9 @@ const upload = multer({
 });
 
 // S3 client for burnie-videos bucket (public bucket for admin assets)
-const burnieVideosS3Client = new S3Client({
-  region: process.env.AWS_REGION || 'us-east-1',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-  },
-});
+const burnieVideosS3Client = createS3ClientV3();
 
-const BURNIE_VIDEOS_BUCKET = 'burnie-videos';
+const BURNIE_VIDEOS_BUCKET = getVideosBucket();
 
 // ========== ADMIN ROUTES (must be before parameterized routes) ==========
 
@@ -109,9 +98,9 @@ router.get('/admin', isAdmin, async (req: Request, res: Response) => {
       
       if (asset.isAdminAsset && asset.s3Key) {
         // Admin assets are in burnie-videos bucket (public)
-        publicUrl = `https://burnie-videos.s3.amazonaws.com/${asset.s3Key}`;
+        publicUrl = getPublicUrl(BURNIE_VIDEOS_BUCKET, asset.s3Key);
         if (asset.thumbnailS3Key) {
-          thumbnailUrl = `https://burnie-videos.s3.amazonaws.com/${asset.thumbnailS3Key}`;
+          thumbnailUrl = getPublicUrl(BURNIE_VIDEOS_BUCKET, asset.thumbnailS3Key);
         }
       }
       
@@ -210,7 +199,7 @@ router.post('/admin/upload', isAdmin, upload.single('file'), async (req: Request
     }));
     
     // Generate public URL (since burnie-videos bucket is public)
-    const publicUrl = `https://${BURNIE_VIDEOS_BUCKET}.s3.amazonaws.com/${uniqueFilename}`;
+    const publicUrl = getPublicUrl(BURNIE_VIDEOS_BUCKET, uniqueFilename);
     
     // Create asset record
     const assetRepo = AppDataSource.getRepository(DvybAsset);
@@ -407,7 +396,7 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
         let presignedUrl: string;
         if (asset.isAdminAsset && asset.s3Key.startsWith('dvyb-assets/')) {
           // Public URL for admin assets in burnie-videos bucket
-          presignedUrl = `https://burnie-videos.s3.amazonaws.com/${asset.s3Key}`;
+          presignedUrl = getPublicUrl(BURNIE_VIDEOS_BUCKET, asset.s3Key);
         } else {
           // Presigned URL for user assets (protected)
           presignedUrl = await s3Service.generatePresignedUrl(asset.s3Key) || asset.s3Key;
@@ -415,7 +404,7 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
         
         const thumbnailUrl = asset.thumbnailS3Key
           ? asset.isAdminAsset && asset.thumbnailS3Key.startsWith('dvyb-assets/')
-            ? `https://burnie-videos.s3.amazonaws.com/${asset.thumbnailS3Key}`
+            ? getPublicUrl(BURNIE_VIDEOS_BUCKET, asset.thumbnailS3Key)
             : await s3Service.generatePresignedUrl(asset.thumbnailS3Key)
           : null;
         

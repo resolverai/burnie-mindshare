@@ -68,11 +68,16 @@ const envSchema = Joi.object({
   UPLOAD_PATH: Joi.string().default('./uploads'),
   MAX_FILE_SIZE: Joi.number().default(10485760),
   
-  // AWS S3 Configuration
+  // Cloud Provider (aws | gcp) — switch with a single flag
+  CLOUD_PROVIDER: Joi.string().valid('aws', 'gcp').default('aws'),
+
+  // Storage Configuration (works with both AWS S3 and GCS via S3-interop HMAC keys)
   AWS_ACCESS_KEY_ID: Joi.string().allow('').default(''),
   AWS_SECRET_ACCESS_KEY: Joi.string().allow('').default(''),
   AWS_REGION: Joi.string().default('us-east-1'),
   S3_BUCKET_NAME: Joi.string().default('burnie-mindshare-content-staging'),
+  STORAGE_ENDPOINT: Joi.string().allow('').default(''),
+  STORAGE_VIDEOS_BUCKET: Joi.string().default('burnie-videos'),
 
   // Logging
   LOG_LEVEL: Joi.string().valid('error', 'warn', 'info', 'debug').default('info'),
@@ -276,12 +281,17 @@ export const env = {
     maxFileSize: envVars.MAX_FILE_SIZE,
   },
   
-  // AWS S3
+  // Cloud Provider
+  cloudProvider: envVars.CLOUD_PROVIDER,
+
+  // Storage (AWS S3 or GCS via S3-interop)
   aws: {
     accessKeyId: envVars.AWS_ACCESS_KEY_ID,
     secretAccessKey: envVars.AWS_SECRET_ACCESS_KEY,
     region: envVars.AWS_REGION,
     s3BucketName: envVars.S3_BUCKET_NAME,
+    storageEndpoint: envVars.STORAGE_ENDPOINT,
+    videosBucket: envVars.STORAGE_VIDEOS_BUCKET,
   },
 
   // Logging

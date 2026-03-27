@@ -7,7 +7,6 @@ Supports SNAP prediction, position change prediction, and other platform-specifi
 
 import pickle
 import json
-import boto3
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -21,6 +20,7 @@ import logging
 from pathlib import Path
 
 from app.config.settings import settings
+from app.services.storage_config import create_s3_client, get_default_bucket
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +37,8 @@ class MLModelFramework:
             platform: Platform identifier (e.g., 'cookie.fun', 'kaito')
         """
         self.platform = platform
-        self.s3_client = boto3.client(
-            's3',
-            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-            region_name=settings.AWS_REGION
-        )
-        self.bucket_name = settings.S3_BUCKET_NAME
+        self.s3_client = create_s3_client()
+        self.bucket_name = get_default_bucket()
         self.models = {}
         self.scalers = {}
         self.encoders = {}

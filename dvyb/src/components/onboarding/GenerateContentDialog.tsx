@@ -207,7 +207,7 @@ const analyzeCustomLink = (url: string): {
   const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
   const isDirectImage = imageExtensions.some(ext => trimmedUrl.includes(ext)) ||
     trimmedUrl.includes('/dvyb/inspirations/') || // S3 custom inspirations path
-    (trimmedUrl.includes('s3.amazonaws.com') && !trimmedUrl.includes('.mp4'));
+    ((trimmedUrl.includes('s3.amazonaws.com') || trimmedUrl.includes('storage.googleapis.com')) && !trimmedUrl.includes('.mp4'));
   
   if (isDirectImage) {
     return { type: 'image', embedUrl: url };

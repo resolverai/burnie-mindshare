@@ -6,26 +6,13 @@ import { logger } from '../config/logger';
 import crypto from 'crypto';
 import fetch from 'node-fetch';
 import multer from 'multer';
-import AWS from 'aws-sdk';
 import path from 'path';
 import { In } from 'typeorm';
+import { createS3ClientV2, getDefaultBucket, sanitizeUploadParams } from '../services/StorageConfig';
 
 const router = Router();
 
-// Configure S3
-const s3Config: AWS.S3.ClientConfiguration = {
-  region: process.env.AWS_REGION || 'us-east-1',
-};
-
-if (process.env.AWS_ACCESS_KEY_ID) {
-  s3Config.accessKeyId = process.env.AWS_ACCESS_KEY_ID;
-}
-
-if (process.env.AWS_SECRET_ACCESS_KEY) {
-  s3Config.secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
-}
-
-const s3 = new AWS.S3(s3Config);
+const s3 = createS3ClientV2();
 
 // Configure multer for memory storage
 const upload = multer({
@@ -52,16 +39,16 @@ async function uploadToS3(file: Express.Multer.File, walletAddress: string): Pro
   const fileName = `avatar-uploads/${walletAddress}/${timestamp}_${randomId}${fileExtension}`;
 
   const uploadParams = {
-    Bucket: process.env.S3_BUCKET_NAME || 'burnie-mindshare-content-staging',
+    Bucket: getDefaultBucket(),
     Key: fileName,
     Body: file.buffer,
     ContentType: file.mimetype,
     ContentDisposition: `attachment; filename="${file.originalname}"`,
-    CacheControl: 'max-age=31536000', // 1 year
-    ServerSideEncryption: 'AES256' as const,
+    CacheControl: 'max-age=31536000',
+    ServerSideEncryption: 'AES256',
   };
 
-  const result = await s3.upload(uploadParams).promise();
+  const result = await s3.upload(sanitizeUploadParams(uploadParams)).promise();
   
   // Generate presigned URL (valid for 1 hour)
   const presignedUrl = s3.getSignedUrl('getObject', {

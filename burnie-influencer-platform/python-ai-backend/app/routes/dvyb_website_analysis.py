@@ -25,8 +25,8 @@ import colorsys
 
 from openai import OpenAI
 import os
-import boto3
 from botocore.exceptions import ClientError
+from app.services.storage_config import create_s3_client, get_default_bucket
 import uuid
 import io
 
@@ -2169,14 +2169,9 @@ async def download_and_upload_logo_to_s3(logo_url: str, account_id: Optional[int
             ext = ext_map.get(final_content_type, 'png')
         
         # Upload to S3
-        s3_client = boto3.client(
-            's3',
-            aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-            aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
-            region_name=os.getenv('AWS_REGION', 'us-east-1')
-        )
+        s3_client = create_s3_client()
         
-        bucket_name = os.getenv('S3_BUCKET_NAME')
+        bucket_name = get_default_bucket()
         if not bucket_name:
             logger.error("  ❌ S3_BUCKET_NAME not configured")
             return None
@@ -3269,14 +3264,9 @@ async def upload_brandfetch_logo_to_s3(logo_data: Dict[str, Any], account_id: Op
             ext = ext_map.get(final_content_type, 'png')
         
         # Upload to S3
-        s3_client = boto3.client(
-            's3',
-            aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-            aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
-            region_name=os.getenv('AWS_REGION', 'us-east-1')
-        )
+        s3_client = create_s3_client()
         
-        bucket_name = os.getenv('S3_BUCKET_NAME')
+        bucket_name = get_default_bucket()
         if not bucket_name:
             logger.error("  ❌ S3_BUCKET_NAME not configured")
             return None

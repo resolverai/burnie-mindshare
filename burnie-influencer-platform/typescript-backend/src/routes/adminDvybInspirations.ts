@@ -9,8 +9,9 @@ import { DvybInspirationLink } from '../models/DvybInspirationLink';
 import { logger } from '../config/logger';
 import { Like, IsNull } from 'typeorm';
 import multer from 'multer';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
 import crypto from 'crypto';
+import { createS3ClientV3, getVideosBucket, getPublicUrl } from '../services/StorageConfig';
 import { queueInspirationAnalysis, clearPendingInspirationAnalysisJobs, getInspirationAnalysisQueueStatus } from '../services/InspirationAnalysisQueueService';
 
 // Setup multer for memory storage
@@ -28,15 +29,9 @@ const upload = multer({
 });
 
 // S3 client for burnie-videos bucket (public bucket)
-const s3Client = new S3Client({
-  region: process.env.AWS_REGION || 'us-east-1',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-  },
-});
+const s3Client = createS3ClientV3();
 
-const BURNIE_VIDEOS_BUCKET = 'burnie-videos';
+const BURNIE_VIDEOS_BUCKET = getVideosBucket();
 
 const router = Router();
 
@@ -365,7 +360,7 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
     }));
 
     // Generate public URL (since burnie-videos bucket is public)
-    const mediaUrl = `https://${BURNIE_VIDEOS_BUCKET}.s3.amazonaws.com/${uniqueFilename}`;
+    const mediaUrl = getPublicUrl(BURNIE_VIDEOS_BUCKET, uniqueFilename);
 
     // Create inspiration link entry
     const inspirationRepo = AppDataSource.getRepository(DvybInspirationLink);

@@ -97,19 +97,25 @@ export async function processDvybScheduledPost(job: Job): Promise<void> {
           if (!url) return '';
           
           try {
-            // Remove query parameters
+            // GCS path-style: https://storage.googleapis.com/bucket/key
+            if (url.includes('storage.googleapis.com/')) {
+              const base = url.split('?')[0];
+              const idx = base.indexOf('storage.googleapis.com/') + 'storage.googleapis.com/'.length;
+              const rem = base.substring(idx);
+              const si = rem.indexOf('/');
+              return si !== -1 ? decodeURIComponent(rem.substring(si + 1)) : rem;
+            }
+            
             if (url.includes('?')) {
               const urlObj = new URL(url);
               return decodeURIComponent(urlObj.pathname.substring(1));
             }
             
-            // Handle S3 URLs
             if (url.includes('s3') && url.includes('amazonaws.com')) {
               const urlObj = new URL(url);
               return decodeURIComponent(urlObj.pathname.substring(1));
             }
             
-            // Already an S3 key
             return url;
           } catch {
             return url;

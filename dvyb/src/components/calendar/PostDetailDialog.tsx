@@ -1302,6 +1302,12 @@ export const PostDetailDialog = ({
       const extractS3Key = (url: string): string => {
         if (!url) return '';
         const baseUrl = url.split('?')[0];
+        if (baseUrl.includes('storage.googleapis.com/')) {
+          const idx = baseUrl.indexOf('storage.googleapis.com/') + 'storage.googleapis.com/'.length;
+          const remainder = baseUrl.substring(idx);
+          const slashIdx = remainder.indexOf('/');
+          return slashIdx !== -1 ? decodeURIComponent(remainder.substring(slashIdx + 1)) : remainder;
+        }
         if (baseUrl.includes('.amazonaws.com/')) {
           return decodeURIComponent(baseUrl.split('.amazonaws.com/')[1] || '');
         } else if (baseUrl.includes('.cloudfront.net/')) {
@@ -1393,12 +1399,15 @@ export const PostDetailDialog = ({
 
     setIsSavingDesign(true);
     try {
-      // Get the original image URL (S3 key) - extract from presigned URL if needed
+      // Get the original image URL (storage key) - extract from presigned URL if needed
       let originalImageS3Key = post.originalMediaUrl || '';
       if (!originalImageS3Key && post.image) {
-        // Extract S3 key from presigned URL (format: https://bucket.s3.region.amazonaws.com/key?...)
         const url = post.image.split('?')[0];
-        if (url.includes('.amazonaws.com/')) {
+        if (url.includes('storage.googleapis.com/')) {
+          const idx = url.indexOf('storage.googleapis.com/') + 'storage.googleapis.com/'.length;
+          const rem = url.substring(idx); const si = rem.indexOf('/');
+          originalImageS3Key = si !== -1 ? rem.substring(si + 1) : rem;
+        } else if (url.includes('.amazonaws.com/')) {
           originalImageS3Key = url.split('.amazonaws.com/')[1] || '';
         } else if (url.includes('.cloudfront.net/')) {
           originalImageS3Key = url.split('.cloudfront.net/')[1] || '';
@@ -1411,7 +1420,11 @@ export const PostDetailDialog = ({
       let regeneratedImageS3Key: string | null = activeImageS3Key;
       if (!regeneratedImageS3Key && regeneratedImageUrl) {
         const url = regeneratedImageUrl.split('?')[0];
-        if (url.includes('.amazonaws.com/')) {
+        if (url.includes('storage.googleapis.com/')) {
+          const idx = url.indexOf('storage.googleapis.com/') + 'storage.googleapis.com/'.length;
+          const rem = url.substring(idx); const si = rem.indexOf('/');
+          regeneratedImageS3Key = si !== -1 ? rem.substring(si + 1) : rem;
+        } else if (url.includes('.amazonaws.com/')) {
           regeneratedImageS3Key = url.split('.amazonaws.com/')[1] || null;
         } else if (url.includes('.cloudfront.net/')) {
           regeneratedImageS3Key = url.split('.cloudfront.net/')[1] || null;
@@ -1550,9 +1563,12 @@ export const PostDetailDialog = ({
     // Priority: activeImageS3Key (if regenerated) > originalMediaUrl > extract from post.image
     let sourceImageS3Key = activeImageS3Key || post.originalMediaUrl || '';
     if (!sourceImageS3Key && post.image) {
-      // Extract S3 key from presigned URL
       const url = post.image.split('?')[0];
-      if (url.includes('.amazonaws.com/')) {
+      if (url.includes('storage.googleapis.com/')) {
+        const idx = url.indexOf('storage.googleapis.com/') + 'storage.googleapis.com/'.length;
+        const rem = url.substring(idx); const si = rem.indexOf('/');
+        sourceImageS3Key = si !== -1 ? rem.substring(si + 1) : rem;
+      } else if (url.includes('.amazonaws.com/')) {
         sourceImageS3Key = url.split('.amazonaws.com/')[1] || '';
       } else if (url.includes('.cloudfront.net/')) {
         sourceImageS3Key = url.split('.cloudfront.net/')[1] || '';

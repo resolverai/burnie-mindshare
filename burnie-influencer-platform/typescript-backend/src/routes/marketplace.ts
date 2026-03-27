@@ -23,7 +23,7 @@ import { SomniaBlockchainService } from '../services/somniaBlockchainService';
 import { UserReferral } from '../models/UserReferral';
 import { ReferralCode } from '../models/ReferralCode';
 import { ethers } from 'ethers';
-const AWS = require('aws-sdk');
+import { createS3ClientV2, getDefaultBucket } from '../services/StorageConfig';
 
 const router = Router();
 
@@ -166,15 +166,9 @@ const checkDatabaseConnection = async (req: Request, res: Response, next: Functi
 // Apply database connection check to all routes
 router.use(checkDatabaseConnection);
 
-// Configure AWS S3 for pre-signed URL generation
-const s3 = new AWS.S3({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  region: process.env.AWS_REGION || 'us-east-1',
-  signatureVersion: 'v4'
-});
+const s3 = createS3ClientV2();
 
-const S3_BUCKET_NAME = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content-staging';
+const S3_BUCKET_NAME = getDefaultBucket();
 
 // Log AWS configuration for debugging
 logger.info(`🔧 AWS S3 Configuration:`);

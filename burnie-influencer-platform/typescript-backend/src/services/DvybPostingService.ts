@@ -402,7 +402,7 @@ export class DvybPostingService {
     try {
       // Generate presigned URL if S3 URL
       let downloadUrl = imageUrl;
-      if (imageUrl.includes('s3.amazonaws.com') || imageUrl.startsWith('s3://')) {
+      if (imageUrl.includes('s3.amazonaws.com') || imageUrl.includes('storage.googleapis.com') || imageUrl.startsWith('s3://')) {
         logger.info('🔗 Generating presigned URL for S3 image...');
         // Use the image URL directly - if it's already a presigned URL it will work
         // If it's an S3 URL without signature, axios will handle it if the bucket is public

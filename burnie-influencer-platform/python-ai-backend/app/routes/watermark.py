@@ -4,8 +4,8 @@ from typing import Optional
 import tempfile
 import os
 import requests
-import boto3
 from botocore.exceptions import ClientError
+from app.services.storage_config import create_s3_client, get_public_url
 from app.ai.watermarks import BlendedTamperResistantWatermark
 import logging
 
@@ -14,13 +14,8 @@ router = APIRouter()
 # Setup logging
 logger = logging.getLogger(__name__)
 
-# AWS S3 configuration
-s3_client = boto3.client(
-    's3',
-    aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
-    region_name=os.getenv('AWS_REGION', 'us-east-1')
-)
+# S3 client via centralized config
+s3_client = create_s3_client()
 
 class WatermarkRequest(BaseModel):
     image_url: str
@@ -143,7 +138,7 @@ async def create_watermark(request: WatermarkRequest):
                 )
             
             # Generate public URL
-            watermark_url = f"https://{request.s3_bucket}.s3.amazonaws.com/{watermarked_s3_key}"
+            watermark_url = get_public_url(request.s3_bucket, watermarked_s3_key)
             
             logger.info(f"✅ Watermarked image uploaded: {watermark_url}")
             

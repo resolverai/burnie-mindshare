@@ -10,11 +10,11 @@ from typing import Optional, Dict, Any, List
 from pathlib import Path
 import mimetypes
 
-import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 import aiofiles
 
 from app.config.settings import get_settings
+from app.services.storage_config import create_s3_client, get_public_url
 
 logger = logging.getLogger(__name__)
 
@@ -28,12 +28,7 @@ class S3SnapshotStorage:
     def __init__(self):
         self.settings = get_settings()
         self.bucket_name = self.settings.s3_bucket_name
-        self.s3_client = boto3.client(
-            's3',
-            aws_access_key_id=self.settings.aws_access_key_id,
-            aws_secret_access_key=self.settings.aws_secret_access_key,
-            region_name=self.settings.aws_region
-        )
+        self.s3_client = create_s3_client()
         self.base_folder = "daily-snapshots"
         
     async def upload_snapshot(
@@ -80,8 +75,7 @@ class S3SnapshotStorage:
                 content_type
             )
             
-            # Generate S3 URL
-            s3_url = f"https://{self.bucket_name}.s3.{self.settings.aws_region}.amazonaws.com/{s3_key}"
+            s3_url = get_public_url(self.bucket_name, s3_key)
             
             logger.info(f"✅ Snapshot uploaded successfully: {s3_url}")
             
@@ -243,7 +237,7 @@ class S3SnapshotStorage:
                         "s3_key": obj['Key'],
                         "size": obj['Size'],
                         "last_modified": obj['LastModified'],
-                        "s3_url": f"https://{self.bucket_name}.s3.{self.settings.aws_region}.amazonaws.com/{obj['Key']}"
+                        "s3_url": get_public_url(self.bucket_name, obj['Key'])
                     })
             
             return snapshots
@@ -263,5 +257,5 @@ class S3SnapshotStorage:
             "date_folder": date_str,
             "campaign_folder": str(campaign_id),
             "full_path": folder_path,
-            "s3_url_prefix": f"https://{self.bucket_name}.s3.{self.settings.aws_region}.amazonaws.com/{folder_path}"
+            "s3_url_prefix": get_public_url(self.bucket_name, folder_path)
         }

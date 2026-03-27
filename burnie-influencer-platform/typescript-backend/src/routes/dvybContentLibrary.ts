@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
-import AWS from 'aws-sdk';
 import { AppDataSource } from '../config/database';
+import { createS3ClientV2, getDefaultBucket, extractStorageKey } from '../services/StorageConfig';
 import { DvybGeneratedContent } from '../models/DvybGeneratedContent';
 import { DvybSchedule } from '../models/DvybSchedule';
 import { DvybInstagramPost } from '../models/DvybInstagramPost';
@@ -17,25 +17,12 @@ import { logger } from '../config/logger';
 import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
 
 const router = Router();
-const S3_BUCKET = (process.env.S3_BUCKET_NAME || 'burnie-mindshare-content-staging') as string;
-const s3 = new AWS.S3({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? '',
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? '',
-  region: process.env.AWS_REGION || 'us-east-1',
-});
+const S3_BUCKET = getDefaultBucket();
+const s3 = createS3ClientV2();
 
 /** Extract S3 key from URL or key string */
 function extractS3KeyFromUrl(url: string): string {
-  if (url.startsWith('s3://')) {
-    const parts = url.replace('s3://', '').split('/');
-    return parts.slice(1).join('/');
-  }
-  if (url.includes('.amazonaws.com')) {
-    const idx = url.lastIndexOf('.com/');
-    return idx >= 0 ? url.substring(idx + 5).split('?')[0] || url : url;
-  }
-  if (url.includes('?')) return url.split('?')[0] || url;
-  return url;
+  return extractStorageKey(url, S3_BUCKET);
 }
 
 /**

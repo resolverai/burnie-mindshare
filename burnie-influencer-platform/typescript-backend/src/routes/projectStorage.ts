@@ -1,23 +1,18 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
-import AWS from 'aws-sdk';
 import path from 'path';
 import { logger } from '../config/logger';
 import { UrlCacheService } from '../services/UrlCacheService';
 import { env } from '../config/env';
 import { projectAuthMiddleware } from '../middleware/projectAuthMiddleware';
+import { createS3ClientV2, getDefaultBucket, sanitizeUploadParams } from '../services/StorageConfig';
 
 const router = Router();
 
 // Apply authorization middleware to all routes that require project access
 router.use('/:id/*', projectAuthMiddleware);
 
-// Configure AWS S3
-const s3 = new AWS.S3({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-  region: process.env.AWS_REGION || 'us-east-1'
-});
+const s3 = createS3ClientV2();
 
 // Configure multer for file uploads (logos)
 const upload = multer({
@@ -80,12 +75,7 @@ router.post('/:id/upload-logo', upload.single('logo'), async (req: Request, res:
     // Use proper S3 structure: web3_projects/{project_id}/assets/logo/{filename}
     const s3Key = `web3_projects/${projectId}/assets/logo/${fileName}`;
 
-    // Get bucket name from environment
-    const bucketName = process.env.S3_BUCKET_NAME;
-    
-    if (!bucketName) {
-      return res.status(500).json({ success: false, error: 'S3 bucket not configured' });
-    }
+    const bucketName = getDefaultBucket();
 
     // Upload to S3
     const uploadParams = {
@@ -93,10 +83,10 @@ router.post('/:id/upload-logo', upload.single('logo'), async (req: Request, res:
       Key: s3Key,
       Body: file.buffer,
       ContentType: file.mimetype,
-      ServerSideEncryption: 'AES256'
+      ServerSideEncryption: 'AES256',
     };
 
-    const uploadResult = await s3.upload(uploadParams).promise();
+    const uploadResult = await s3.upload(sanitizeUploadParams(uploadParams)).promise();
 
     // Return the S3 key (non-presigned URL format)
     // Store this in database, and generate presigned URLs when needed
@@ -141,12 +131,7 @@ router.post('/:id/upload-document', uploadDocuments.single('document'), async (r
     // Use proper S3 structure: web3_projects/{project_id}/assets/docs/{filename}
     const s3Key = `web3_projects/${projectId}/assets/docs/${fileName}`;
 
-    // Get bucket name from environment
-    const bucketName = process.env.S3_BUCKET_NAME;
-    
-    if (!bucketName) {
-      return res.status(500).json({ success: false, error: 'S3 bucket not configured' });
-    }
+    const bucketName = getDefaultBucket();
 
     // Upload to S3
     const uploadParams = {
@@ -154,10 +139,10 @@ router.post('/:id/upload-document', uploadDocuments.single('document'), async (r
       Key: s3Key,
       Body: file.buffer,
       ContentType: file.mimetype,
-      ServerSideEncryption: 'AES256'
+      ServerSideEncryption: 'AES256',
     };
 
-    const uploadResult = await s3.upload(uploadParams).promise();
+    const uploadResult = await s3.upload(sanitizeUploadParams(uploadParams)).promise();
 
     // Return the S3 key (non-presigned URL format)
     // Store this in database, and generate presigned URLs when needed
@@ -277,11 +262,7 @@ router.post('/upload-generated-content', async (req: Request, res: Response): Pr
 
     const contentBuffer = Buffer.from(await contentResponse.arrayBuffer());
     
-    // Get bucket name
-    const bucketName = process.env.S3_BUCKET_NAME;
-    if (!bucketName) {
-      return res.status(500).json({ success: false, error: 'S3 bucket not configured' });
-    }
+    const bucketName = getDefaultBucket();
 
     // Determine content type from response or parameter
     let contentType = content_type || contentResponse.headers.get('content-type');
@@ -301,10 +282,10 @@ router.post('/upload-generated-content', async (req: Request, res: Response): Pr
       Body: contentBuffer,
       ContentType: contentType,
       ServerSideEncryption: 'AES256',
-      CacheControl: 'max-age=31536000'
+      CacheControl: 'max-age=31536000',
     };
 
-    await s3.upload(uploadParams).promise();
+    await s3.upload(sanitizeUploadParams(uploadParams)).promise();
 
     const s3Url = `s3://${bucketName}/${s3_key}`;
     logger.info(`✅ Generated content uploaded to S3: ${s3_key} (${contentType})`);
