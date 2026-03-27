@@ -75,7 +75,7 @@ function extractS3KeyFromUrl(url: string): string | null {
     // Handle both AWS S3 and GCS URLs
     if (url.includes('s3.amazonaws.com') || url.includes('storage.googleapis.com')) {
       const urlObj = new URL(url);
-      let path = urlObj.pathname.substring(1).split('?')[0];
+      let path = urlObj.pathname.substring(1).split('?')[0] ?? '';
       // GCS path-style: /bucket/key — strip bucket prefix
       if (url.includes('storage.googleapis.com')) {
         const slashIdx = path.indexOf('/');

@@ -99,7 +99,7 @@ export async function processDvybScheduledPost(job: Job): Promise<void> {
           try {
             // GCS path-style: https://storage.googleapis.com/bucket/key
             if (url.includes('storage.googleapis.com/')) {
-              const base = url.split('?')[0];
+              const base = url.split('?')[0] ?? url;
               const idx = base.indexOf('storage.googleapis.com/') + 'storage.googleapis.com/'.length;
               const rem = base.substring(idx);
               const si = rem.indexOf('/');
