@@ -45,6 +45,7 @@ def create_s3_client(
     When CLOUD_PROVIDER=gcp, the client uses the GCS S3-interop endpoint.
     """
     import boto3
+    from botocore.config import Config
 
     access_key = aws_access_key_id or os.getenv("AWS_ACCESS_KEY_ID", "")
     secret_key = aws_secret_access_key or os.getenv("AWS_SECRET_ACCESS_KEY", "")
@@ -62,6 +63,10 @@ def create_s3_client(
 
     if endpoint:
         kwargs["endpoint_url"] = endpoint
+        kwargs["config"] = Config(
+            signature_version="s3v4",
+            s3={"addressing_style": "path"},
+        )
 
     logger.info(
         f"Storage client: provider={_get_cloud_provider()}"
@@ -82,10 +87,11 @@ def sanitize_extra_args(extra_args: dict) -> dict:
     """
     Strip S3-specific params that GCS Uniform bucket-level access does not support.
     GCS encrypts by default so ServerSideEncryption is unnecessary.
+    Metadata headers can cause SignatureDoesNotMatch on some GCS S3-interop operations.
     """
     if not is_gcp():
         return extra_args
-    cleaned = {k: v for k, v in extra_args.items() if k not in ("ACL", "ServerSideEncryption")}
+    cleaned = {k: v for k, v in extra_args.items() if k not in ("ACL", "ServerSideEncryption", "Metadata")}
     return cleaned
 
 

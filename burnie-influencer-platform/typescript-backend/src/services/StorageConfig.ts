@@ -95,6 +95,7 @@ export function sanitizeUploadParams<T extends Record<string, any>>(params: T): 
   const cleaned = { ...params };
   delete cleaned.ACL;
   delete cleaned.ServerSideEncryption;
+  delete cleaned.Metadata;
   return cleaned;
 }
 

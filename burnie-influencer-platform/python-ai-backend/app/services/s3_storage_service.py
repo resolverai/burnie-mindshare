@@ -154,27 +154,29 @@ class S3StorageService:
             }
     
     def _upload_to_s3(self, content: bytes, s3_key: str, content_type: str) -> Dict[str, Any]:
-        """Upload content to S3 with private access (no public-read ACL)"""
+        """Upload content to storage (S3 or GCS) with private access"""
         try:
-            logger.info(f"⬆️ Uploading to S3: {s3_key}")
+            from app.services.storage_config import is_gcp
+            logger.info(f"⬆️ Uploading to storage: {s3_key}")
             
-            # Extract filename for Content-Disposition header
-            filename = s3_key.split('/')[-1]  # Get the last part of the S3 key
+            filename = s3_key.split('/')[-1]
             
-            # Upload with NO public ACL - keep bucket and objects private
-            self.s3_client.put_object(
-                Bucket=self.bucket_name,
-                Key=s3_key,
-                Body=content,
-                ContentType=content_type,
-                ContentDisposition=f'attachment; filename="{filename}"',  # Force download
-                CacheControl='max-age=31536000',  # Cache for 1 year
-                Metadata={
+            put_kwargs: Dict[str, Any] = {
+                'Bucket': self.bucket_name,
+                'Key': s3_key,
+                'Body': content,
+                'ContentType': content_type,
+                'ContentDisposition': f'inline; filename="{filename}"',
+                'CacheControl': 'max-age=31536000',
+            }
+            
+            if not is_gcp():
+                put_kwargs['Metadata'] = {
                     'uploaded_by': 'burnie-ai-backend',
                     'upload_timestamp': datetime.utcnow().isoformat()
                 }
-                # Removed ACL='public-read' for security
-            )
+            
+            self.s3_client.put_object(**put_kwargs)
             
             logger.info(f"✅ Successfully uploaded to S3: {s3_key} (private)")
             

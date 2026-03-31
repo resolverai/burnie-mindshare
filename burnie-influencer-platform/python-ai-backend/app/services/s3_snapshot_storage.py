@@ -106,14 +106,15 @@ class S3SnapshotStorage:
     
     def _upload_file_sync(self, local_file_path: str, s3_key: str, content_type: str):
         """Synchronous S3 upload (runs in executor)"""
-        extra_args = {
+        from app.services.storage_config import sanitize_extra_args
+        extra_args = sanitize_extra_args({
             'ContentType': content_type,
             'Metadata': {
                 'uploaded_at': datetime.utcnow().isoformat(),
                 'source': 'cookie_fun_snapshot',
                 'platform': 'cookie.fun'
             }
-        }
+        })
         
         self.s3_client.upload_file(
             local_file_path, 
