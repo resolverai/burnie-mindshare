@@ -104,9 +104,9 @@ app.add_middleware(LargePayloadMiddleware)
 # CORS middleware - get allowed origins from environment
 allowed_origins = os.getenv('ALLOWED_ORIGINS', 
     'http://localhost:3000,http://localhost:3001,http://localhost:3004,'
-    'https://mining.burnie.io,https://yap.burnie.io,'
-    'https://mindshareapi.burnie.io,https://attentionai.burnie.io,'
-    'https://attention.burnie.io'
+    'https://dvyb.ai,https://app.dvyb.ai,https://www.dvyb.ai,'
+    'https://api.dvyb.ai,https://ai.dvyb.ai,'
+    'https://yap.dvyb.ai,https://mining.dvyb.ai'
 ).split(',')
 
 # Add nodeops.network subdomains support
@@ -127,7 +127,7 @@ def is_allowed_origin(origin: str) -> bool:
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https?://.*\.nodeops\.network$|https?://localhost:\d+|https://(mining|yap|mindshareapi|attentionai|attention)\.burnie\.io",
+    allow_origin_regex=r"https?://.*\.nodeops\.network$|https?://localhost:\d+|https://.*\.dvyb\.ai$|https://dvyb\.ai$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

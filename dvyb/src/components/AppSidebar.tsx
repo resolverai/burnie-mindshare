@@ -154,7 +154,7 @@ export const AppSidebar = ({ activeView, activeSubView, onViewChange, isMobileOp
     const fetchPlan = async () => {
       if (!accountId) return;
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/plan`, {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://api.dvyb.ai'}/dvyb/account/plan`, {
           credentials: 'include',
           headers: {
             ...(() => {

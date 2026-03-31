@@ -39,7 +39,7 @@ function BrandKitPageInner() {
     // Ad creation: only show pricing when limits exhausted (not when free trial with quota left)
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "https://mindshareapi.burnie.io"}/dvyb/account/usage`,
+        `${process.env.NEXT_PUBLIC_API_URL || "https://api.dvyb.ai"}/dvyb/account/usage`,
         {
           credentials: "include",
           headers: {

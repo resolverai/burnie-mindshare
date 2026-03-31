@@ -64,7 +64,7 @@ export function OnboardingPricingModal({
       const fetchHasVisitedDiscover = async () => {
         try {
           const res = await fetch(
-            `${process.env.NEXT_PUBLIC_API_URL || "https://mindshareapi.burnie.io"}/dvyb/account/usage`,
+            `${process.env.NEXT_PUBLIC_API_URL || "https://api.dvyb.ai"}/dvyb/account/usage`,
             { credentials: "include", headers: { ...(typeof window !== "undefined" && localStorage.getItem("dvyb_account_id") ? { "X-DVYB-Account-ID": localStorage.getItem("dvyb_account_id")! } : {}) } }
           );
           const data = await res.json();
@@ -83,7 +83,7 @@ export function OnboardingPricingModal({
     try {
       setLoading(true);
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "https://mindshareapi.burnie.io"}/dvyb/account/pricing-plans?includeFree=true&flow=${userFlow}`
+        `${process.env.NEXT_PUBLIC_API_URL || "https://api.dvyb.ai"}/dvyb/account/pricing-plans?includeFree=true&flow=${userFlow}`
       );
       const data = await res.json();
       if (data.success && Array.isArray(data.data)) {

@@ -106,7 +106,7 @@ function ContentLibraryPageInner() {
     const fetchPlanForFlow = async () => {
       try {
         const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL || "https://mindshareapi.burnie.io"}/dvyb/account/plan`,
+          `${process.env.NEXT_PUBLIC_API_URL || "https://api.dvyb.ai"}/dvyb/account/plan`,
           { credentials: "include" }
         );
         const data = await res.json();

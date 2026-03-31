@@ -775,7 +775,7 @@ export const PricingModal = ({
       // Pass flow parameter to filter plans by user's acquisition flow
       const [plansResponse, subscriptionData] = await Promise.all([
         fetch(
-          `${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/pricing-plans?includeFree=true&flow=${userFlow}`
+          `${process.env.NEXT_PUBLIC_API_URL || 'https://api.dvyb.ai'}/dvyb/account/pricing-plans?includeFree=true&flow=${userFlow}`
         ).then(res => res.json()),
         isAuthenticated 
           ? dvybApi.subscription.getCurrentSubscription().catch(() => ({ success: false, data: null }))

@@ -1598,7 +1598,7 @@ export const PostDetailDialog = ({
     if (onShowUpgradeModal) {
       try {
         const usageRes = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/usage`,
+          `${process.env.NEXT_PUBLIC_API_URL || 'https://api.dvyb.ai'}/dvyb/account/usage`,
           { credentials: 'include', headers: { 'X-DVYB-Account-ID': localStorage.getItem('dvyb_account_id') || '' } }
         );
         const usageJson = await usageRes.json();

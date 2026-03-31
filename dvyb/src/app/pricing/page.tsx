@@ -59,7 +59,7 @@ function PricingPageContent() {
     try {
       setLoading(true);
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "https://mindshareapi.burnie.io"}/dvyb/account/pricing-plans?includeFree=true&flow=${userFlow}`
+        `${process.env.NEXT_PUBLIC_API_URL || "https://api.dvyb.ai"}/dvyb/account/pricing-plans?includeFree=true&flow=${userFlow}`
       );
       const data = await res.json();
       if (data.success && Array.isArray(data.data)) {
