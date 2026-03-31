@@ -66,6 +66,8 @@ def create_s3_client(
         kwargs["config"] = Config(
             signature_version="s3v4",
             s3={"addressing_style": "path"},
+            request_checksum_calculation="when_required",
+            response_checksum_validation="when_required",
         )
 
     logger.info(

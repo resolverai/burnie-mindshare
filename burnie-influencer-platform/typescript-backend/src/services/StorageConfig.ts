@@ -65,6 +65,8 @@ export function createS3ClientV3(): S3Client {
   if (endpoint) {
     config.endpoint = endpoint;
     config.forcePathStyle = true;
+    config.requestChecksumCalculation = 'WHEN_REQUIRED';
+    config.responseChecksumValidation = 'WHEN_REQUIRED';
   }
 
   logger.info(`☁️  Storage (v3): provider=${CLOUD_PROVIDER}${endpoint ? `, endpoint=${endpoint}` : ''}`);
