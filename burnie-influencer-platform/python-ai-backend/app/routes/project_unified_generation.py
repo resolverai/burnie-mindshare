@@ -2729,27 +2729,24 @@ async def upload_video_to_s3(local_path: str, s3_key: str, project_id: int) -> O
 async def upload_video_to_s3_direct(local_path: str, s3_key: str) -> Optional[str]:
     """Fallback: Direct S3 upload using boto3"""
     try:
-        import boto3
         from app.config.settings import settings
-        
-        s3_client = boto3.client(
-            's3',
-            aws_access_key_id=settings.aws_access_key_id,
-            aws_secret_access_key=settings.aws_secret_access_key,
-            region_name=settings.aws_region or 'us-east-1'
-        )
-        
+        from app.services.storage_config import create_s3_client, is_gcp
+
+        s3_client = create_s3_client()
         bucket_name = settings.s3_bucket_name
-        
+
+        extra_args: dict = {'ContentType': 'video/mp4'}
+        if not is_gcp():
+            extra_args.update({
+                'CacheControl': 'max-age=31536000',
+                'ServerSideEncryption': 'AES256',
+            })
+
         s3_client.upload_file(
             local_path,
             bucket_name,
             s3_key,
-            ExtraArgs={
-                'ContentType': 'video/mp4',
-                'CacheControl': 'max-age=31536000',
-                'ServerSideEncryption': 'AES256'
-            }
+            ExtraArgs=extra_args,
         )
         
         # Generate presigned URL

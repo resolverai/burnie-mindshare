@@ -69,8 +69,9 @@ def create_s3_client(
         )
 
     logger.info(
-        f"Storage client: provider={_get_cloud_provider()}"
+        f"Storage client: provider={_get_cloud_provider()}, region={region}"
         f"{f', endpoint={endpoint}' if endpoint else ''}"
+        f", key_prefix={access_key[:8]}..." if access_key else ""
     )
     return boto3.client("s3", **kwargs)
 

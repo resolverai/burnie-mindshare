@@ -57,18 +57,21 @@ class IntegratedAvatarFusion:
             file_extension = os.path.splitext(file_path)[1] or '.jpg'
             s3_key = f"avatar-fusion/{file_type}/img-{timestamp}{file_extension}"
             
-            # Upload file to S3
+            from app.services.storage_config import is_gcp
+            extra_args = {'ContentType': 'image/jpeg'}
+            if not is_gcp():
+                extra_args.update({
+                    'ContentDisposition': f'attachment; filename="{os.path.basename(file_path)}"',
+                    'CacheControl': 'max-age=31536000',
+                    'ServerSideEncryption': 'AES256',
+                })
+
             with open(processed_path, 'rb') as file_obj:
                 self.s3_client.upload_fileobj(
                     file_obj,
                     self.bucket_name,
                     s3_key,
-                    ExtraArgs=sanitize_extra_args({
-                        'ContentType': 'image/jpeg',
-                        'ContentDisposition': f'attachment; filename="{os.path.basename(file_path)}"',
-                        'CacheControl': 'max-age=31536000',
-                        'ServerSideEncryption': 'AES256'
-                    })
+                    ExtraArgs=extra_args,
                 )
             
             # Generate pre-signed URL

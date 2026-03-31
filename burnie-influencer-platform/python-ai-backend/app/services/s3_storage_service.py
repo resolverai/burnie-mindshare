@@ -157,26 +157,30 @@ class S3StorageService:
         """Upload content to storage (S3 or GCS) with private access"""
         try:
             from app.services.storage_config import is_gcp
-            logger.info(f"⬆️ Uploading to storage: {s3_key}")
+            logger.info(f"⬆️ Uploading to storage: {s3_key} (provider={'gcp' if is_gcp() else 'aws'})")
             
             filename = s3_key.split('/')[-1]
             
-            put_kwargs: Dict[str, Any] = {
-                'Bucket': self.bucket_name,
-                'Key': s3_key,
-                'Body': content,
-                'ContentType': content_type,
-                'ContentDisposition': f'inline; filename="{filename}"',
-                'CacheControl': 'max-age=31536000',
-            }
-            
-            if not is_gcp():
-                put_kwargs['Metadata'] = {
-                    'uploaded_by': 'burnie-ai-backend',
-                    'upload_timestamp': datetime.utcnow().isoformat()
-                }
-            
-            self.s3_client.put_object(**put_kwargs)
+            if is_gcp():
+                self.s3_client.put_object(
+                    Bucket=self.bucket_name,
+                    Key=s3_key,
+                    Body=content,
+                    ContentType=content_type,
+                )
+            else:
+                self.s3_client.put_object(
+                    Bucket=self.bucket_name,
+                    Key=s3_key,
+                    Body=content,
+                    ContentType=content_type,
+                    ContentDisposition=f'inline; filename="{filename}"',
+                    CacheControl='max-age=31536000',
+                    Metadata={
+                        'uploaded_by': 'burnie-ai-backend',
+                        'upload_timestamp': datetime.utcnow().isoformat()
+                    }
+                )
             
             logger.info(f"✅ Successfully uploaded to S3: {s3_key} (private)")
             
@@ -409,17 +413,21 @@ class S3StorageService:
             # Extract filename for Content-Disposition header
             filename = s3_key.split('/')[-1]  # Get the last part of the S3 key
             
+            from app.services.storage_config import is_gcp
+            extra_args: Dict[str, Any] = {'ContentType': mime_type}
+            if not is_gcp():
+                extra_args.update({
+                    'ContentDisposition': f'attachment; filename="{filename}"',
+                    'CacheControl': 'max-age=31536000',
+                    'ServerSideEncryption': 'AES256',
+                })
+
             with open(file_path, 'rb') as file_obj:
                 self.s3_client.upload_fileobj(
                     file_obj,
                     self.bucket_name,
                     s3_key,
-                    ExtraArgs=sanitize_extra_args({
-                        'ContentType': mime_type,
-                        'ContentDisposition': f'attachment; filename="{filename}"',
-                        'CacheControl': 'max-age=31536000',
-                        'ServerSideEncryption': 'AES256'
-                    })
+                    ExtraArgs=extra_args,
                 )
             
             # Generate pre-signed URL for secure access
@@ -535,20 +543,24 @@ class S3StorageService:
                     'error': f"File not found: {local_path}"
                 }
             
+            from app.services.storage_config import is_gcp
             file_size = os.path.getsize(local_path)
             filename = s3_key.split('/')[-1]
-            
+
+            extra_args: Dict[str, Any] = {'ContentType': mime_type}
+            if not is_gcp():
+                extra_args.update({
+                    'ContentDisposition': f'inline; filename="{filename}"',
+                    'CacheControl': 'max-age=31536000',
+                    'ServerSideEncryption': 'AES256',
+                })
+
             with open(local_path, 'rb') as file_obj:
                 self.s3_client.upload_fileobj(
                     file_obj,
                     self.bucket_name,
                     s3_key,
-                    ExtraArgs=sanitize_extra_args({
-                        'ContentType': mime_type,
-                        'ContentDisposition': f'inline; filename="{filename}"',
-                        'CacheControl': 'max-age=31536000',
-                        'ServerSideEncryption': 'AES256'
-                    })
+                    ExtraArgs=extra_args,
                 )
             
             logger.info(f"✅ Uploaded successfully: {s3_key} ({file_size} bytes)")
